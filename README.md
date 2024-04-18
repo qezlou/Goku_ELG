@@ -1,1 +1,1 @@
-# HETDEX-pstdoc-proposal
+# HETDEX-Comology
