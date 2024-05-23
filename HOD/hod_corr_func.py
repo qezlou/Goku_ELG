@@ -27,7 +27,8 @@ size = comm.Get_size()
 
 
 cosmo = cosmology.Planck15
-from nbodykit.hod import Zheng07Model
+#from nbodykit.hod import Zheng07Model
+from nbodykit.hod import HmqModel
 
 setup_logging()
 
@@ -49,7 +50,8 @@ def load_hlo_cat():
 
 def populate_halos(seed=42):
     halos = load_hlo_cat()
-    hod = halos.populate(Zheng07Model, alpha=0.5, sigma_logM=0.40, seed=seed)
+    #hod = halos.populate(Zheng07Model, alpha=0.5, sigma_logM=0.40, seed=seed)
+    hod = halos.populate(HmqModel)
 
     cen_idx = hod['gal_type'] == 0
     sat_idx = hod['gal_type'] == 1
@@ -91,7 +93,7 @@ def get_corr(seed=42):
 
 
     if rank == 0:
-        with h5py.File('halo_corr.hdf5', 'w') as f:
+        with h5py.File(f'halo_corr_hmq_{seed}.hdf5', 'w') as f:
             f['r'] = corr_gal_real.corr['r']
             f['corr/real'] = corr_gal_real.corr['corr']
             f['corr/zspace'] = corr_gal_zspace.corr['corr']
@@ -99,4 +101,6 @@ def get_corr(seed=42):
             f['corr/sat_zspace'] = corr_sat_zspace.corr['corr']
     comm.Barrier()
 
-get_corr()
+all_seeds = np.random.randint(1, 1_000_000, 100)
+for seed in all_seeds:
+    get_corr(seed)
