@@ -1,0 +1,14 @@
+#!/bin/bash
+#SBATCH -A AST24005
+#SBATCH -J partition-pig
+#SBATCH -p development
+#SBATCH -N 4
+#SBATCH --ntasks-per-node 2
+#SBATCH --job-name=tid_vec_sm_mpi#
+#SBATCH --time=01:00:00
+#SBATCH --output=%x-%j.out
+#SBATCH --mail-user=qezlou@austin.utexas.edu
+hostname; pwd; date
+
+
+ibrun python compute_tidal_vectorized.py

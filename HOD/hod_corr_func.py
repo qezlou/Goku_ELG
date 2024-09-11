@@ -28,11 +28,12 @@ size = comm.Get_size()
 
 cosmo = cosmology.Planck15
 #from nbodykit.hod import Zheng07Model
-from nbodykit.hod import HmqModel
+#from nbodykit.hod import HmqModel
+from nbodykit.hod import Hadzhiyska23Model
 
 setup_logging()
 
-def load_hlo_cat():
+def load_hlo_cat(extra_attrs_file=None):
     pig_file = '/work/06536/qezlou/ls6/Goku/output/PIG_016'
     cat = BigFileCatalog(pig_file, dataset='FOFGroups')
     redshift = 1/cat.attrs['Time'] - 1
@@ -46,12 +47,17 @@ def load_hlo_cat():
                         velocity='MassCenterVelocity')
     halos.attrs['BoxSize'] /= 1000
     halos['Position'] /= 1000
+    if extra_attrs_file is not None:
+        with h5py.File(extra_attrs_file, 'r') as f:
+            extra_attrs = f.attrs
+        for k in list(extra_attrs.keys()):
+            halos[k] =  f[k]
     return halos
 
-def populate_halos(seed=42):
-    halos = load_hlo_cat()
+def populate_halos(model, extra_attrs_file=None,  seed=42, **kwargs):
+    halos = load_hlo_cat(extra_attrs_file)
     #hod = halos.populate(Zheng07Model, alpha=0.5, sigma_logM=0.40, seed=seed)
-    hod = halos.populate(HmqModel)
+    hod = halos.populate(model)
 
     cen_idx = hod['gal_type'] == 0
     sat_idx = hod['gal_type'] == 1
@@ -64,9 +70,9 @@ def populate_halos(seed=42):
 
     return hod, cens, sats
 
-def get_corr(seed=42):
+def get_corr(model, extra_attrs_file=None, seed=42, **kwrags):
     """Plot the power spectrum of the galaxies, centrals, and satellites."""
-    hod, _, _ = populate_halos(seed=seed)
+    hod, _, _ = populate_halos(model, extra_attrs_file, seed)
     r_edges = np.arange(0.1, 1, 0.2)
     r_edges = np.append(r_edges, np.arange(1,30,1))
     r_edges = np.append(r_edges, np.arange(30, 200, 5))
@@ -102,5 +108,10 @@ def get_corr(seed=42):
     comm.Barrier()
 
 all_seeds = np.random.randint(1, 1_000_000, 100)
+
 for seed in all_seeds:
-    get_corr(seed)
+    get_corr(seed=seed
+             model=Hadzhiyska23Model, 
+             extra_attrs_file=None
+             )
+

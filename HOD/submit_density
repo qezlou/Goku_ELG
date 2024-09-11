@@ -1,0 +1,14 @@
+#!/bin/bash
+#SBATCH -J partition-pig
+#SBATCH -p development
+#SBATCH -N 1
+#SBATCH --ntasks-per-node 56
+#SBATCH --job-name=dens#
+#SBATCH --time=02:00:00
+#SBATCH --output=%x-%j.out
+
+hostname; pwd; date
+
+
+
+ibrun python get_density.py --snaps '/scratch/06536/qezlou/Goku/cosmo_11p_Box1000_Part3000_0088/output/PART_016' --savedir='/scratch/06536/qezlou/Goku/cosmo_11p_Box1000_Part3000_0088/output/density' --savefile 'full_density.hdf5' --Nmesh 1000
