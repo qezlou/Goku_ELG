@@ -1,4 +1,5 @@
 import numpy as np
+import os.path as op
 import matplotlib.pyplot as plt
 import emcee
 import corner
@@ -16,6 +17,7 @@ if __name__ == '__main__':
     argparser.add_argument('--optimize', type=int,  default=1, help='Optimize the parameters')
     argparser.add_argument('--r_range', type=float, nargs=2, default=[60, 200], help='Range of r to fit')
     argparser.add_argument('--stack', type=int,  default=0, help='Stack the mocks')
+    argparser.add_argument('--data_dir', type=str,  default='/home/qezlou/HD2/HETDEX/cosmo/data/lognormal-mocks/')
     args = argparser.parse_args()
     
     def get_linear_corr(params, fixed_params):
@@ -79,7 +81,7 @@ if __name__ == '__main__':
         sampler.run_mcmc(pos, n_iter, progress=True)
         return sampler
 
-    fnames = glob(f'corr_{args.stype}_*.hdf5')
+    fnames = glob(op.join(args.data_dir,f'corr_{args.stype}_*.hdf5'))
 
     all_corr = {'oii': {'corr':[],
                         'r': [],
@@ -123,7 +125,7 @@ if __name__ == '__main__':
                 sampler = run_mcmc(nawalkers, n_iter, ndim, data, sigma, fixed_params, param_range, pool)
             samples = sampler.get_chain(discard=100, thin=15, flat=True)
 
-            with h5py.File('samples.hdf5', 'w') as f:
+            with h5py.File(op.join(args.data_dir,'samples.hdf5'), 'w') as f:
                 f.create_dataset('samples', data=samples)
                 f.create_dataset('lnprob', data=sampler.get_log_prob(discard=100, thin=15, flat=True))
                 f.create_dataset('acceptance', data=sampler.acceptance_fraction)
@@ -151,7 +153,7 @@ if __name__ == '__main__':
                                                         data, sigma), x0=[0.65, 1.0], bounds=param_range,
                                                         options={'disp': False}).x
                 all_fits[i] = np.array(res)
-            with h5py.File(f'fits_{args.stype}_r_{args.r_range[0]}_{args.r_range[1]}.hdf5', 'w') as f:
+            with h5py.File(op.join(args.data_dir,f'fits_{args.stype}_r_{args.r_range[0]}_{args.r_range[1]}.hdf5'), 'w') as f:
                 f.create_dataset('fits', data=all_fits)
                 f.create_dataset('r', data=fixed_params['r'])
                 f.create_dataset('z', data=fixed_params['z'])
