@@ -59,7 +59,8 @@ class Corr():
         sim_tags = [t for t in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, t))]
         sim_dirs = [os.path.join(base_dir, t) for t in sim_tags]
         pigs = {'sim_tags':sim_tags, 'pig_dirs':[], 'params':[]}
-        self.logger.info(f'base_dir = {base_dir} | number of sims = {len(sim_dirs)}, z = {z}')
+        if rank == 0:
+            self.logger.info(f'base_dir = {base_dir} | number of sims = {len(sim_dirs)}, z = {z}')
         for sd in sim_dirs:
             self.logger.debug(f'Openning sim = {sd}')
             snaps = np.loadtxt(os.path.join(sd, 'output', 'Snapshots.txt'))
@@ -145,8 +146,11 @@ class Corr():
         # in z-space
         los = [0, 0, 1]
         halos = self.load_halo_cat(pig_dir)
+            
         all_corrs = np.zeros((seeds.size, len(r_edges)-1))
         for i, sd in enumerate(seeds):
+            if (i in [25, 50, 75, 100]) and rank==0:
+                self.logger.info(f'{np.round(100*i/len(seeds))} % of seeds done!')
             if i==0:
                 hod = halos.populate(hod_model, seed=sd, **model_params)
             else:
@@ -174,20 +178,24 @@ class Corr():
         """
         hod_model = Zheng07Model
         pigs = self.get_pig_dirs(base_dir, z=z)
+        #r_edges = np.logspace(0, np.log10(80), 80)
         r_edges = np.logspace(0, np.log10(200), 100)
         for i, pig_dir in enumerate(pigs['pig_dirs']):
             if rank==0:
                 self.logger.info(f"pig_dir = {pig_dir} | progress = {np.round(i/len(pigs['pig_dirs']), 2)*100} %")
             try:
                 corr = self.get_corr(pig_dir, r_edges, seeds=seeds, hod_model=hod_model)
-            except ValueError:
-                print(f'Issues with {pig_dir}')
+            except Exception as e:
+                if rank ==0:
+                    self.logger.info(f'Skipping, {pigs["sim_tags"][i]} because {e}')
                 continue
             
             save_file=f'Zheng07_seeds_{pigs["sim_tags"][i]}.hdf5'
+            save_file = os.path.join(savedir, save_file)
             comm.Barrier()
             if rank ==0:
-                with h5py.File(os.path.join(savedir, save_file), 'w') as f:
+                self.logger.info(f'save_file = {save_file}')
+                with h5py.File(save_file, 'w') as f:
                     f['r'] = ( r_edges[:-1] + r_edges[1:] ) / 2
                     f['corr'] = corr
                     f['seeds'] = seeds

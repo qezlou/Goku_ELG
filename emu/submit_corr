@@ -2,14 +2,14 @@
 #SBATCH -J corr_pigs
 #SBATCH -p skx
 #SBATCH -N 1
-#SBATCH --ntasks-per-node 14
-#SBATCH --job-name=fixed-hod-all-cosmo
+#SBATCH --ntasks-per-node 28
+#SBATCH --job-name=HF-fixed-hod
 #SBATCH --time=20:00:00
 #SBATCH --output=%x-%j.out
 
 hostname; pwd; date
 
-BASEDIR='/scratch/06536/qezlou/Goku/FOF/L1'
+BASEDIR='/scratch/06536/qezlou/Goku/FOF/HF'
 
 
 ibrun python get_corr.py --base_dir $BASEDIR --z 2.5 --logging_level INFO
