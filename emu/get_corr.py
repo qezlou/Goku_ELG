@@ -7,6 +7,7 @@ import argparse
 import json
 from glob import glob
 import numpy as np
+import re
 
 from nbodykit import CurrentMPIComm
 from nbodykit.hod import Zheng07Model
@@ -20,7 +21,7 @@ warnings.filterwarnings("ignore")
 
 
 class Corr():
-    def __init__(self, logging_level='INFO', ranks_for_nbkit=2):
+    def __init__(self, logging_level='INFO', ranks_for_nbkit=0):
         self.comm = CurrentMPIComm.get()
         self.rank = self.comm.Get_rank()
         self.size = self.comm.Get_size()
@@ -29,11 +30,18 @@ class Corr():
         # We just have many simulations, so sims should be distributed accross MPI
         # processes
         ranks_for_nbkit = int(ranks_for_nbkit)
-        self.color = self.rank//ranks_for_nbkit
-        self.nbkit_comm_counts = self.size//ranks_for_nbkit
-        self.nbkit_comm = self.comm.Split(self.color, self.rank)
-        self.nbkit_rank = self.nbkit_comm.Get_rank()
-        self.nbkit_size = self.nbkit_comm.Get_size()
+        if ranks_for_nbkit != 0:
+            self.color = self.rank//ranks_for_nbkit
+            self.nbkit_comm_counts = self.size//ranks_for_nbkit
+            self.nbkit_comm = self.comm.Split(self.color, self.rank)
+            self.nbkit_rank = self.nbkit_comm.Get_rank()
+            self.nbkit_size = self.nbkit_comm.Get_size()
+        else:
+            self.color = 0
+            self.nbkit_comm_counts = 1
+            self.nbkit_comm = self.comm
+            self.nbkit_rank = self.rank
+            self.nbkit_size = self.size
         
         self.logger = self.configure_logging(logging_level)
 
@@ -43,7 +51,7 @@ class Corr():
         logger.setLevel(logging_level)
         try:
             from nbodykit import setup_logging
-            setup_logging('warning')
+            setup_logging('debug')
         except ImportError:
             console_handler = logging.StreamHandler()
             formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
@@ -87,7 +95,24 @@ class Corr():
             with open(os.path.join(sd, 'SimulationICs.json'), 'r') as f:
                 pigs['params'].append(json.load(f))
         return pigs
-
+    
+    def find_pair_pigs(self, base_dirs):
+        """
+        Get the pair of pigs existing in list of base_dirs, i.e. between L1, L2, HF
+        Parameters:
+        -------
+        base_dirs, list
+            List of paths to the FOF directories, i.e.e path to the parent 
+            directory holding L1, L2 and HF FOF tables.
+        """
+        nums= []
+        for b in base_dirs:
+            pigs = self.get_pig_dirs(b)
+            pattern = r'_(\d{4})'
+            nums.append([re.search(pattern, path).group(1) for path in pigs['sim_tags']])
+        pairs = list(set(nums[0]).intersection(*nums[1:]))
+        return pairs
+            
     def load_halo_cat(self, pig_dir):
         """
         Load FOF tables as Nbodykit Halocatalog. It will be used to populate them with HOD models.
@@ -174,8 +199,52 @@ class Corr():
             self.nbkit_comm.Barrier()
             all_corrs[i] = corr_gal_zspace.corr['corr'][:]
         return all_corrs
+    
 
-    def fix_hod_all_pigs(self, base_dir, seeds=[42], z=2.5, savedir = '/work2/06536/qezlou/Goku/corr_funcs_test'):
+    def get_power(self, pig_dir, mesh_res=0.25, seeds=[42], mode='1d', hod_model=Zheng07Model, model_params={}):
+        """Get the powerspectrum for HOD populated galaxies in a FOF halo catalog.
+        Parameters
+        ----------
+        pig_dir: str, 
+            The path to the PIG directory
+        r_egses: array,
+            binning along r
+        seeds : list/array
+            seeds for the HOD model, if len(seeds) > 1, generate different realizations
+            of HOD populated galaxies
+        corr_mode : str
+            mode of the powerspectrum, either '1d', '2d', 'projected', 'angular'
+        hod_model: A class from `Nbodykit.hod`
+            The models defined in `Nbodykit.hod`
+        Returns:
+        ------------
+        The powerspectrum for different seeds
+        """
+        # in z-space
+        los = [0, 0, 1]
+        halos = self.load_halo_cat(pig_dir)
+        Nmesh = int(halos.attrs['BoxSize'][0] / mesh_res)
+            
+        all_pks = []
+        for i, sd in enumerate(seeds):
+            if (i in [10, 25, 50, 75]) and self.nbkit_rank==0:
+                self.logger.debug(f'progress in seeds pool {i} %')
+            if i==0:
+                hod = halos.populate(hod_model, seed=sd, **model_params)
+            else:
+                hod.repopulate(seed=sd)
+            self.nbkit_comm.Barrier()
+            # Apply RSD to the galaxies
+            hod['RSDPosition'] = hod['Position'] + hod['VelocityOffset'] * los
+            mesh = hod.to_mesh(position='RSDPosition', Nmesh=1000, compensated=True)
+            pk_gal_zspace = FFTPower(mesh, mode=mode).power
+            self.nbkit_comm.Barrier()
+            all_pks.append(pk_gal_zspace['power'].real)
+        all_pks = np.array(all_pks)
+        k = pk_gal_zspace['k'][:]
+        return all_pks, k
+
+    def fix_hod_all_pigs(self, base_dir, hod_model, stat='corr', mode='1d', seeds=[42], z=2.5, savedir = '/work2/06536/qezlou/Goku/corr_funcs_smaller_bins/'):
         """
         Iterate over all FOF Catalogs at redshift z in `base_dir` directory keeping
         HOD paramters the same. We get manny realizations of the HOD populated catalogs.
@@ -188,7 +257,7 @@ class Corr():
         savedir:
             The directory to save the correlation functions at
         """
-        hod_model = Zheng07Model
+        
         pigs = self.get_pig_dirs(base_dir, z=z)
         keep = self._remove_computed_snaps(pigs, savedir)
 
@@ -198,8 +267,7 @@ class Corr():
         else:
             r_edges = np.logspace(0, np.log10(200), 100)
         if self.rank ==0:
-            self.logger.info(f'Total existing sims {len(pigs["sim_tags"])}, but only {keep.size} of them are not yet computed')
-            self.logger.info(f'r_edges = {r_edges}')
+            self.logger.info(f'Total existing sims {len(pigs["sim_tags"])}, but only {keep.size} of them are not yet computed, stat = {stat}, mode = {mode}')
         # Distribute the jobs accross the available tasks, i.e. self.nbkit_comm_counts
         ind_pig_rank = mpi_helper.distribute_array_split_comm(self.nbkit_comm_counts, self.color, keep)
         self.logger.info(f'rank = {self.rank} | color = {self.color} | load = {ind_pig_rank.size}')
@@ -207,19 +275,35 @@ class Corr():
         for i in ind_pig_rank:
             pig_dir = pigs['pig_dirs'][i]
             try:
-                corr = self.get_corr(pig_dir, r_edges, seeds=seeds, hod_model=hod_model)
+                if hod_model is not None:
+                    if stat == 'corr':
+                        result = self.get_corr(pig_dir, r_edges, seeds=seeds, hod_model=hod_model)
+                        save_file=f'Zheng07_seeds_{pigs["sim_tags"][i]}.hdf5'
+                    elif stat == 'power':
+                        result, k = corr.get_power(pig_dir, mode=mode, seeds=seeds, hod_model=hod_model)
+                        save_file=f'Zheng07_power_seeds_{pigs["sim_tags"][i]}.hdf5'
+                else:
+                    if stat == 'corr':
+                        result = self.get_corr_fof(pig_dir, r_edges)
+                        save_file=f'fof_{pigs["sim_tags"][i]}.hdf5'
+                    elif stat == 'power':
+                        raise NotImplementedError('Power for FOF halos (no hod applied) is not implemented')
+
             except Exception as e:
                 if self.rank ==0:
                     self.logger.info(f'Skipping, {pigs["sim_tags"][i]} because {e}')
                 continue
+            self.nbkit_comm.Barrier()
             
-            save_file=f'Zheng07_seeds_{pigs["sim_tags"][i]}.hdf5'
             save_file = os.path.join(savedir, save_file)
             if self.nbkit_rank ==0:
                 self.logger.info(f'save_file = {save_file}')
                 with h5py.File(save_file, 'w') as f:
-                    f['r'] = ( r_edges[:-1] + r_edges[1:] ) / 2
-                    f['corr'] = corr
+                    if stat == 'corr':
+                        f['r'] = ( r_edges[:-1] + r_edges[1:] ) / 2
+                    elif stat == 'power':
+                        f['k'] = k
+                    f[stat] = result
                     f['seeds'] = seeds
         self.comm.Barrier()
         
@@ -248,16 +332,49 @@ class Corr():
         self.comm.Barrier()
         self.comm.Bcast(keep, root=0)
         return keep
-        
+
+
+    def get_corr_fof(self, pig_dir, r_edges, z=2.5,  corr_mode='1d'):
+        """Get the correlation function for a FOF halo catalog, with no HOD.
+        Parameters
+        ----------
+        pig_dir: str, 
+            The path to the PIG directory
+        r_egses: array,
+            binning along r
+        seeds : list/array
+            seeds for the HOD model, if len(seeds) > 1, generate different realizations
+            of HOD populated galaxies
+        corr_mode : str
+            mode of the correlation function, either '1d', '2d', 'projected', 'angular'
+        Returns:
+        ------------
+        The correlation function for different seeds
+        """
+        # in z-space
+        los = [0, 0, 1]
+        halos = self.load_halo_cat(pig_dir)
+
+        # Apply RSD to the galaxies
+        rsd_factor = (1+z) / (100 * cosmo.efunc(z))
+        halos['RSDPosition'] = halos['Position'] + halos['Velocity'] * los * rsd_factor
+        corr_gal_zspace = SimulationBox2PCF(data1=halos, mode=corr_mode, edges=r_edges,  position='RSDPosition')
+        corr_gal_zspace.run()
+        self.nbkit_comm.Barrier()
+        corr = corr_gal_zspace.corr['corr'][:]
+        return corr
         
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Get the correlation function of the galaxies in the PIGs')
     parser.add_argument('--base_dir', type=str, help='Base directory of the simulations')
     parser.add_argument('--z', type=float, help='Redshift of the snapshot')
-    parser.add_argument('--savedir', type=str, help='Directory to save the correlation functions')
+    parser.add_argument('--savedir', type=str, required=True, help='Directory to save the correlation functions')
     parser.add_argument('--logging_level', required=False, type=str, default=logging.INFO, help='Logging level')
     parser.add_argument('--ranks_for_nbkit', required=False, type=str, default=2, help='number of rank for each nbodykit communicator')
+    parser.add_argument('--stat', required=False, type=str, default='corr', help='"power" or "corr"')
+    parser.add_argument('--hod', required=False, type=str, default='Zheng07Model', help='"power" or "corr"')
+
     args = parser.parse_args()
     if args.logging_level == 'INFO':
         args.logging_level = 20
@@ -265,8 +382,12 @@ if __name__ == '__main__':
         args.logging_level = 10
     corr = Corr(args.logging_level, ranks_for_nbkit=args.ranks_for_nbkit)
 
+    if args.hod_model == 'Zheng07Model':
+        hod_model = Zheng07Model
+    elif  args.hod_model == 'None':
+        hod_model = None
     # Get the Corrs for fixed HOD parameters of Zheng+07, but difference seeds
     # for all avaialble cosmologies
     seeds = np.unique(np.random.randint(0, 1000_000, size=100))
     with CurrentMPIComm.enter(corr.nbkit_comm):
-        corr.fix_hod_all_pigs(args.base_dir, seeds=seeds, z=args.z)
+        corr.fix_hod_all_pigs(args.base_dir, hod_model=hod_model, seeds=seeds, z=args.z, stat=args.stat, savedir=args.savedir)
