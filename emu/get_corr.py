@@ -243,7 +243,37 @@ class Corr():
         all_pks = np.array(all_pks)
         k = pk_gal_zspace['k'][:]
         return all_pks, k
+    
+    def get_corr_fof(self, pig_dir, r_edges, z=2.5,  corr_mode='1d'):
+        """Get the correlation function for a FOF halo catalog, with no HOD.
+        Parameters
+        ----------
+        pig_dir: str, 
+            The path to the PIG directory
+        r_egses: array,
+            binning along r
+        seeds : list/array
+            seeds for the HOD model, if len(seeds) > 1, generate different realizations
+            of HOD populated galaxies
+        corr_mode : str
+            mode of the correlation function, either '1d', '2d', 'projected', 'angular'
+        Returns:
+        ------------
+        The correlation function for different seeds
+        """
+        # in z-space
+        los = [0, 0, 1]
+        halos = self.load_halo_cat(pig_dir)
 
+        # Apply RSD to the galaxies
+        rsd_factor = (1+z) / (100 * cosmo.efunc(z))
+        halos['RSDPosition'] = halos['Position'] + halos['Velocity'] * los * rsd_factor
+        corr_gal_zspace = SimulationBox2PCF(data1=halos, mode=corr_mode, edges=r_edges,  position='RSDPosition')
+        corr_gal_zspace.run()
+        self.nbkit_comm.Barrier()
+        corr = corr_gal_zspace.corr['corr'][:]
+        return corr
+    
     def fix_hod_all_pigs(self, base_dir, hod_model, stat='corr', mode='1d', seeds=[42], z=2.5, savedir = '/work2/06536/qezlou/Goku/corr_funcs_smaller_bins/'):
         """
         Iterate over all FOF Catalogs at redshift z in `base_dir` directory keeping
@@ -331,38 +361,7 @@ class Corr():
             keep = np.empty(keep_size, dtype='i')
         self.comm.Barrier()
         self.comm.Bcast(keep, root=0)
-        return keep
-
-
-    def get_corr_fof(self, pig_dir, r_edges, z=2.5,  corr_mode='1d'):
-        """Get the correlation function for a FOF halo catalog, with no HOD.
-        Parameters
-        ----------
-        pig_dir: str, 
-            The path to the PIG directory
-        r_egses: array,
-            binning along r
-        seeds : list/array
-            seeds for the HOD model, if len(seeds) > 1, generate different realizations
-            of HOD populated galaxies
-        corr_mode : str
-            mode of the correlation function, either '1d', '2d', 'projected', 'angular'
-        Returns:
-        ------------
-        The correlation function for different seeds
-        """
-        # in z-space
-        los = [0, 0, 1]
-        halos = self.load_halo_cat(pig_dir)
-
-        # Apply RSD to the galaxies
-        rsd_factor = (1+z) / (100 * cosmo.efunc(z))
-        halos['RSDPosition'] = halos['Position'] + halos['Velocity'] * los * rsd_factor
-        corr_gal_zspace = SimulationBox2PCF(data1=halos, mode=corr_mode, edges=r_edges,  position='RSDPosition')
-        corr_gal_zspace.run()
-        self.nbkit_comm.Barrier()
-        corr = corr_gal_zspace.corr['corr'][:]
-        return corr
+        return keep 
         
 if __name__ == '__main__':
 
