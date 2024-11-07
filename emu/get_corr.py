@@ -3,6 +3,7 @@ A sript to be run opn bash to get hte galaxy correlation function of Goku sims
 It uses the HOD models which are either standard or I have implemented in `nbodykit`.
 """
 import os
+import os.path as op
 import argparse
 import json
 from glob import glob
@@ -83,7 +84,8 @@ class Corr():
             print(f'number of files {len(fnames)}')
             for fn in fnames:
                 data_dict = load_json_as_dict(fn)
-                data_dict['label'] = re.search(r'cosmo_10p_Box\d+_Part\d+_\d{4}', data_dict['outdir']).group(0)
+                num = data_dict['outdir'].split('_')[-1].split('.')[0]
+                data_dict['label'] = f'cosmo_10p_Box{data_dict["box"]}_Part{data_dict["npart"]}_{num}'
                 all_ICs.append(data_dict)
             with open('all_ICs.json', 'w') as json_file:
                 json.dump(all_ICs, json_file, indent=4)

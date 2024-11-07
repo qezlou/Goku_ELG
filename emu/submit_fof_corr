@@ -1,15 +1,14 @@
 #!/bin/bash
 #SBATCH -p skx
-#SBATCH -N 8
-#SBATCH --ntasks-per-node 48
-#SBATCH --job-name=fofHF74
-#SBATCH --time=24:00:00
+#SBATCH -N 1
+#SBATCH --ntasks-per-node 24
+#SBATCH --job-name=fp-0.4
+#SBATCH --time=6:00:00
 #SBATCH --output=%x-%j.out
 
 hostname; pwd; date
 
-BASEDIR='/scratch/06536/qezlou/Goku/FOF/L1'
-
+BASEDIR='/scratch/06536/qezlou/Goku/FOF/L2'
+SAVEDIR='/scratch/06536/qezlou/Goku/processed_data/false_positive/'
 
 ibrun python test_corr_fof.py
-
