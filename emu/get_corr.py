@@ -83,7 +83,6 @@ class Corr():
         if self.rank == 0:
             self.logger.info(f'base_dir = {base_dir} | number of sims = {len(sim_dirs)}, z = {z}')
         for sd in sim_dirs:
-            self.logger.debug(f'Openning sim = {sd}')
             snaps = np.loadtxt(os.path.join(sd, 'output', 'Snapshots.txt'))
             snap_id = snaps[:,0].astype(int)
             snap_z  = 1/snaps[:,1] - 1
@@ -162,7 +161,7 @@ class Corr():
         return hod
 
 
-    def get_corr(self, pig_dir, r_edges, seeds=[42], corr_mode='1d', hod_model=Zheng07Model, model_params={}):
+    def get_corr(self, pig_dir, r_edges, seeds=[42], mode='1d', pimax=5, fft_model=False, mesh_res=0.25, hod_model=Zheng07Model, model_params={}):
         """Get the correlation function for HOD populated galaxies in a FOF halo catalog.
         Parameters
         ----------
@@ -173,7 +172,7 @@ class Corr():
         seeds : list/array
             seeds for the HOD model, if len(seeds) > 1, generate different realizations
             of HOD populated galaxies
-        corr_mode : str
+        mode : str
             mode of the correlation function, either '1d', '2d', 'projected', 'angular'
         hod_model: A class from `Nbodykit.hod`
             The models defined in `Nbodykit.hod`
@@ -184,9 +183,20 @@ class Corr():
         # in z-space
         los = [0, 0, 1]
         halos = self.load_halo_cat(pig_dir)
+        if mode=='1d':
+            if fft_model:
+                #if self.rank==0:
+                #    self.logger.warning(f'HARD codded (rmin, rmax, dr) for FftCorr')
+                (rmin, rmax, dr) = 0.1, 80, 1
+                all_corrs = np.zeros((seeds.size, len(np.arange(rmin, rmax, dr))-1))
+            else:
+                all_corrs = np.zeros((seeds.size, len(r_edges)-1))
             
-        all_corrs = np.zeros((seeds.size, len(r_edges)-1))
+        elif mode=='projected':
+            all_corrs = np.zeros((seeds.size, len(r_edges)-1, pimax))
         for i, sd in enumerate(seeds):
+            if self.rank ==0:
+                self.logger.info(f'seed, i = {i}')
             if i==0:
                 hod = halos.populate(hod_model, seed=sd, **model_params)
             else:
@@ -194,7 +204,14 @@ class Corr():
             self.nbkit_comm.Barrier()
             # Apply RSD to the galaxies
             hod['RSDPosition'] = hod['Position'] + hod['VelocityOffset'] * los
-            corr_gal_zspace = SimulationBox2PCF(data1=hod, mode=corr_mode, edges=r_edges,  position='RSDPosition')
+            if fft_model:
+                if mode=='projected':
+                    raise NotImplementedError(f"No support for corr with fftmodel in '{mode}' mode ")
+                Nmesh = int(hod.attrs['BoxSize'][0] / mesh_res)
+                corr_gal_zspace = FFTCorr(hod, mode=mode, Nmesh=Nmesh,los=los, rmin=rmin, rmax=rmax, dr=dr)
+                print(f"cor shape = {corr_gal_zspace.corr['corr'][:].shape}")
+            else:
+                corr_gal_zspace = SimulationBox2PCF(data1=hod, mode=mode, edges=r_edges, pimax=pimax, position='RSDPosition')
             corr_gal_zspace.run()
             self.nbkit_comm.Barrier()
             all_corrs[i] = corr_gal_zspace.corr['corr'][:]
@@ -212,7 +229,7 @@ class Corr():
         seeds : list/array
             seeds for the HOD model, if len(seeds) > 1, generate different realizations
             of HOD populated galaxies
-        corr_mode : str
+        mode : str
             mode of the powerspectrum, either '1d', '2d', 'projected', 'angular'
         hod_model: A class from `Nbodykit.hod`
             The models defined in `Nbodykit.hod`
@@ -244,7 +261,7 @@ class Corr():
         k = pk_gal_zspace['k'][:]
         return all_pks, k
     
-    def get_corr_fof(self, pig_dir, r_edges, z=2.5,  corr_mode='1d'):
+    def get_corr_fof(self, pig_dir, r_edges, z=2.5,  mode='1d', pimax=40, false_positive_ratio = 0):
         """Get the correlation function for a FOF halo catalog, with no HOD.
         Parameters
         ----------
@@ -255,7 +272,7 @@ class Corr():
         seeds : list/array
             seeds for the HOD model, if len(seeds) > 1, generate different realizations
             of HOD populated galaxies
-        corr_mode : str
+        mode : str
             mode of the correlation function, either '1d', '2d', 'projected', 'angular'
         Returns:
         ------------
@@ -268,13 +285,19 @@ class Corr():
         # Apply RSD to the galaxies
         rsd_factor = (1+z) / (100 * cosmo.efunc(z))
         halos['RSDPosition'] = halos['Position'] + halos['Velocity'] * los * rsd_factor
-        corr_gal_zspace = SimulationBox2PCF(data1=halos, mode=corr_mode, edges=r_edges,  position='RSDPosition')
+        # Add uniformly distributed random false positives if asked for
+        if false_positive_ratio >= 0:
+            self.logger.info(f'False positive added with ratio of  {false_positive_ratio}')
+            pos = np.random.uniform(low=0.0, high=halos.attrs['BoxSize'], size=(int(halos.csize*false_positive_ratio), 3))
+            pos = np.append(halos['RSDPosition'].compute(), pos, axis=0)
+            halos = ArrayCatalog({'RSDPosition':pos}, BoxSize=[250.0])
+        corr_gal_zspace = SimulationBox2PCF(data1=halos, mode=mode, edges=r_edges, pimax=pimax,  position='RSDPosition')
         corr_gal_zspace.run()
         self.nbkit_comm.Barrier()
         corr = corr_gal_zspace.corr['corr'][:]
-        return corr
+        return corr_gal_zspace
     
-    def fix_hod_all_pigs(self, base_dir, hod_model, stat='corr', mode='1d', seeds=[42], z=2.5, savedir = '/work2/06536/qezlou/Goku/corr_funcs_smaller_bins/'):
+    def fix_hod_all_pigs(self, base_dir, hod_model, stat='corr', mode='1d', pimax=5, seeds=[42], z=2.5, fft_model=False, savedir = '/work2/06536/qezlou/Goku/corr_funcs_smaller_bins/'):
         """
         Iterate over all FOF Catalogs at redshift z in `base_dir` directory keeping
         HOD paramters the same. We get manny realizations of the HOD populated catalogs.
@@ -291,23 +314,27 @@ class Corr():
         pigs = self.get_pig_dirs(base_dir, z=z)
         keep = self._remove_computed_snaps(pigs, savedir)
 
+        r_edges = np.logspace(-1.5, np.log10(2), 8)
+        r_edges = np.append(r_edges, np.logspace(np.log10(2), np.log10(30), 10)[1:])
         # Decide the binning based on the boxsize
         if 'Box250' in pigs['sim_tags'][0]:
-            r_edges = np.logspace(0, np.log10(80), 80)
+            r_edges = np.append(r_edges, np.logspace(np.log10(30), np.log10(80), 50)[1:])
         else:
-            r_edges = np.logspace(0, np.log10(200), 100)
+            r_edges = np.append(r_edges, np.logspace(np.log10(30), np.log10(200), 100)[1:])
+        
         if self.rank ==0:
             self.logger.info(f'Total existing sims {len(pigs["sim_tags"])}, but only {keep.size} of them are not yet computed, stat = {stat}, mode = {mode}')
+            self.logger.info(f'r_edges = {r_edges}')
         # Distribute the jobs accross the available tasks, i.e. self.nbkit_comm_counts
         ind_pig_rank = mpi_helper.distribute_array_split_comm(self.nbkit_comm_counts, self.color, keep)
         self.logger.info(f'rank = {self.rank} | color = {self.color} | load = {ind_pig_rank.size}')
-        
         for i in ind_pig_rank:
+            #self.logger.debug(f'Progress {int}')
             pig_dir = pigs['pig_dirs'][i]
             try:
                 if hod_model is not None:
                     if stat == 'corr':
-                        result = self.get_corr(pig_dir, r_edges, seeds=seeds, hod_model=hod_model)
+                        result = self.get_corr(pig_dir, r_edges, seeds=seeds, hod_model=hod_model, mode=mode, pimax=pimax, fft_model=fft_model)
                         save_file=f'Zheng07_seeds_{pigs["sim_tags"][i]}.hdf5'
                     elif stat == 'power':
                         result, k = corr.get_power(pig_dir, mode=mode, seeds=seeds, hod_model=hod_model)
@@ -372,7 +399,9 @@ if __name__ == '__main__':
     parser.add_argument('--logging_level', required=False, type=str, default=logging.INFO, help='Logging level')
     parser.add_argument('--ranks_for_nbkit', required=False, type=str, default=2, help='number of rank for each nbodykit communicator')
     parser.add_argument('--stat', required=False, type=str, default='corr', help='"power" or "corr"')
-    parser.add_argument('--hod', required=False, type=str, default='Zheng07Model', help='"power" or "corr"')
+    parser.add_argument('--mode', required=False, type=str, default='1d', help='Corr mode')
+    parser.add_argument('--fft_model', required=False, type=int, default=0, help='Whether to use FFTCorr or the paircounting')
+    parser.add_argument('--hod_model', required=False, type=str, default='Zheng07Model', help='"power" or "corr"')
 
     args = parser.parse_args()
     if args.logging_level == 'INFO':
@@ -389,4 +418,6 @@ if __name__ == '__main__':
     # for all avaialble cosmologies
     seeds = np.unique(np.random.randint(0, 1000_000, size=100))
     with CurrentMPIComm.enter(corr.nbkit_comm):
-        corr.fix_hod_all_pigs(args.base_dir, hod_model=hod_model, seeds=seeds, z=args.z, stat=args.stat, savedir=args.savedir)
+        corr.fix_hod_all_pigs(args.base_dir, hod_model=hod_model, seeds=seeds, 
+                              z=args.z, stat=args.stat, savedir=args.savedir,
+                              mode=args.mode, fft_model=args.fft_model)
