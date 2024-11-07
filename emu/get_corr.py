@@ -8,6 +8,7 @@ import json
 from glob import glob
 import numpy as np
 import re
+import json
 
 from nbodykit import CurrentMPIComm
 from nbodykit.hod import Zheng07Model
@@ -51,7 +52,7 @@ class Corr():
         logger.setLevel(logging_level)
         try:
             from nbodykit import setup_logging
-            setup_logging('debug')
+            setup_logging('warning')
         except ImportError:
             console_handler = logging.StreamHandler()
             formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
@@ -63,6 +64,33 @@ class Corr():
         
         return logger
 
+    def make_big_ic_file(self, base_dirs = ['/scratch/06536/qezlou/Goku/FOF/HF/',
+                                            '/scratch/06536/qezlou/Goku/FOF/L1/',
+                                            '/scratch/06536/qezlou/Goku/FOF/L2/']):
+        
+        
+        # Load JSON file as a dictionary
+        def load_json_as_dict(file_path):
+            with open(file_path, 'r') as file:
+                data = json.load(file)
+            return data
+
+        all_ICs = []
+        for bsd in base_dirs:
+            # Example usage
+            print(bsd)
+            fnames = glob(op.join(bsd,f'cosmo_10p_Box*/SimulationICs.json'))
+            print(f'number of files {len(fnames)}')
+            for fn in fnames:
+                data_dict = load_json_as_dict(fn)
+                data_dict['label'] = re.search(r'cosmo_10p_Box\d+_Part\d+_\d{4}', data_dict['outdir']).group(0)
+                all_ICs.append(data_dict)
+            with open('all_ICs.json', 'w') as json_file:
+                json.dump(all_ICs, json_file, indent=4)
+
+            with open('all_ICs.json', 'r') as json_file:
+                data = json.load(json_file)
+                print(f'totla files = {len(data)}')
 
     def get_pig_dirs(self, base_dir, z=2.5):
         """Get the directories of the PIGs at redshift z
@@ -195,8 +223,8 @@ class Corr():
         elif mode=='projected':
             all_corrs = np.zeros((seeds.size, len(r_edges)-1, pimax))
         for i, sd in enumerate(seeds):
-            if self.rank ==0:
-                self.logger.info(f'seed, i = {i}')
+            if (i in [10, 25, 50, 75]) and self.nbkit_rank==0:
+                self.logger.debug(f'progress in seeds pool {i} %')
             if i==0:
                 hod = halos.populate(hod_model, seed=sd, **model_params)
             else:
