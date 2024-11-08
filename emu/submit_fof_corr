@@ -2,7 +2,7 @@
 #SBATCH -p skx
 #SBATCH -N 1
 #SBATCH --ntasks-per-node 24
-#SBATCH --job-name=fp-0.4
+#SBATCH --job-name=fp-4
 #SBATCH --time=6:00:00
 #SBATCH --output=%x-%j.out
 

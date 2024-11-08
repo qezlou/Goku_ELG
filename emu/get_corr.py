@@ -87,12 +87,12 @@ class Corr():
                 num = data_dict['outdir'].split('_')[-1].split('.')[0]
                 data_dict['label'] = f'cosmo_10p_Box{data_dict["box"]}_Part{data_dict["npart"]}_{num}'
                 all_ICs.append(data_dict)
-            with open('all_ICs.json', 'w') as json_file:
-                json.dump(all_ICs, json_file, indent=4)
+        with open('all_ICs.json', 'w') as json_file:
+            json.dump(all_ICs, json_file, indent=4)
 
-            with open('all_ICs.json', 'r') as json_file:
-                data = json.load(json_file)
-                print(f'totla files = {len(data)}')
+        with open('all_ICs.json', 'r') as json_file:
+            data = json.load(json_file)
+            print(f'totla files = {len(data)}')
 
     def get_pig_dirs(self, base_dir, z=2.5):
         """Get the directories of the PIGs at redshift z
@@ -291,7 +291,7 @@ class Corr():
         k = pk_gal_zspace['k'][:]
         return all_pks, k
     
-    def get_corr_fof(self, pig_dir, r_edges, z=2.5,  mode='1d', pimax=40, false_positive_ratio = 0):
+    def get_corr_fof(self, pig_dir, r_edges=None, mesh_res=0.05, z=2.5,  stat='corr', mode='1d', pimax=40, false_positive_ratio = 0):
         """Get the correlation function for a FOF halo catalog, with no HOD.
         Parameters
         ----------
@@ -317,15 +317,29 @@ class Corr():
         halos['RSDPosition'] = halos['Position'] + halos['Velocity'] * los * rsd_factor
         # Add uniformly distributed random false positives if asked for
         if false_positive_ratio >= 0:
-            self.logger.info(f'False positive added with ratio of  {false_positive_ratio}')
-            pos = np.random.uniform(low=0.0, high=halos.attrs['BoxSize'], size=(int(halos.csize*false_positive_ratio), 3))
+            fp_size = int(halos.csize*false_positive_ratio)
+            if self.rank ==0:
+                self.logger.info(f'False positive: ratio = {false_positive_ratio}, {fp_size} added to {halos.csize} sources')
+            pos = np.random.uniform(low=0.0, high=halos.attrs['BoxSize'], size=(fp_size, 3))
             pos = np.append(halos['RSDPosition'].compute(), pos, axis=0)
             halos = ArrayCatalog({'RSDPosition':pos}, BoxSize=[250.0])
-        corr_gal_zspace = SimulationBox2PCF(data1=halos, mode=mode, edges=r_edges, pimax=pimax,  position='RSDPosition')
-        corr_gal_zspace.run()
-        self.nbkit_comm.Barrier()
-        corr = corr_gal_zspace.corr['corr'][:]
-        return corr_gal_zspace
+        if stat == 'corr':
+            result = SimulationBox2PCF(data1=halos, mode=mode, edges=r_edges, pimax=pimax,  position='RSDPosition')
+            result.run()
+            self.nbkit_comm.Barrier()
+            corr = result.corr['corr'][:]
+            mbins =  np.array([r_edges[i]+r_edges[i+1] for i in range(r_edges.size-1)])
+        elif stat == 'power':
+            if self.rank == 0:
+                self.logger.info(f'Getting power for FOF, mesh_res = {mesh_res} cMpc/h')
+            Nmesh = int(halos.attrs['BoxSize'][0] / mesh_res)
+            mesh = halos.to_mesh(position='RSDPosition', Nmesh=1000, compensated=True)
+            pk_gal_zspace = FFTPower(mesh, mode=mode).power
+            self.nbkit_comm.Barrier()
+            result = pk_gal_zspace['power'].real
+            mbins = pk_gal_zspace['k'].real
+            
+        return result, mbins
     
     def fix_hod_all_pigs(self, base_dir, hod_model, stat='corr', mode='1d', pimax=5, seeds=[42], z=2.5, fft_model=False, savedir = '/work2/06536/qezlou/Goku/corr_funcs_smaller_bins/'):
         """
