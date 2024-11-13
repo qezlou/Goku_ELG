@@ -282,7 +282,7 @@ class Corr():
                 hod.repopulate(seed=sd)
             self.nbkit_comm.Barrier()
             # Apply RSD to the galaxies
-            hod['RSDPosition'] = hod['Position'] + hod['VelocityOffset'] * los
+            hod['RSDPosition'] = (hod['Position'] + hod['VelocityOffset'] * los)%halos.attrs['BoxSize']
             mesh = hod.to_mesh(position='RSDPosition', Nmesh=1000, compensated=True)
             pk_gal_zspace = FFTPower(mesh, mode=mode).power
             self.nbkit_comm.Barrier()
@@ -314,7 +314,7 @@ class Corr():
 
         # Apply RSD to the galaxies
         rsd_factor = (1+z) / (100 * cosmo.efunc(z))
-        halos['RSDPosition'] = halos['Position'] + halos['Velocity'] * los * rsd_factor
+        halos['RSDPosition'] = (halos['Position'] + halos['Velocity'] * los * rsd_factor)%halos.attrs['BoxSize']
         # Add uniformly distributed random false positives if asked for
         if false_positive_ratio >= 0:
             fp_size = int(halos.csize * false_positive_ratio / (1- false_positive_ratio))
