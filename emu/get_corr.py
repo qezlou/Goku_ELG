@@ -191,7 +191,7 @@ class Corr():
         return hod
 
 
-    def get_corr(self, pig_dir, r_edges, seeds=[42], mode='1d', pimax=5, fft_model=False, mesh_res=0.25, hod_model=Zheng07Model, model_params={}):
+    def get_corr(self, pig_dir, r_edges, seeds=[42], mode='1d', pimax=5, Nmu=50, fft_model=False, mesh_res=0.25, hod_model=Zheng07Model, model_params={}):
         """Get the correlation function for HOD populated galaxies in a FOF halo catalog.
         Parameters
         ----------
@@ -214,16 +214,11 @@ class Corr():
         los = [0, 0, 1]
         halos = self.load_halo_cat(pig_dir)
         if mode=='1d':
-            if fft_model:
-                #if self.rank==0:
-                #    self.logger.warning(f'HARD codded (rmin, rmax, dr) for FftCorr')
-                (rmin, rmax, dr) = 0.1, 80, 1
-                all_corrs = np.zeros((seeds.size, len(np.arange(rmin, rmax, dr))-1))
-            else:
-                all_corrs = np.zeros((seeds.size, len(r_edges)-1))
-            
+            all_corrs = np.zeros((seeds.size, len(r_edges)-1))
         elif mode=='projected':
             all_corrs = np.zeros((seeds.size, len(r_edges)-1, pimax))
+        elif mode=='2d':
+            all_corrs = np.zeros((seeds.size, len(r_edges)-1, Nmu))
         for i, sd in enumerate(seeds):
             if (i in [10, 25, 50, 75]) and self.nbkit_rank==0:
                 self.logger.debug(f'progress in seeds pool {i} %')
@@ -233,13 +228,12 @@ class Corr():
                 hod.repopulate(seed=sd)
             self.nbkit_comm.Barrier()
             # Apply RSD to the galaxies
-            hod['RSDPosition'] = hod['Position'] + hod['VelocityOffset'] * los
+            hod['RSDPosition'] = (hod['Position'] + hod['VelocityOffset'] * los)%hod.attrs['BoxSize']
             if fft_model:
                 if mode=='projected':
                     raise NotImplementedError(f"No support for corr with fftmodel in '{mode}' mode ")
                 Nmesh = int(hod.attrs['BoxSize'][0] / mesh_res)
-                corr_gal_zspace = FFTCorr(hod, mode=mode, Nmesh=Nmesh,los=los, rmin=rmin, rmax=rmax, dr=dr)
-                print(f"cor shape = {corr_gal_zspace.corr['corr'][:].shape}")
+                corr_gal_zspace = FFTCorr(hod, mode=mode, Nmesh=Nmesh,los=los, edges=r_edges)
             else:
                 corr_gal_zspace = SimulationBox2PCF(data1=hod, mode=mode, edges=r_edges, pimax=pimax, position='RSDPosition')
             corr_gal_zspace.run()
