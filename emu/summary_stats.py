@@ -35,7 +35,7 @@ class ProjCorr:
 
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level."""
-        logger = logging.getLogger('get corr')
+        logger = logging.getLogger('get ProjCorr')
         logger.setLevel(logging_level)
         console_handler = logging.StreamHandler()
         formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
@@ -45,25 +45,40 @@ class ProjCorr:
         return logger
     
     def load_data(self):
-        """Load the data from the files"""
+        """Load the data from the files
+        Returns:
+        rp: the projected separation
+        w_rp_pi: the projected correlation, shape = (n_files, n_realizations, n_rp, n_pi)
+        """
         with h5py.File(op.join(self.data_dir, self.data_files[0]), 'r') as f:
             self.rp = f['r'][:]
-            wp = np.zeros((len(self.data_files), f['corr'].shape[0], f['corr'].shape[1]))
-            self.logger.info(f'Orignal corr shape {f["corr"].shape}')
-            wp[0,:,:] = np.mean(f['corr'][:], axis=2)
-            for i in range(1, len(self.data_files)):
-                with h5py.File(op.join(self.data_dir, self.data_files[i]), 'r') as f:
-                    # averagee along the line of sight, \Pi
-                    wp[i] = np.mean(f['corr'][:], axis=2)
+            w_rp_pi = np.zeros((len(self.data_files), f['corr'].shape[0], f['corr'].shape[1], f['corr'].shape[2]))
+            w_rp_pi[0] = f['corr'][:]
+            self.logger.info(f'Orignial corr shape {f["corr"].shape}')
+        for i in range(1, len(self.data_files)):
+            with h5py.File(op.join(self.data_dir, self.data_files[i]), 'r') as f:
+                # averagee along the line of sight, \Pi
+                w_rp_pi[i] = f['corr'][:]
+        return self.rp, w_rp_pi
+
+    def get_wp(self):
+        """Take the avergae along pi direction"""
+        _, w_rp_pi = self.load_data()
+        neg_frac = np.where(w_rp_pi < 0)[0].size / w_rp_pi.size
+        self.logger.info(f'Found {100*neg_frac:.1f} % of W_rp_pi is negative')
+        neg_frac= np.where(np.all(w_rp_pi < 0, axis=-1))[0].size / np.prod(w_rp_pi.shape[0:-1])
+        self.logger.info(f'Found {100*neg_frac:.1f} % of W_rp is all negeative along the pi direction')
+        wp = np.mean(w_rp_pi, axis=-1)
         return self.rp, wp
     
-    def get_wp(self,  r_range=(0, 30)):
+    def get_mean_std(self,  r_range=(0, 100)):
         """get the mean and std of the projected correlation function,
         the std computed over the different realizations of the same HOD 
         and cosmology"""
-        _, wp = self.load_data()
-        ind = np.where((self.rp>r_range[0]) & (self.rp<r_range[1]))
-        rp = self.rp[ind]
+        rp, wp = self.get_wp()
+        ind = np.where((rp>r_range[0]) & (rp<r_range[1]))[0]
+        rp = rp[ind]
+        # Take average and tsd accross many HOD realizations
         mean = np.mean(wp[:,:,ind], axis=1).squeeze()
         std = np.std(wp[:,:,ind], axis=1).squeeze()
         return rp, mean, std
@@ -105,13 +120,9 @@ class ProjCorr:
         params_dict = self.get_cosmo_params()
         return np.array([[cp[p] for p in self.params_list] for cp in params_dict])
     
-    def fill_nan_log10_bins(self):
+    def find_nan_log10_bins(self):
 
-        rp, corr = self.load_data()
-        log10_corr = np.log10(corr)
-        nan_bins = np.where(np.isnan(log10_corr))
-        self.logger.info(f'Found {100*nan_bins[0].size/corr.size:.1f} % of W(r_p, Pi) as nan')
-        
-
-    
-
+        rp, wp = self.load_data()
+        log10_wp = np.log10(wp)
+        nan_bins = np.where(np.isnan(log10_wp))
+        self.logger.info(f'Found {100*nan_bins[0].size/wp.size:.1f} % of W_p is nan')
