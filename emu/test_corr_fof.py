@@ -5,7 +5,7 @@ from mpi4py import MPI
 import os.path as op
 import argparse
 
-def run_it(stat, fp_frac):
+def run_it(stat, fp_frac, save_file):
     
     comm_size = MPI.COMM_WORLD.Get_size()
     corr = get_corr.Corr(ranks_for_nbkit=comm_size)
@@ -15,10 +15,11 @@ def run_it(stat, fp_frac):
 
     basedir = '/scratch/06536/qezlou/Goku/FOF/L2'
     pig_dir = f'{basedir}/{sim_tag}/output/PIG_003/'
-    save_dir = '/scratch/06536/qezlou/Goku/processed_data/false_positive/'
+    save_dir = '/scratch/06536/qezlou/Goku/processed_data/check_false_positive/'
     assert op.exists(save_dir)
+    save_file = op.join(save_dir,save_file)
     if stat=='corr':
-        #save_file = op.join(save_dir,f'wp_fof_uniform_fp_percent_{sim_tag}.hdf5')
+       
         assert not op.exists(save_file), f'file exists: {save_file}'
 
         r_edges = np.logspace(-1.5, np.log10(2), 8)
@@ -35,7 +36,7 @@ def run_it(stat, fp_frac):
                 f['corr'] = corr_fof
     
     elif stat=='power':
-        save_file = op.join(save_dir,f'power_fof_uniform_fp_10percent_{sim_tag}.hdf5')
+        #save_file = op.join(save_dir,f'power_fof_uniform_fp_10percent_{sim_tag}.hdf5')
         assert not op.exists(save_file), f'file exists: {save_file}'
         power_fof, mbins = corr.get_corr_fof(pig_dir, stat='power',  mode='1d', false_positive_ratio=fp_frac)  
         if corr.rank ==0:
@@ -49,6 +50,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Get the correlation function of the galaxies in the PIGs')
     parser.add_argument('--stat', type=str, help='corr or power')
-    parser.add_argument('--fp_frac', type=float, help='Base directory of the simulations')
+    parser.add_argument('--fp_frac', type=float, help='false positive fraction')
+    parser.add_argument('--save_file', type=str, help='save_file')
     args = parser.parse_args()
-    run_it(args.stat, args.fp_frac)
+    run_it(args.stat, args.fp_frac, args.save_file)

@@ -8,7 +8,5 @@
 
 hostname; pwd; date
 
-BASEDIR='/scratch/06536/qezlou/Goku/FOF/L2'
-SAVEDIR='/scratch/06536/qezlou/Goku/processed_data/false_positive/'
 
-ibrun python test_corr_fof.py
+ibrun python test_corr_fof.py --stat 'corr' --fp_frac 0.1 --save_file 'wp_fof_uniform_10_percent_cosmo_10p_Box250_Part750_0000.hdf5'

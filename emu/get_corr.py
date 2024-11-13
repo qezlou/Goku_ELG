@@ -317,17 +317,18 @@ class Corr():
         halos['RSDPosition'] = halos['Position'] + halos['Velocity'] * los * rsd_factor
         # Add uniformly distributed random false positives if asked for
         if false_positive_ratio >= 0:
-            fp_size = int(halos.csize*false_positive_ratio)
+            fp_size = int(halos.csize * false_positive_ratio / (1- false_positive_ratio))
+            int(halos.csize*false_positive_ratio)
             if self.rank ==0:
                 self.logger.info(f'False positive: ratio = {false_positive_ratio}, {fp_size} added to {halos.csize} sources')
             pos = np.random.uniform(low=0.0, high=halos.attrs['BoxSize'], size=(fp_size, 3))
             pos = np.append(halos['RSDPosition'].compute(), pos, axis=0)
             halos = ArrayCatalog({'RSDPosition':pos}, BoxSize=[250.0])
         if stat == 'corr':
-            result = SimulationBox2PCF(data1=halos, mode=mode, edges=r_edges, pimax=pimax,  position='RSDPosition')
-            result.run()
+            corr = SimulationBox2PCF(data1=halos, mode=mode, edges=r_edges, pimax=pimax,  position='RSDPosition')
+            corr.run()
             self.nbkit_comm.Barrier()
-            corr = result.corr['corr'][:]
+            result = corr.corr['corr'][:]
             mbins =  np.array([r_edges[i]+r_edges[i+1] for i in range(r_edges.size-1)])
         elif stat == 'power':
             if self.rank == 0:
