@@ -191,7 +191,7 @@ class Corr():
         return hod
 
 
-    def get_corr(self, pig_dir, r_edges, seeds=[42], mode='1d', pimax=None, Nmu=50, fft_model=False, mesh_res=0.25, hod_model=Zheng07Model, model_params={}):
+    def get_corr(self, pig_dir, r_edges, seeds=[42], mode='1d', pimax=None, Nmu=50, fft_model=False, mesh_res=0.15, hod_model=Zheng07Model, model_params={}):
         """Get the correlation function for HOD populated galaxies in a FOF halo catalog.
         Parameters
         ----------
