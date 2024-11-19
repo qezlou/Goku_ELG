@@ -134,7 +134,7 @@ class PlotCorr():
             ax[c].set_xscale('log')
             ax[c].set_yscale('log')
             ax[c].set_xlabel(r'$r_p [Mpc/h]$')
-            ax[c].set_ylabel(r'$w_p(r)$')
+            ax[c].set_ylabel(r'$\xi(r)$')
             ax[c].legend()
             ax[c].set_title(labels[c])
         fig.tight_layout()
