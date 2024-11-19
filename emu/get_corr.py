@@ -216,7 +216,7 @@ class Corr():
         if mode=='1d':
             all_corrs = np.zeros((seeds.size, len(r_edges)-1))
         elif mode=='projected':
-            all_corrs = np.zeros((seeds.size, len(r_edges)-1, pimax))
+            all_corrs = np.zeros((seeds.size, len(r_edges)-1))
         elif mode=='2d':
             all_corrs = np.zeros((seeds.size, len(r_edges)-1, Nmu))
         for i, sd in enumerate(seeds):
@@ -238,7 +238,10 @@ class Corr():
                 corr_gal_zspace = SimulationBox2PCF(data1=hod, mode=mode, edges=r_edges, pimax=pimax, position='RSDPosition')
             corr_gal_zspace.run()
             self.nbkit_comm.Barrier()
-            all_corrs[i] = corr_gal_zspace.corr['corr'][:]
+            if mode == 'projected':
+                all_corrs[i] = corr_gal_zspace.wp['corr'][:]
+            else:
+                all_corrs[i] = corr_gal_zspace.corr['corr'][:]
         return all_corrs
     
 
