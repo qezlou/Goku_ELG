@@ -9,7 +9,7 @@
 
 hostname; pwd; date
 
-BASEDIR='/scratch/06536/qezlou/Goku/FOF/HF'
-SAVEDIR='/scratch/06536/qezlou/Goku/processed_data/corr_projected/'
+BASEDIR='/scratch/06536/qezlou/Goku/FOF/L2'
+SAVEDIR='/scratch/06536/qezlou/Goku/processed_data/fft_corr/1d/'
 
-ibrun python get_corr.py --ranks_for_nbkit 24 --base_dir $BASEDIR --z 2.5 --logging_level INFO --stat 'corr' --mode 'projected' --savedir $SAVEDIR
+ibrun python get_corr.py --ranks_for_nbkit 24 --base_dir $BASEDIR --z 2.5 --logging_level 'DEBUG' --stat 'corr' --mode '1d' --fft_model 1 --savedir $SAVEDIR --realizations 100
