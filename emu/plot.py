@@ -108,5 +108,36 @@ class PlotCorr():
 
     def get_labels(self, path_list):
         
-        labels = [re.search(r'cosmo_10p_Box\d+_Part\d+_\d{4}',pl).group(0) for pl in path_list]
+        labels = [re.search(r'10p_Box\d+_Part\d+_\d{4}',pl).group(0) for pl in path_list]
         return labels
+    
+    def fft_vs_paircount(self, fft_files, pcount_files, r_range):
+
+        fig, ax = plt.subplots(len(fft_files), 1, figsize=(8, 8))
+        labels = self.get_labels(fft_files)
+        for c, svf in enumerate(fft_files):
+            with h5py.File(svf, 'r') as f:
+                r = f['r'][:]
+                corr = np.squeeze(f['corr'][:])
+            ind = np.where((r>r_range[0]) & (r<r_range[1]))
+            ax[c].scatter(r[ind], corr[ind], alpha=0.5, marker='o', s=5)
+            ax[c].plot(r[ind], corr[ind], label='FFT', alpha=0.5)
+
+        for c, svf in enumerate(pcount_files):
+            with h5py.File(svf, 'r') as f:
+                r = f['r'][:]
+                corr = np.squeeze(f['corr'][:])
+            ind = np.where((r>r_range[0]) & (r<r_range[1]))
+            ax[c].scatter(r[ind], corr[ind], alpha=0.5, marker='o', s=5)
+            ax[c].plot(r[ind], corr[ind], label='Paircount', alpha=0.5)
+
+            ax[c].set_xscale('log')
+            ax[c].set_yscale('log')
+            ax[c].set_xlabel(r'$r_p [Mpc/h]$')
+            ax[c].set_ylabel(r'$w_p(r)$')
+            ax[c].legend()
+            ax[c].set_title(labels[c])
+        fig.tight_layout()
+        plt.show()
+
+        
