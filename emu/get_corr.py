@@ -79,12 +79,12 @@ class Corr():
         all_ICs = []
         for bsd in base_dirs:
             # Example usage
-            fnames = glob(op.join(bsd,f'cosmo_10p_Box*/SimulationICs.json'))
+            fnames = glob(op.join(bsd,f'*_10p_Box*/SimulationICs.json'))
             self.logger.info(f'number of files in {bsd} is {len(fnames)}')
             for fn in fnames:
                 data_dict = load_json_as_dict(fn)
                 num = data_dict['outdir'].split('_')[-1].split('.')[0]
-                data_dict['label'] = f'cosmo_10p_Box{data_dict["box"]}_Part{data_dict["npart"]}_{num}'
+                data_dict['label'] = f'10p_Box{data_dict["box"]}_Part{data_dict["npart"]}_{num}'
                 all_ICs.append(data_dict)
         save_file = 'all_ICs.json'
         self.logger.info(f'writing on {save_file}')
