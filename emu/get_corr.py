@@ -79,20 +79,21 @@ class Corr():
         all_ICs = []
         for bsd in base_dirs:
             # Example usage
-            print(bsd)
             fnames = glob(op.join(bsd,f'cosmo_10p_Box*/SimulationICs.json'))
-            print(f'number of files {len(fnames)}')
+            self.logger.info(f'number of files in {bsd} is {len(fnames)}')
             for fn in fnames:
                 data_dict = load_json_as_dict(fn)
                 num = data_dict['outdir'].split('_')[-1].split('.')[0]
                 data_dict['label'] = f'cosmo_10p_Box{data_dict["box"]}_Part{data_dict["npart"]}_{num}'
                 all_ICs.append(data_dict)
-        with open('all_ICs.json', 'w') as json_file:
+        save_file = 'all_ICs.json'
+        self.logger.info(f'writing on {save_file}')
+        with open(save_file, 'w') as json_file:
             json.dump(all_ICs, json_file, indent=4)
 
-        with open('all_ICs.json', 'r') as json_file:
+        with open(save_file, 'r') as json_file:
             data = json.load(json_file)
-            print(f'totla files = {len(data)}')
+            self.logger.info(f'totla files = {len(data)}')
 
     def get_pig_dirs(self, base_dir, z=2.5):
         """Get the directories of the PIGs at redshift z
@@ -377,25 +378,25 @@ class Corr():
             
             # I commented out the `try`,`except` to 
             # see the full error messages from `nbodykit`
-            #try:
-            if hod_model is not None:
-                if stat == 'corr':
-                    result = self.get_corr(pig_dir, r_edges, seeds=seeds, hod_model=hod_model, mode=mode, pimax=pimax, fft_model=fft_model)
-                    save_file=f'Zheng07_seeds_{pigs["sim_tags"][i]}.hdf5'
-                elif stat == 'power':
-                    result, k = corr.get_power(pig_dir, mode=mode, seeds=seeds, hod_model=hod_model)
-                    save_file=f'Zheng07_power_seeds_{pigs["sim_tags"][i]}.hdf5'
-            else:
-                if stat == 'corr':
-                    result = self.get_corr_fof(pig_dir, r_edges)
-                    save_file=f'fof_{pigs["sim_tags"][i]}.hdf5'
-                elif stat == 'power':
-                    raise NotImplementedError('Power for FOF halos (no hod applied) is not implemented')
+            try:
+                if hod_model is not None:
+                    if stat == 'corr':
+                        result = self.get_corr(pig_dir, r_edges, seeds=seeds, hod_model=hod_model, mode=mode, pimax=pimax, fft_model=fft_model)
+                        save_file=f'Zheng07_seeds_{pigs["sim_tags"][i]}.hdf5'
+                    elif stat == 'power':
+                        result, k = corr.get_power(pig_dir, mode=mode, seeds=seeds, hod_model=hod_model)
+                        save_file=f'Zheng07_power_seeds_{pigs["sim_tags"][i]}.hdf5'
+                else:
+                    if stat == 'corr':
+                        result = self.get_corr_fof(pig_dir, r_edges)
+                        save_file=f'fof_{pigs["sim_tags"][i]}.hdf5'
+                    elif stat == 'power':
+                        raise NotImplementedError('Power for FOF halos (no hod applied) is not implemented')
 
-            #except Exception as e:
-            #    if self.rank ==0:
-            #        self.logger.info(f'Skipping, {pigs["sim_tags"][i]} because {e}')
-            #    continue
+            except Exception as e:
+                if self.rank ==0:
+                    self.logger.info(f'Skipping, {pigs["sim_tags"][i]} because {e}')
+                continue
             self.nbkit_comm.Barrier()
             
             save_file = os.path.join(savedir, save_file)
@@ -446,6 +447,7 @@ if __name__ == '__main__':
     parser.add_argument('--ranks_for_nbkit', required=False, type=str, default=2, help='number of rank for each nbodykit communicator')
     parser.add_argument('--stat', required=False, type=str, default='corr', help='"power" or "corr"')
     parser.add_argument('--mode', required=False, type=str, default='1d', help='Corr mode')
+    parser.add_argument('--pimax', required=False, type=int, default=0, help='Only if `mode =="projected", number of bins along line-of-sight')
     parser.add_argument('--fft_model', required=False, type=int, default=0, help='Whether to use FFTCorr or the paircounting')
     parser.add_argument('--hod_model', required=False, type=str, default='Zheng07Model', help='"power" or "corr"')
     parser.add_argument('--seed', required=False, type=int, default=127, help='fix to have same list of seeds defined below')
@@ -466,7 +468,11 @@ if __name__ == '__main__':
     # for all avaialble cosmologies
     np.random.seed(args.seed)
     seeds = np.unique(np.random.randint(0, 1000_000, size=args.realizations))
+
+    if args.pimax == 0:
+        args.pimax = None
     with CurrentMPIComm.enter(corr.nbkit_comm):
         corr.fix_hod_all_pigs(args.base_dir, hod_model=hod_model, seeds=seeds, 
                               z=args.z, stat=args.stat, savedir=args.savedir,
-                              mode=args.mode, fft_model=args.fft_model)
+                              mode=args.mode, pimax= args.pimax,
+                              fft_model=args.fft_model)
