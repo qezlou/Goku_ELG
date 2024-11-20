@@ -4,12 +4,16 @@ Train a single fidelity emualtor
 import logging
 import os.path as op
 import numpy as np
+import argparse
+import h5py
 import gpflow
 from gpflow.models import GPR
 from gpflow.kernels import SquaredExponential
 from gpflow.optimizers import Scipy
 import tensorflow as tf
 from tensorflow.keras.losses import mean_squared_error
+
+import summary_stats
 
 class SingleFid:
 
@@ -114,22 +118,101 @@ class SingleFid:
         X_norm = (X - self.X_min) / (self.X_max - self.X_min)
         mean, var = self.model.predict_f(X_norm)
         return mean, var
+
+class EvaluateSingleFid:
+    def __init__(self, X, Y, model_err, logging_level='INFO'):
+        self.logger = self.configure_logging(logging_level)
+        self.X = X
+        self.Y = Y
+        self.model_err = model_err
+        self.n_params = Y.shape[1]
+        self.n_samples = X.shape[0]
+        assert Y.ndim == 2, 'Input data should be 2D'
+        assert X.ndim == 2, 'Output data should be 2D'
+        self.logger.info(f'X shape: {X.shape}, Y shape: {Y.shape}, model_err shape: {model_err.shape}')
+        self.logger.info(f'Number of parameters: {self.n_params}')
+        self.sf = SingleFid(X = X, Y = Y, model_err = model_err, logging_level='DEBUG')
     
-    def loo_errors(self):
+    def configure_logging(self, logging_level):
+        """Sets up logging based on the provided logging level."""
+        logger = logging.getLogger('EvaluateSingleFid')
+        logger.setLevel(logging_level)
+        console_handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        return logger
+    
+    def loo_train_pred(self, rp, savefile=None):
         """
-        Compute the leave one out errors
+        Iterate over the samples to leave one out and train the model
+        Parameters:
+        -------
+        rp: array
+            The projected rp radii that used for training
+        savefile: 
+            The file to save the results to
+
+        Returns:
+        --------
+        mean_pred: the predictions for the left out samples while trained on the rest
+        var_pred: the variance of the predictions
         """
         n_samples = self.Y.shape[0]
-        loo_errors = np.zeros((n_samples, self.Y.shape[1]) )
+        mean_pred = np.zeros((n_samples, self.Y.shape[1]) )
+        var_pred = np.zeros((n_samples, self.Y.shape[1]) )
+        
+        progress = np.arange(0, 1, 0.01)
+        print_marks = (progress*n_samples).astype(int)
+
         for i in range(n_samples):
+            if i in print_marks:
+                self.logger.info(f'Progress: {i/n_samples*100:.2f}%')
             X_train = np.delete(self.X, i, axis=0)
             Y_train = np.delete(self.Y, i, axis=0)
             X_test = self.X[i][np.newaxis, :]
             Y_test = self.Y[i]
             self.train(X_train, Y_train)
-            mean_pred, var_pred = self.predict(X_test)
-            loo_errors[i] = (mean_pred/Y_test - 1)**2
-        loo_errors = np.mean(loo_errors, axis=0)
-        loo_errors = np.sqrt(loo_errors)
-        return loo_errors
-        
+            mean_pred[i], var_pred[i] = self.sf.predict(X_test)
+        if savefile is not None:
+            with h5py.File(savefile, 'w') as f:
+                f.create_dataset('pred', data=mean_pred)
+                f.create_dataset('var_pred', data=var_pred)
+                f.create_dataset('truth', data=self.Y)
+                f.create_dataset('X', data=self.X)
+                f.create_dataset('rp', data=rp)
+        return mean_pred, var_pred
+    
+    def loo_errors(self):
+        """
+        Compute the leave one out errors
+        """
+        mean_pred, var_pred = self.loo_train_pred()
+        #loo_errors[i] = (mean_pred/Y_test - 1)**2
+        #loo_errors = np.mean(loo_errors, axis=0)
+        #loo_errors = np.sqrt(loo_errors)
+        # return loo_errors
+    
+    
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Get LOO for the single fidelity emulator')
+    parser.add_argument('--data_dir', type=str, default='/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/', help='Directory where the data is stored')
+    parser.add_argument('--r_range', type=float, nargs=2, default=[0,30], help='Range of r to consider')
+    parser.add_argument('--savefile', type=str, default= '/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/train/loo_pred.hdf5', help='Save the results to a file')
+    args = parser.parse_args()
+
+    proj = summary_stats.ProjCorr(data_dir=args.data_dir, fid='L2', logging_level='INFO')
+    rp, wp, model_err = proj.get_mean_std(r_range=args.r_range)
+    X = proj.get_params_array()
+
+    # We have negative values as low as -1, so we need to replace them with a small number
+    # since we are going to take the log10 of the data. The wp changes alot, so log is better
+    Y = wp
+    Y[Y < 0] = 1e-10
+    Y = np.log10(wp)
+
+    print(f'X shape: {X.shape}, Y shape: {Y.shape}, model_err shape: {model_err.shape}') 
+    ev_sf = EvaluteSingleFid(X = X, Y = Y, model_err = model_err, logging_level='DEBUG')
+    _, _ = ev_sf.loo_train_pred(rp=rp, savefile=args.savefile)
+    

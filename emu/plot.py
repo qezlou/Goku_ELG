@@ -138,5 +138,37 @@ class PlotCorr():
             ax[c].set_title(labels[c])
         fig.tight_layout()
         plt.show()
+    
+class PlotProjCorrEmu():
+    """
+    Plot routines for the emulator
+    """
+    def __init__(self):
+        pass
 
-        
+    def pred_truth(self, pred, truth, rp):
+        """
+        Plot the leave one out cross validation
+        """
+        fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+        ind = np.random.randint(0, pred.shape[0], 10)
+        for c,i in enumerate(ind):
+            ax.plot(rp, 10**truth[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5 )
+            ax.plot(rp, 10**pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
+        ax.set_xscale('log')
+        ax.set_xlim(0, 30)
+        ax.set_ylim(1, 1e4)
+        ax.set_yscale('log')
+        ax.set_ylabel(r'$w_p(r_p)$')
+        ax.set_xlabel(r'$r_p$')
+
+    def loo_pred_truth(self, savefile):
+        """
+        """
+        with h5py.File(savefile, 'r') as f:
+            pred = f['pred'][:]
+            var_pred = f['var_pred'][:]
+            truth = f['truth'][:]
+            X = f['X'][:]
+            rp = f['rp'][:]
+        self.pred_truth(pred, truth, rp)
