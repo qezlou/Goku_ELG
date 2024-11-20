@@ -41,9 +41,8 @@ class PlotCorr():
             
             with h5py.File(svf, 'r') as f:
                 r = f['r'][:]
-                if mode=='projected':
-                    corr = np.mean(f['corr'][:], axis=2)
-                elif mode=='1d':
+                if mode=='projected' or mode=='1d':
+                    corr = f['corr'][:]
                     corr = f['corr'][:]
                 corr = np.mean(corr, axis=0)
             ind = np.where((r>r_range[0]) & (r<r_range[1]))
@@ -103,12 +102,12 @@ class PlotCorr():
                 if ic['label'] == lb:
                     cosmo_params.append({k:ic[k] for k in params})
                     break
-        assert len(cosmo_params) == len(labels), f'Some labels not found in the ICs file, foumd = {len(cosmo_params)}, asked for = {len(labels)}'
+        assert len(cosmo_params) == len(labels), f'Some labels not found in the ICs file, found = {len(cosmo_params)}, asked for = {len(labels)}'
         return cosmo_params
 
     def get_labels(self, path_list):
         
-        labels = [re.search(r'10p_Box\d+_Part\d+_\d{4}',pl).group(0) for pl in path_list]
+        labels = [re.search(r'cosmo_10p_Box\d+_Part\d+_\d{4}',pl).group(0) for pl in path_list]
         return labels
     
     def fft_vs_paircount(self, fft_files, pcount_files, r_range):

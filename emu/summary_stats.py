@@ -43,33 +43,18 @@ class ProjCorr:
         logger.addHandler(console_handler)
         
         return logger
-    
-    def load_data(self):
-        """Load the data from the files
-        Returns:
-        rp: the projected separation
-        w_rp_pi: the projected correlation, shape = (n_files, n_realizations, n_rp, n_pi)
-        """
-        with h5py.File(op.join(self.data_dir, self.data_files[0]), 'r') as f:
-            self.rp = f['r'][:]
-            w_rp_pi = np.zeros((len(self.data_files), f['corr'].shape[0], f['corr'].shape[1], f['corr'].shape[2]))
-            w_rp_pi[0] = f['corr'][:]
-            self.logger.info(f'Orignial corr shape {f["corr"].shape}')
-        for i in range(1, len(self.data_files)):
-            with h5py.File(op.join(self.data_dir, self.data_files[i]), 'r') as f:
-                # averagee along the line of sight, \Pi
-                w_rp_pi[i] = f['corr'][:]
-        return self.rp, w_rp_pi
 
     def get_wp(self):
         """Take the avergae along pi direction"""
-        _, w_rp_pi = self.load_data()
-        neg_frac = np.where(w_rp_pi < 0)[0].size / w_rp_pi.size
-        self.logger.info(f'Found {100*neg_frac:.1f} % of W_rp_pi is negative')
-        neg_frac= np.where(np.all(w_rp_pi < 0, axis=-1))[0].size / np.prod(w_rp_pi.shape[0:-1])
-        self.logger.info(f'Found {100*neg_frac:.1f} % of W_rp is all negeative along the pi direction')
-        wp = np.mean(w_rp_pi, axis=-1)
-        return self.rp, wp
+        with h5py.File(op.join(self.data_dir, self.data_files[0]), 'r') as f:
+            self.rp = f['r'][:]
+            w_p = np.zeros((len(self.data_files), f['corr'].shape[0], f['corr'].shape[1]))
+            w_p[0] = f['corr'][:]
+        for i in range(1, len(self.data_files)):
+            with h5py.File(op.join(self.data_dir, self.data_files[i]), 'r') as f:
+                # averagee along the line of sight, \Pi
+                w_p[i] = f['corr'][:]  
+        return self.rp, w_p   
     
     def get_mean_std(self,  r_range=(0, 100)):
         """get the mean and std of the projected correlation function,
@@ -96,7 +81,7 @@ class ProjCorr:
 
     def get_labels(self):
         """Get the labels we use for each simulation, they are in this format ``cosmo_10p_Box{BoxSize}_Par{Npart}_0001``"""
-        labels = [re.search(r'cosmo_10p_Box\d+_Part\d+_\d{4}',pl).group(0) for pl in self.data_files]
+        labels = [re.search(r'10p_Box\d+_Part\d+_\d{4}',pl).group(0) for pl in self.data_files]
         return labels        
 
     def get_cosmo_params(self):
