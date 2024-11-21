@@ -2,6 +2,7 @@
 To evaluate all theemulators for different summary statistics
 """
 import logging
+import argparse
 import numpy as np
 import summary_stats
 import single_fid
@@ -18,6 +19,11 @@ class LogLogSingleFid():
         self.X = proj.get_params_array()
         # CLeaningthe missing bins
         self.Y = self.clean_mssing_bins(wp)
+        
+        # Get sim labels
+        self.labels = proj.get_labels()
+        assert len(self.labels) == self.Y.shape[0]
+        
         self.evaluate = single_fid.EvaluateSingleFid(X=self.X, Y=self.Y, 
                                                      model_err=self.model_err, 
                                                      logging_level=self.logging_level)
@@ -43,7 +49,7 @@ class LogLogSingleFid():
         """
         Get the leave one out predictions
         """
-        self.evaluate.loo_train_pred(rp=self.rp, savefile=savefile)
+        self.evaluate.loo_train_pred(rp=self.rp, savefile=savefile, labels=self.labels)
     
     def train_pred_all_sims(self):
         """
@@ -53,7 +59,18 @@ class LogLogSingleFid():
         pred, var_pred = self.evaluate.sf.predict(self.X)
         return pred, self.Y, self.rp
         
-        
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Get LOO for the single fidelity emulator')
+    parser.add_argument('--data_dir', type=str, default='/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/', help='Directory where the data is stored')
+    parser.add_argument('--emu_type', type=str, default='LogLogSingleFid', help='Type of the emulator')
+    parser.add_argument('--r_range', type=float, nargs=2, default=[0,30], help='Range of r to consider')
+    parser.add_argument('--savefile', type=str, default= '/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/train/loo_pred.hdf5', help='Save the results to a file')
+    args = parser.parse_args()
+    
+    if args.emu_type == 'LogLogSingleFid':
+        emu = LogLogSingleFid(data_dir=args.data_dir, r_range=args.r_range, logging_level='INFO')
+        emu.loo_train_pred(savefile=args.savefile)
+
 
 
 

@@ -143,7 +143,7 @@ class EvaluateSingleFid:
         logger.addHandler(console_handler)
         return logger
     
-    def loo_train_pred(self, rp, savefile=None):
+    def loo_train_pred(self, rp, savefile=None, labels=None):
         """
         Iterate over the samples to leave one out and train the model
         Parameters:
@@ -172,7 +172,7 @@ class EvaluateSingleFid:
             Y_train = np.delete(self.Y, i, axis=0)
             X_test = self.X[i][np.newaxis, :]
             Y_test = self.Y[i]
-            self.train(X_train, Y_train)
+            self.sf.train(X_train, Y_train)
             mean_pred[i], var_pred[i] = self.sf.predict(X_test)
         if savefile is not None:
             with h5py.File(savefile, 'w') as f:
@@ -181,7 +181,10 @@ class EvaluateSingleFid:
                 f.create_dataset('truth', data=self.Y)
                 f.create_dataset('X', data=self.X)
                 f.create_dataset('rp', data=rp)
-        return mean_pred, var_pred
+                if labels is not None:
+                    f.create_dataset('labels', data=labels)
+        else:
+            return mean_pred, var_pred
     
     def loo_errors(self):
         """
@@ -193,26 +196,5 @@ class EvaluateSingleFid:
         #loo_errors = np.sqrt(loo_errors)
         # return loo_errors
     
-    
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Get LOO for the single fidelity emulator')
-    parser.add_argument('--data_dir', type=str, default='/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/', help='Directory where the data is stored')
-    parser.add_argument('--r_range', type=float, nargs=2, default=[0,30], help='Range of r to consider')
-    parser.add_argument('--savefile', type=str, default= '/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/train/loo_pred.hdf5', help='Save the results to a file')
-    args = parser.parse_args()
-
-    proj = summary_stats.ProjCorr(data_dir=args.data_dir, fid='L2', logging_level='INFO')
-    rp, wp, model_err = proj.get_mean_std(r_range=args.r_range)
-    X = proj.get_params_array()
-
-    # We have negative values as low as -1, so we need to replace them with a small number
-    # since we are going to take the log10 of the data. The wp changes alot, so log is better
-    Y = wp
-    Y[Y < 0] = 1e-10
-    Y = np.log10(wp)
-
-    print(f'X shape: {X.shape}, Y shape: {Y.shape}, model_err shape: {model_err.shape}') 
-    ev_sf = EvaluteSingleFid(X = X, Y = Y, model_err = model_err, logging_level='DEBUG')
-    _, _ = ev_sf.loo_train_pred(rp=rp, savefile=args.savefile)
     

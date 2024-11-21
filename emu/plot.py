@@ -5,11 +5,24 @@ from glob import glob
 from os import path as op
 import json
 import re
+import logging
 
 
 class PlotCorr():
-    def __init__(self):
+    def __init__(self, logging_level='INFO'):
+        self.logger = self.configure_logging(logging_level)
         pass
+
+    def configure_logging(self, logging_level):
+        """Sets up logging based on the provided logging level."""
+        logger = logging.getLogger('ProjCorrEmus')
+        logger.setLevel(logging_level)
+        console_handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        
+        return logger
 
     def compare_cosmos(self, corr_files, mode='projected', savefig=None, r_range=(0,100), legend=False, show_cosmo=False):
         """
@@ -139,11 +152,12 @@ class PlotCorr():
         fig.tight_layout()
         plt.show()
     
-class PlotProjCorrEmu():
+class PlotProjCorrEmu(PlotCorr):
     """
     Plot routines for the emulator
     """
-    def __init__(self):
+    def __init__(self, logging_level='INFO'):
+        PlotCorr.__init__(self, logging_level=logging_level)
         pass
 
     def pred_truth(self, pred, truth, rp):
@@ -171,4 +185,7 @@ class PlotProjCorrEmu():
             truth = f['truth'][:]
             X = f['X'][:]
             rp = f['rp'][:]
+        
+        self.logger.info(f'Number of simualtions {pred.shape[0]}')
+        
         self.pred_truth(pred, truth, rp)
