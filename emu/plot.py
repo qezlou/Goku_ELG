@@ -7,6 +7,8 @@ import json
 import re
 import logging
 
+import single_fid
+
 
 class PlotCorr():
     def __init__(self, logging_level='INFO'):
@@ -189,3 +191,28 @@ class PlotProjCorrEmu(PlotCorr):
         self.logger.info(f'Number of simualtions {pred.shape[0]}')
         
         self.pred_truth(pred, truth, rp)
+
+
+class PlotTestEmus():
+    def __init__(self):
+        self.test_sf = single_fid.TestSingleFiled()
+    
+    def pred_truth(self, X=None):
+        
+        fig, ax= plt.subplots(2, 1, figsize=(10, 8))
+        if X is None:
+            X = self.test_sf.X_train
+            title = 'training set'
+        else:
+            title = 'fo testing set'
+        Y_pred, Y_var = self.test_sf.predict(X)
+
+        ind = np.random.randint(0, Y_pred.shape[0], 10)
+
+        for c,i in enumerate(ind):
+            ax[0].plot(self.test_sf.r_out, self.test_sf.Y_true[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5 )
+            ax[0].plot(self.test_sf.r_out, Y_pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
+            ax[1].plot(self.test_sf.r_out, Y_pred[i]/self.test_sf.Y_true[i] - 1, label='Var', color=f'C{c}', ls='--', alpha=1)
+        ax[0].set_xscale('log')
+        fig.suptitle(f'Prediction vs Truth for {title}')
+        fig.tight_layout()
