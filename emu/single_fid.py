@@ -125,7 +125,7 @@ class SingleFid:
         Predict the output for the given input
         """
         X_norm = (X - self.X_min) / (self.X_max - self.X_min)
-        mean, var = self.model.predict_f(X_norm)
+        mean, var = self.model.predict_y(X_norm)
         return mean, var
 
 class EvaluateSingleFid:
