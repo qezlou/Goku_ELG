@@ -194,25 +194,71 @@ class PlotProjCorrEmu(PlotCorr):
 
 
 class PlotTestEmus():
-    def __init__(self):
-        self.test_sf = single_fid.TestSingleFiled()
+    def __init__(self, n_samples=200):
+        self.test_sf = single_fid.TestSingleFiled(n_samples=n_samples)
     
-    def pred_truth(self, X=None):
+    def pred_truth_output_space(self, X=None):
         
         fig, ax= plt.subplots(2, 1, figsize=(10, 8))
         if X is None:
             X = self.test_sf.X_train
             title = 'training set'
         else:
-            title = 'fo testing set'
+            title = 'for testing set'
         Y_pred, Y_var = self.test_sf.predict(X)
+        Y_pred = Y_pred.numpy()
+        Y_var = Y_var.numpy()
+        Y_true = self.test_sf.get_truth(X)
 
-        ind = np.random.randint(0, Y_pred.shape[0], 10)
-
-        for c,i in enumerate(ind):
-            ax[0].plot(self.test_sf.r_out, self.test_sf.Y_true[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5 )
-            ax[0].plot(self.test_sf.r_out, Y_pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
-            ax[1].plot(self.test_sf.r_out, Y_pred[i]/self.test_sf.Y_true[i] - 1, label='Var', color=f'C{c}', ls='--', alpha=1)
-        ax[0].set_xscale('log')
+        for c,i in enumerate(range(Y_pred.shape[0])):
+            ax[0].scatter(np.arange(Y_true[i].size), Y_true[i], color=f'C{c}', marker='o', label='truth')
+            #ax[0].plot(, label='Truth', color=f'C{c}', lw=5, alpha=0.5 )
+            ax[0].fill_between(np.arange(Y_pred[i].size), Y_pred[i] - np.sqrt(Y_var[i]), Y_pred[i] + np.sqrt(Y_var[i]), label='Pred', color=f'C{c}',  alpha=0.6)
+            if c == 0:
+                ax[0].legend()
+            ax[1].plot(Y_pred[i]/Y_true[i] - 1, label='Var', color=f'C{c}', ls='--', alpha=1)
+        ax[0].grid()
+        ax[1].set_xlabel('Output space')
+        ax[0].set_ylabel('Output value')
+        ax[1].set_ylabel('Fractional error')
         fig.suptitle(f'Prediction vs Truth for {title}')
         fig.tight_layout()
+
+    
+    def pred_truth_input_space(self, X=None):
+        a = np.linspace(0.01, 10, 100)
+
+        for s in range(self.test_sf.ndim_input):
+            fig, ax = plt.subplots(1,3)
+            for i, x in enumerate([0.1, 9.2]):
+                if s==1:
+                    X_test = np.vstack(([x]*a.size, a.flatten())).T
+                else:
+                    X_test = np.vstack((a.flatten(), [x]*a.size)).T
+                # The columns of the axes grid are the different output dimensions
+                Y_true = self.test_sf.get_truth(X_test)
+                for dout in range(self.test_sf.ndim_output):     
+                    ax[dout].plot(X_test[:,s],Y_true[:,dout], color=f'C{i}', ls='--', label='Truth')
+                    ind = np.where((self.test_sf.X_train[:,(s+1)%2] >= x-0.05)*(self.test_sf.X_train[:,(s+1)%2] <= x+0.05))[0]
+                    ax[dout].scatter(self.test_sf.X_train[ind,s], self.test_sf.Y_train[ind, dout], color=f'C{i}', label='Training', alpha=0.5)
+
+                    mean, var = self.test_sf.predict(X_test)
+
+                    ax[dout].fill_between(X_test[:,s], (mean[:, dout]-np.sqrt(var[:,dout])).numpy().squeeze(), (mean[:, dout]+np.sqrt(var[:, dout])).numpy().squeeze(), alpha=0.6, color=f'C{i}', label='Pred')
+                    ax[0].set_ylabel(f'Inout space {s}')
+                    ax[dout].set_xlabel('Output space')
+                    if dout == self.test_sf.ndim_output-1:
+                        ax[dout].legend()
+
+
+            fig.tight_layout()
+    
+    def latent_space(self):
+        """
+        """
+        fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+        ax.scatter(self.test_sf.X_train[:, 0], self.test_sf.X_train[:, 1], label='Training', alpha=0.5)
+        ax.set_xlabel('Latent 1')
+        ax.set_ylabel('Latent 2')
+        ax.legend()
+        plt.show()

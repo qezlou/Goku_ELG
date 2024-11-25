@@ -23,8 +23,8 @@ class SingleFid:
         self.model_err = model_err
         self.n_params = Y.shape[1]
         self.n_samples = X.shape[0]
-        assert Y.ndim == 2, 'Input data should be 2D'
-        assert X.ndim == 2, 'Output data should be 2D'
+        assert Y.ndim == 2, 'Ouput data should be 2D'
+        assert X.ndim == 2, 'Input data should be 2D'
         self.X = X
         self.Y = Y
         assert np.any(np.isnan(self.Y))==False , f'Y has nans at {np.argwhere(np.isnan(self.Y))}'
@@ -125,6 +125,7 @@ class SingleFid:
         Predict the output for the given input
         """
         X_norm = (X - self.X_min) / (self.X_max - self.X_min)
+        assert np.all(X_norm >= -0.1) and np.all(X_norm <= 1.1), f'Input data should be normalized, X_min, X_max = {np.min(X_norm)}, {np.max(X_norm)}' 
         mean, var = self.model.predict_y(X_norm)
         return mean, var
 
@@ -136,8 +137,8 @@ class EvaluateSingleFid:
         self.model_err = model_err
         self.n_params = Y.shape[1]
         self.n_samples = X.shape[0]
-        assert Y.ndim == 2, 'Input data should be 2D'
-        assert X.ndim == 2, 'Output data should be 2D'
+        assert Y.ndim == 2, 'Output data should be 2D'
+        assert X.ndim == 2, 'Input data should be 2D'
         self.logger.info(f'X shape: {X.shape}, Y shape: {Y.shape}, model_err shape: {model_err.shape}')
         self.logger.info(f'Number of parameters: {self.n_params}')
         self.sf = SingleFid(X = X, Y = Y, model_err = model_err, logging_level='DEBUG')
@@ -208,27 +209,18 @@ class EvaluateSingleFid:
 
 class TestSingleFiled():
     
-    def __init__(self):
-        self.nsmaples = 200
-        self.ndim_input = 10
-        self.ndim_output = 18
+    def __init__(self, n_samples=200):
+        #np.random.seed = 10
+        self.n_samples = n_samples
+        self.ndim_input = 2
+        self.ndim_output = 3
 
-        # This is similar to log(r_p)
-        r_edges = np.logspace(-1.5, np.log10(2), 8)
-        r_edges = np.append(r_edges, np.logspace(np.log10(2), np.log10(30), 10)[1:])
-        self.r_out = 0.5*(r_edges[1:] + r_edges[:-1])
-        self.ndim_output = len(self.r_out)
-
-        self.qoeffs = np.array([1.45, 3.54, 5.43, 0.54, 
-                                0.43, 0.32, 0.21, 0.10, 
-                                0.05, 0.03])
-        assert len(self.qoeffs) == self.ndim_input
-        self.X_train = np.random.uniform(0, 1, (self.nsmaples, self.ndim_input))
-        self.Y_true = self.get_truth(self.X_train)
+        self.X_train = np.random.uniform(0, 10, (self.n_samples, self.ndim_input))
+        self.Y_train = self.get_truth(self.X_train)
     
         # I amy need to scale the noise amplitude
         self.noise_amp = 0.1
-        self.Y_train = self.Y_true + np.random.normal(0, self.noise_amp, (self.ndim_output,))
+        #self.Y_train = self.Y_true + np.random.normal(0, self.noise_amp, (self.ndim_output,))
 
 
         # Train the model
@@ -238,23 +230,12 @@ class TestSingleFiled():
         self.eval.sf.train()
     
     def get_truth(self, X):
-        """
-        I assume the each bin is realted to the cosmolgical parameters
-        in a polynomial way
-        """
-        nsamples, ndim_input = X.shape
-
-        # This is like W_p(r_p)
-        r_dependence = -np.log10((0.01*(1+ self.r_out)))
-        # Indices for exponentiation
-        indices = np.arange(ndim_input)
-        Y_true = np.zeros((nsamples, self.ndim_output))
-        for i in range(X.shape[0]):
-            cosmo_dependence = np.dot(self.qoeffs, X[i,:]**indices)
-            Y_true[i,:] = r_dependence * cosmo_dependence
-
-        return Y_true
-    
+        y = np.zeros((X.shape[0], 3))
+        y[:,0] = 60 + 0.9 * X[:,0] * np.sin(X[:,0]) + X[:,1] * np.cos(2*X[:,1])
+        y[:,1] = 30 + 0.9 * X[:,0]**0.5 * np.cos(X[:,0])  + X[:,1] * np.tan(0.1*X[:,1])
+        y[:,2] = 10 + 0.7 * X[:,0]**0.8 * np.sin(X[:,0])  + 2*X[:,1] * np.tan(0.1*X[:,1])
+        return y
+        
     def predict(self, X=None):
         """
         Get the predictionfor this simple test
