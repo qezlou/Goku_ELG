@@ -1,5 +1,7 @@
 """
-To evaluate all theemulators for different summary statistics
+To evaluate all the emulators for different summary statistics.
+This is the interface of `single_fid.py` and `summary_stats.py` to work with the
+generated Projectedcorrelation functions.
 """
 import logging
 import argparse
@@ -58,6 +60,17 @@ class LogLogSingleFid():
         self.evaluate.sf.train()
         pred, var_pred = self.evaluate.sf.predict(self.X)
         return pred, self.Y, self.rp
+    
+    def leave_bunch_out(self, n_out=5):
+        """
+        Leaves out a random bunch of samples out
+        n_out: Number of samples to leave out
+        """
+        model, out_indices = self.evaluate.leave_bunch_out(n_out=n_out)
+        X_test = self.X[out_indices]
+        Y_test = self.Y[out_indices]
+
+        return  model, X_test, Y_test
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Get LOO for the single fidelity emulator')

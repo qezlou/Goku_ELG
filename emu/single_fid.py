@@ -21,7 +21,7 @@ class SingleFid:
     def __init__(self, X, Y, model_err=None, logging_level='INFO'):
         self.logger = self.configure_logging(logging_level)
         self.model_err = model_err
-        self.n_params = Y.shape[1]
+        self.ndim_input = X.shape[1]
         self.n_samples = X.shape[0]
         assert Y.ndim == 2, 'Ouput data should be 2D'
         assert X.ndim == 2, 'Input data should be 2D'
@@ -135,13 +135,12 @@ class EvaluateSingleFid:
         self.X = X
         self.Y = Y
         self.model_err = model_err
-        self.n_params = Y.shape[1]
+        self.ndim_input = X.shape[1]
         self.n_samples = X.shape[0]
         assert Y.ndim == 2, 'Output data should be 2D'
         assert X.ndim == 2, 'Input data should be 2D'
         self.logger.info(f'X shape: {X.shape}, Y shape: {Y.shape}, model_err shape: {model_err.shape}')
-        self.logger.info(f'Number of parameters: {self.n_params}')
-        self.sf = SingleFid(X = X, Y = Y, model_err = model_err, logging_level='DEBUG')
+        self.sf = SingleFid(X = X, Y = Y, model_err = model_err, logging_level='INFO')
     
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level."""
@@ -205,7 +204,22 @@ class EvaluateSingleFid:
         #loo_errors = np.mean(loo_errors, axis=0)
         #loo_errors = np.sqrt(loo_errors)
         # return loo_errors
-    
+
+    def leave_bunch_out(self, n_out=1):
+        """
+        Leave one out cross validation
+        """
+
+        indices = np.sort(np.random.choice(self.n_samples, n_out, replace=False))
+
+        self.logger.info(f'Leaving out {len(indices)} samples')
+        X_train = np.delete(self.X, indices, axis=0)
+        Y_train = np.delete(self.Y, indices, axis=0)
+        self.logger.info(f'Training on {X_train.shape[0]} samples')
+        
+        self.sf.train(X_train, Y_train)
+
+        return  self.sf.model, indices
 
 class TestSingleFiled():
     

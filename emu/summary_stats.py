@@ -19,7 +19,7 @@ class ProjCorr:
         self.logger = self.configure_logging(logging_level)
         self.data_dir = data_dir
         self.rp = None
-        self.params_list = ['omega0', 'omegab', 'hubble', 'scalar_amp', 'ns',
+        self.param_names = ['omega0', 'omegab', 'hubble', 'scalar_amp', 'ns',
                              'w0_fld', 'wa_fld', 'N_ur',  'alpha_s', 'm_nu']
        
         # All the files in the data directory
@@ -43,31 +43,6 @@ class ProjCorr:
         logger.addHandler(console_handler)
         
         return logger
-
-    def get_wp(self):
-        """Take the avergae along pi direction"""
-        with h5py.File(op.join(self.data_dir, self.data_files[0]), 'r') as f:
-            self.rp = f['r'][:]
-            w_p = np.zeros((len(self.data_files), f['corr'].shape[0], f['corr'].shape[1]))
-            w_p[0] = f['corr'][:]
-        for i in range(1, len(self.data_files)):
-            with h5py.File(op.join(self.data_dir, self.data_files[i]), 'r') as f:
-                # averagee along the line of sight, \Pi
-                w_p[i] = f['corr'][:]  
-        return self.rp, w_p   
-    
-    def get_mean_std(self,  r_range=(0, 100)):
-        """get the mean and std of the projected correlation function,
-        the std computed over the different realizations of the same HOD 
-        and cosmology"""
-        rp, wp = self.get_wp()
-        ind = np.where((rp>r_range[0]) & (rp<r_range[1]))[0]
-        rp = rp[ind]
-        # Take average and tsd accross many HOD realizations
-        mean = np.mean(wp[:,:,ind], axis=1).squeeze()
-        std = np.std(wp[:,:,ind], axis=1).squeeze()
-        return rp, mean, std
-    
 
     def load_ics(self):
         """
@@ -95,7 +70,7 @@ class ProjCorr:
         for lb in labels:
             for ic in ics:
                 if ic['label'] == lb:
-                    cosmo_params.append({k:ic[k] for k in self.params_list})
+                    cosmo_params.append({k:ic[k] for k in self.param_names})
                     break
         assert len(cosmo_params) == len(labels), f'Some labels not found in the ICs file, foumd = {len(cosmo_params)}, asked for = {len(labels)}'
         return cosmo_params
@@ -103,7 +78,74 @@ class ProjCorr:
     def get_params_array(self):
         """Get the cosmological parameters as an array"""
         params_dict = self.get_cosmo_params()
-        return np.array([[cp[p] for p in self.params_list] for cp in params_dict])
+        return np.array([[cp[p] for p in self.param_names] for cp in params_dict])
+    
+
+    def get_wp(self):
+        """Take the avergae along pi direction"""
+        with h5py.File(op.join(self.data_dir, self.data_files[0]), 'r') as f:
+            self.rp = f['r'][:]
+            w_p = np.zeros((len(self.data_files), f['corr'].shape[0], f['corr'].shape[1]))
+            w_p[0] = f['corr'][:]
+        for i in range(1, len(self.data_files)):
+            with h5py.File(op.join(self.data_dir, self.data_files[i]), 'r') as f:
+                # averagee along the line of sight, \Pi
+                w_p[i] = f['corr'][:]  
+        return self.rp, w_p   
+    
+    def get_mean_std(self,  r_range=(0, 100)):
+        """get the mean and std of the projected correlation function,
+        the std computed over the different realizations of the same HOD 
+        and cosmology"""
+        rp, wp = self.get_wp()
+        ind = np.where((rp>r_range[0]) & (rp<r_range[1]))[0]
+        rp = rp[ind]
+        # Take average and tsd accross many HOD realizations
+        mean = np.mean(wp[:,:,ind], axis=1).squeeze()
+        std = np.std(wp[:,:,ind], axis=1).squeeze()
+        return rp, mean, std
+    
+
+    def bin_in_param_space(self, r_range=(0,100), num_bins=2):
+        """
+        Computet the average wp of all the simulations with low and 
+        high values of the cosmological parameters
+        Parameters
+        ----------
+        r_range: tuple
+            The range of r values to consider
+        num_bins: int
+            Number of bins to divide the cosmological parameters
+        Returns
+        -------
+        rp: array
+            The r values
+        av_wp: array
+            The average wp for each bin
+        all_bins: array
+            The bin edges for each parameter
+        """
+
+        rp, wp, std = self.get_mean_std(r_range=r_range)
+        av_wp = np.zeros((num_bins, len(self.param_names), wp.shape[1]))
+        av_wp_std = np.zeros((num_bins, len(self.param_names), wp.shape[1]))
+        params_array = self.get_params_array()
+
+        # Min and max of cosmo params acrros all the simulations
+        min_param = np.min(params_array, axis=0)
+        max_param = np.max(params_array, axis=0)
+        all_bins = np.zeros((len(self.param_names), num_bins+1))
+
+        for p in range(params_array.shape[1]):
+            bins = np.linspace(min_param[p], max_param[p], num_bins+1)
+            all_bins[p] = bins
+            bin_ind = np.digitize(params_array[:,p], bins)
+            for b in range(num_bins):
+                ind = np.where(bin_ind == b+1)[0]
+                av_wp[b, p] = np.mean(wp[ind], axis=0)
+                av_wp_std[b, p] = np.mean(std[ind], axis=0)
+        return rp, av_wp, av_wp_std, all_bins
+        
     
     def find_nan_log10_bins(self):
 
