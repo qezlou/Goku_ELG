@@ -10,11 +10,22 @@ import summary_stats
 import single_fid
 
 class LogLogSingleFid():
-    def __init__(self, data_dir, r_range=(0,30), fid='L2', logging_level='INFO'):
+    def __init__(self, data_dir, r_range=(0,30), fid='L2', logging_level='INFO', cleaning_method='linear_interp'):
+        """
+        data_dir: Directory where the data is stored
+        r_range: Range of r to consider
+        fid: The fiducial cosmology to consider, default is 'L2'
+        logging_level: Logging level
+        cleaning_method: Method to clean the negative bins, 
+                default is 'linear_interp'; otherwuse replace with a small
+                number, e.g. 1e-10
+        """
         self.logging_level = logging_level
         self.logger = self.configure_logging(logging_level)
         self.r_range = r_range
         self.data_dir = data_dir
+        self.cleaning_method = cleaning_method
+
 
         proj = summary_stats.ProjCorr(data_dir=self.data_dir, fid=fid, logging_level=self.logging_level)
         self.rp, wp,  self.model_err = proj.get_mean_std(r_range=self.r_range)
@@ -42,9 +53,24 @@ class LogLogSingleFid():
         return logger
 
     def clean_mssing_bins(self, wp):
-        """Remove the missing bins from the projected correlation function"""
-        # To DO: Perfrom some kind of interpolation or soemthing smarter
-        wp[wp < 0] = 1e-10
+        """Replace the negative bins with the average of the two nearest non-zero bins"""
+        if self.cleaning_method == 'linear_interp':
+            for i in range(wp.shape[0]):
+                non_zero_indices = np.where(wp[i] > 0)[0]
+                for j in range(wp.shape[1]):
+                    if wp[i,j] <= 0:
+                        left = non_zero_indices[non_zero_indices < j]
+                        right = non_zero_indices[non_zero_indices > j]
+                        if len(left) > 0 and len(right) > 0:
+                            left_idx = left[-1]
+                            right_idx = right[0]
+                            wp[i,j] = wp[i,left_idx] + (wp[i,right_idx] - wp[i,left_idx]) * (j - left_idx) / (right_idx - left_idx)
+                        elif len(left) > 0:
+                            wp[i,j] = wp[i, left[-1]]
+                        elif len(right) > 0:
+                            wp[i,j] = wp[i, right[0]]
+        elif self.cleaning_method == 'small_number':
+            wp[wp <= 0] = 1e-10
         return np.log10(wp)
     
     def loo_train_pred(self, savefile):
@@ -77,7 +103,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, default='/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/', help='Directory where the data is stored')
     parser.add_argument('--emu_type', type=str, default='LogLogSingleFid', help='Type of the emulator')
     parser.add_argument('--r_range', type=float, nargs=2, default=[0,30], help='Range of r to consider')
-    parser.add_argument('--savefile', type=str, default= '/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/train/loo_pred.hdf5', help='Save the results to a file')
+    parser.add_argument('--savefile', type=str, default= '/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/train/loo_pred_lin_interp.hdf5', help='Save the results to a file')
     args = parser.parse_args()
     
     if args.emu_type == 'LogLogSingleFid':

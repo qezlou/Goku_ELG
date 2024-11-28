@@ -213,23 +213,37 @@ class PlotProjCorrEmu(PlotCorr):
         
         PlotCorr.__init__(self, logging_level=logging_level, **kwargs)
 
-    def pred_truth(self, pred, truth, rp):
+    def pred_truth(self, pred, truth, rp, seed=None, title=None):
         """
         Plot the leave one out cross validation
         """
-        fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        if seed is not None:
+            np.random.seed(seed)
         ind = np.random.randint(0, pred.shape[0], 10)
         for c,i in enumerate(ind):
-            ax.plot(rp, 10**truth[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5 )
-            ax.plot(rp, 10**pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
-        ax.set_xscale('log')
-        ax.set_xlim(0, 30)
-        ax.set_ylim(1, 1e4)
-        ax.set_yscale('log')
-        ax.set_ylabel(r'$w_p(r_p)$')
-        ax.set_xlabel(r'$r_p$')
+            ax[0].plot(rp, 10**truth[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5 )
+            ax[0].plot(rp, 10**pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
+        ax[0].set_xscale('log')
+        ax[0].set_xlim(0, 30)
+        ax[0].set_ylim(1, 1e4)
+        ax[0].set_yscale('log')
+        ax[0].set_ylabel(r'$w_p(r_p)$')
+        ax[0].set_xlabel(r'$r_p$')
+        if title is not None:
+            ax[0].set_title(title)
+        
+        # plot histogram of LOO error
+        err = np.abs(10**pred / 10**truth - 1).flatten()
+        bins = np.logspace(-3, 0.5, 20)
+        ax[1].hist(err, bins = bins, alpha=0.5)
+        ax[1].set_xscale('log')
+        percentiles = np.percentile(err, [84, 95])
+        ax[1].set_title(f'Error distribution, 84, 95th percentiles = {np.round(percentiles,2)}')
 
-    def loo_pred_truth(self, savefile):
+        fig.tight_layout()
+
+    def loo_pred_truth(self, savefile, seed=None, title=None):
         """
         """
         with h5py.File(savefile, 'r') as f:
@@ -241,8 +255,9 @@ class PlotProjCorrEmu(PlotCorr):
         
         self.logger.info(f'Number of simualtions {pred.shape[0]}')
         
-        self.pred_truth(pred, truth, rp)
+        self.pred_truth(pred, truth, rp, seed, title)
     
+
     def pred_truth_input_space(self, n_out=5, r_range=(0, 30)):
         """
         """
@@ -270,14 +285,14 @@ class PlotProjCorrEmu(PlotCorr):
             
         fig.tight_layout()
 
-    def param_sensitivity(self, r_range=(0, 30)):
+    def param_sensitivity(self, r_range=(0, 30), cleaning_method='linear_interp'):
         """
         Plot the sensitivity of the emulator to changing the 
         parameters one at a time
         """
 
         if self.emu_type == 'LogLogSingleFid':
-            emu = wp_emus.LogLogSingleFid(data_dir=self.data_dir, r_range=r_range)
+            emu = wp_emus.LogLogSingleFid(data_dir=self.data_dir, r_range=r_range, cleaning_method=cleaning_method)
         emu.evaluate.sf.train()
         X_min, X_max = emu.evaluate.sf.X_min.numpy(), emu.evaluate.sf.X_max.numpy()
 
@@ -331,6 +346,7 @@ class PlotProjCorrEmu(PlotCorr):
             ax_ratio[ax_ind_i, ax_ind_j].set_ylabel(r'$W_p(r) \ ratio$')
             ax_ratio[ax_ind_i, ax_ind_j].set_xlabel(r'$r_p$')
             ax_ratio[ax_ind_i, ax_ind_j].set_ylim(0.9, 2.5)
+        fig.suptitle(f'Cleaning method {cleaning_method}')
         fig.tight_layout()
         fig_ratio.tight_layout()
 
