@@ -236,11 +236,18 @@ class PlotProjCorrEmu(PlotCorr):
             ax[0].set_title(title)
         
         # plot histogram of LOO error
+        assert np.all(10**truth > 0), 'Truth has negative values'
+        try:
+             assert np.all(10**pred > 0), f'Pred has negative values, pred nans: = {pred}'
+             percentile_method = np.percentile
+        except AssertionError as e:
+            percentile_method = np.nanpercentile
+        
         err = np.abs(10**pred / 10**truth - 1).flatten()
         bins = np.logspace(-3, 0.5, 20)
         ax[1].hist(err, bins = bins, alpha=0.5)
         ax[1].set_xscale('log')
-        percentiles = np.percentile(err, [84, 95])
+        percentiles = percentile_method(err, [84, 95])
         ax[1].set_title(f'Error distribution, 84, 95th percentiles = {np.round(percentiles,2)}')
 
         fig.tight_layout()
