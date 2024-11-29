@@ -89,7 +89,6 @@ class ProjCorr:
             w_p[0] = f['corr'][:]
         for i in range(1, len(self.data_files)):
             with h5py.File(op.join(self.data_dir, self.data_files[i]), 'r') as f:
-                # averagee along the line of sight, \Pi
                 w_p[i] = f['corr'][:]  
         return self.rp, w_p   
     

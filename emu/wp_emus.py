@@ -10,7 +10,7 @@ import summary_stats
 import single_fid
 
 class LogLogSingleFid():
-    def __init__(self, data_dir, r_range=(0,30), fid='L2', logging_level='INFO', cleaning_method='linear_interp'):
+    def __init__(self, data_dir, r_range=(0,30), fid='L2', cleaning_method='linear_interp', multi_bin=False, logging_level='INFO'):
         """
         data_dir: Directory where the data is stored
         r_range: Range of r to consider
@@ -37,9 +37,14 @@ class LogLogSingleFid():
         self.labels = proj.get_labels()
         assert len(self.labels) == self.Y.shape[0]
         
-        self.evaluate = single_fid.EvaluateSingleFid(X=self.X, Y=self.Y, 
-                                                     model_err=self.model_err, 
-                                                     logging_level=self.logging_level)
+        if multi_bin:
+            self.evaluate = single_fid.EvaluateSingleFidMultieBins(X=self.X, Y=self.Y,
+                                                                   model_err=self.model_err,
+                                                                   logging_level=self.logging_level)
+        else:
+            self.evaluate = single_fid.EvaluateSingleFid(X=self.X, Y=self.Y, 
+                                                        model_err=self.model_err, 
+                                                        logging_level=self.logging_level)
     
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level."""
@@ -55,6 +60,7 @@ class LogLogSingleFid():
     def clean_mssing_bins(self, wp):
         """Replace the negative bins with the average of the two nearest non-zero bins"""
         if self.cleaning_method == 'linear_interp':
+            self.logger.info('Cleaning the negative bins with linear interpolation')
             for i in range(wp.shape[0]):
                 non_zero_indices = np.where(wp[i] > 0)[0]
                 for j in range(wp.shape[1]):
@@ -70,6 +76,7 @@ class LogLogSingleFid():
                         elif len(right) > 0:
                             wp[i,j] = wp[i, right[0]]
         elif self.cleaning_method == 'small_number':
+            self.logger.info('Cleaning the negative bins with a small number')
             wp[wp <= 0] = 1e-10
         return np.log10(wp)
     
@@ -84,7 +91,7 @@ class LogLogSingleFid():
         Train the model on all simulations and comapre with the truth
         """
         self.evaluate.sf.train()
-        pred, var_pred = self.evaluate.sf.predict(self.X)
+        pred, var_pred = self.evaluate.predict(self.X)
         return pred, self.Y, self.rp
     
     def leave_bunch_out(self, n_out=5):
@@ -102,12 +109,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Get LOO for the single fidelity emulator')
     parser.add_argument('--data_dir', type=str, default='/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/', help='Directory where the data is stored')
     parser.add_argument('--emu_type', type=str, default='LogLogSingleFid', help='Type of the emulator')
+    parser.add_argument('--multi_bin', type=int, default=0, help='Build one mu per rp bin?')
     parser.add_argument('--r_range', type=float, nargs=2, default=[0,30], help='Range of r to consider')
-    parser.add_argument('--savefile', type=str, default= '/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/train/loo_pred_lin_interp.hdf5', help='Save the results to a file')
+    parser.add_argument('--savefile', type=str, default= '/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/train/loo_pred_lin_interp_multi_bin.hdf5', help='Save the results to a file')
     args = parser.parse_args()
     
     if args.emu_type == 'LogLogSingleFid':
-        emu = LogLogSingleFid(data_dir=args.data_dir, r_range=args.r_range, logging_level='INFO')
+        emu = LogLogSingleFid(data_dir=args.data_dir, r_range=args.r_range, multi_bin=args.multi_bin, logging_level='INFO')
         emu.loo_train_pred(savefile=args.savefile)
 
 

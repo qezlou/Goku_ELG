@@ -2,9 +2,7 @@
 Train a single fidelity emualtor
 """
 import logging
-import os.path as op
 import numpy as np
-import argparse
 import h5py
 import gpflow
 from gpflow.models import GPR
@@ -12,9 +10,6 @@ from gpflow.kernels import SquaredExponential
 from gpflow.optimizers import Scipy
 from gpflow.utilities import print_summary
 import tensorflow as tf
-from tensorflow.keras.losses import mean_squared_error
-
-import summary_stats
 
 class SingleFid:
 
@@ -99,7 +94,8 @@ class SingleFid:
         self.model = GPR(data=(X_train_norm, Y_train), kernel=self.kernel, 
                  mean_function=MeanFunction())
 
-        self.logger.info(print_summary(self.model))
+        if self.logger.level == logging.DEBUG:
+            self.logger.debug(print_summary(self.model))
         
         ## I get this error for the noise:
         ## Shape mismatch.The variable shape (), and the assigned value shape (65,)
@@ -114,8 +110,8 @@ class SingleFid:
         optimizer.minimize(self.model.training_loss, 
                         variables=self.model.trainable_variables,
                         options=dict(maxiter=max_iter))
-        self.logger.info(f'trained hyperparameters: lengthscales: {self.kernel.lengthscales.numpy()}')
-        self.logger.info(f'trained hyperparameters: variance: {self.kernel.variance.numpy()}')
+        self.logger.debug(f'trained hyperparameters: lengthscales: {self.kernel.lengthscales.numpy()}')
+        self.logger.debug(f'trained hyperparameters: variance: {self.kernel.variance.numpy()}')
         # Get the training loss
         #training_loss = self.model.training_loss().numpy()
         #self.logger.info(f'Training loss: {training_loss}')
@@ -152,6 +148,18 @@ class EvaluateSingleFid:
         logger.addHandler(console_handler)
         return logger
     
+    def train(self):
+        """
+        Train the model
+        """
+        self.sf.train()
+
+    def predict(self, X):
+        """
+        Predict the output for the given input
+        """
+        return self.sf.predict(X)
+
     def loo_train_pred(self, rp, savefile=None, labels=None):
         """
         Iterate over the samples to leave one out and train the model
@@ -220,6 +228,101 @@ class EvaluateSingleFid:
         self.sf.train(X_train, Y_train)
 
         return  self.sf.model, indices
+
+class EvaluateSingleFidMultieBins(EvaluateSingleFid):
+    """Build a single fidelity emulator for each bin of the summary statistics"""
+    def __init__(self, X, Y, model_err, logging_level='INFO'):
+        """
+        """
+        self.logger = self.configure_logging(logging_level)
+        self.evalutors = []
+        self.X = X
+        self.Y = Y
+        self.model_err = model_err
+
+        self.ndim_input = X.shape[1]
+        self.ndim_output = Y.shape[1]
+        self.n_samples = X.shape[0]
+        
+        for i in range(self.ndim_output):
+            if i == 0:
+                logging_level_to_pass = logging_level
+            else:
+                logging_level_to_pass = 'ERROR'
+            self.evalutors.append(EvaluateSingleFid(X, Y[:,i][:, None], model_err[:,i][:, None], logging_level_to_pass))
+
+    def configure_logging(self, logging_level):
+        """Sets up logging based on the provided logging level."""
+        logger = logging.getLogger('EvaluateSingleFidMultieBins')
+        logger.setLevel(logging_level)
+        console_handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        return logger
+    
+    def train(self, X_train=None, Y_train=None):
+        """
+        Train the model
+        """
+        for i in range(self.ndim_output):
+            if X_train is not None:
+                self.evalutors[i].sf.train(X_train, Y_train[:,i][:, None])
+            else:
+                self.evalutors[i].sf.train()
+    
+    def predict(self, X):
+        """
+        Predict the output for the given input
+        """
+        Y_pred = np.zeros((X.shape[0], self.ndim_output))
+        Y_var = np.zeros((X.shape[0], self.ndim_output))
+        for i in range(self.ndim_output):
+            Y_pred[:,i], Y_var[:,i] = self.evalutors[i].predict(X)
+        return Y_pred, Y_var
+    
+    def loo_train_pred(self, rp, savefile=None, labels=None):
+        """
+        Iterate over the samples to leave one out and train the model
+        Parameters:
+        -------
+        rp: array
+            The projected rp radii that used for training
+        savefile:
+            The file to save the results to
+        """
+        mean_pred = np.zeros((self.n_samples, self.ndim_output) )
+        var_pred = np.zeros((self.n_samples, self.ndim_output) )
+        
+        # Just for logging
+        progress = np.arange(0, 1, 0.01)
+        print_marks = (progress*self.n_samples).astype(int)
+
+        for i in range(self.n_samples):
+            if i in print_marks:
+                self.logger.info(f'Progress: {i/self.n_samples*100:.2f}%')
+            X_train = np.delete(self.X, i, axis=0)
+            Y_train = np.delete(self.Y, i, axis=0)
+            X_test = self.X[i][np.newaxis, :]
+            Y_test = self.Y[i]
+            self.logger.debug(f'X_test shape: {X_test.shape}, Y_test shape: {Y_test.shape}')
+            self.train(X_train, Y_train)
+            mean_pred[i], var_pred[i] = self.predict(X_test)
+        if savefile is not None:
+            with h5py.File(savefile, 'w') as f:
+                f.create_dataset('pred', data=mean_pred)
+                f.create_dataset('var_pred', data=var_pred)
+                f.create_dataset('truth', data=self.Y)
+                f.create_dataset('X', data=self.X)
+                f.create_dataset('rp', data=rp)
+                if labels is not None:
+                    f.create_dataset('labels', data=labels)
+        else:
+            return mean_pred, var_pred
+    
+    def leave_bunch_out(self, n_out=1):
+        raise NotImplementedError('This is not implemented yet, but it is easy '+
+                                  'to copy the code from the EvaluateSingleFid class')
 
 class TestSingleFiled():
     

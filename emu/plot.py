@@ -198,6 +198,8 @@ class PlotCorr():
             ax[c].set_title(labels[c])
         fig.tight_layout()
         plt.show()
+
+    
     
 class PlotProjCorrEmu(PlotCorr):
     """
@@ -293,7 +295,7 @@ class PlotProjCorrEmu(PlotCorr):
 
         if self.emu_type == 'LogLogSingleFid':
             emu = wp_emus.LogLogSingleFid(data_dir=self.data_dir, r_range=r_range, cleaning_method=cleaning_method)
-        emu.evaluate.sf.train()
+        emu.evaluate.train()
         X_min, X_max = emu.evaluate.sf.X_min.numpy(), emu.evaluate.sf.X_max.numpy()
 
         lower, mid, upper = 0.1, 0.5, 0.9
@@ -318,7 +320,7 @@ class PlotProjCorrEmu(PlotCorr):
                     X_eval[p] = lower[p]
                 else:
                     X_eval[p] = upper[p]
-                pred, var = emu.evaluate.sf.predict(X_eval[None,:])
+                pred, var = emu.evaluate.predict(X_eval[None,:])
                 pred = pred.numpy().squeeze()
                 var = var.numpy().squeeze()
                 lower_upper_pred.append(pred)
