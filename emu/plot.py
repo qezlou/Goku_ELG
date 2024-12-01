@@ -35,7 +35,7 @@ class PlotCorr():
         
         return logger
 
-    def compare_cosmos(self, corr_files, mode='projected', savefig=None, r_range=(0,100), legend=False, show_cosmo=False):
+    def compare_cosmos(self, corr_files, mode='projected', savefig=None, r_range=(0,100), legend=False, show_cosmo=False, errorbar=False):
         """
         Compare the correlation functions of different cosmologies
         Parameters:
@@ -66,11 +66,14 @@ class PlotCorr():
                 r = f['r'][:]
                 if mode=='projected' or mode=='1d':
                     corr = f['corr'][:]
-                    corr = f['corr'][:]
+                    std = np.std(f['corr'][:], axis=0)
                 corr = np.mean(corr, axis=0)
             ind = np.where((r>r_range[0]) & (r<r_range[1]))
-            ax.scatter(r[ind], corr[ind], alpha=0.5, marker='o', s=5)
-            ax.plot(r[ind], corr[ind], label=plt_lb, alpha=0.5)
+            #ax.scatter(r[ind], corr[ind], alpha=0.5, marker='o', s=5)
+            if errorbar:
+                ax.errorbar(r[ind], corr[ind], yerr=std[ind], label=plt_lb, marker='o', ls='--', alpha=0.35, capsize=5)
+            else:
+                ax.plot(r[ind], corr[ind], label=plt_lb, marker='o', alpha=0.5)
 
         if mode == 'projected':
             ax.set_xscale('log')
@@ -199,7 +202,50 @@ class PlotCorr():
         fig.tight_layout()
         plt.show()
 
-    
+    def param_distribution(self, bad_ind, param_arrays, param_names):
+        """
+        Plotting the distribution of the cosmo paramters
+         for a list of files
+        """
+
+        fig, ax = plt.subplots(2, 5, figsize=(16, 8))
+        for p in range(param_arrays.shape[1]):
+            ax_indx, ax_indy = p//5, p%5
+            ax[ax_indx, ax_indy].hist(param_arrays[:,p], density=True ,bins=20, alpha=0.5, label='All sims')
+            ax[ax_indx, ax_indy].hist(param_arrays[bad_ind,p], density=True, bins=20, alpha=0.5, label='bad sims')
+            ax[ax_indx, ax_indy].set_xlabel(f"{self.latex_labels[param_names[p]]}")
+            if p==0:
+                ax[ax_indx, ax_indy].legend()
+            
+
+        fig.tight_layout()
+
+    def outlier_sims(self, data_dir, thresh=0.5, mode='projected', fid='L2', savefig=None):
+        """
+        Plotting the sims with large varation in HOD realizaitons
+        """
+        if mode == 'projected':
+            proj = summary_stats.ProjCorr(data_dir=data_dir, fid='L2', logging_level='ERROR')
+            rp, wp, model_err = proj.get_mean_std(r_range=(0,30))
+            relative_err = model_err / wp
+        else:
+            raise NotImplementedError('Only projected correlation function is implemented')
+        
+        fig, ax = plt.subplots(1, 1, figsize=(4, 3))
+        ## Plot the HOD mdoel error distribution
+        _ = ax.hist(relative_err.flatten(), bins = np.linspace(0, 1, 100), histtype='step', color='k', label='Model Error')
+        ax.set_title(f'fraction of w_p bins with rel error > 0.5 = {(np.sum(relative_err > 0.5) / relative_err.size):.2f}')
+        ax.set_xlabel(r'$\sigma_{HOD} / \mu_{HOD}$')
+
+        ind = np.where(relative_err > thresh)
+        bad_sims = np.unique(ind[0])
+
+        params_array = proj.get_params_array()
+        self.param_distribution(bad_sims, params_array, proj.param_names, label)
+
+
+
+
     
 class PlotProjCorrEmu(PlotCorr):
     """
@@ -215,17 +261,26 @@ class PlotProjCorrEmu(PlotCorr):
         
         PlotCorr.__init__(self, logging_level=logging_level, **kwargs)
 
-    def pred_truth(self, pred, truth, rp, seed=None, title=None):
+    def pred_truth(self, pred, truth, rp, model_err=None, seed=None, title=None, log_y=True):
         """
         Plot the leave one out cross validation
         """
-        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        if model_err is not None:
+            fig, ax = plt.subplots(1, 3, figsize=(12, 4))
+        else:
+            fig, ax = plt.subplots(1, 2, figsize=(10, 5))
         if seed is not None:
             np.random.seed(seed)
         ind = np.random.randint(0, pred.shape[0], 10)
         for c,i in enumerate(ind):
-            ax[0].plot(rp, 10**truth[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5 )
-            ax[0].plot(rp, 10**pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
+            if log_y:
+                ax[0].plot(rp, 10**truth[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5 )
+                ax[0].plot(rp, 10**pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
+            else:
+                ax[0].plot(rp, truth[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5)
+                ax[0].plot(rp, pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
+            if c == 0:
+                ax[0].legend()
         ax[0].set_xscale('log')
         ax[0].set_xlim(0, 30)
         ax[0].set_ylim(1, 1e4)
@@ -233,7 +288,7 @@ class PlotProjCorrEmu(PlotCorr):
         ax[0].set_ylabel(r'$w_p(r_p)$')
         ax[0].set_xlabel(r'$r_p$')
         if title is not None:
-            ax[0].set_title(title)
+            ax[0].set_title(title, fontsize=8)
         
         # plot histogram of LOO error
         assert np.all(10**truth > 0), 'Truth has negative values'
@@ -243,16 +298,29 @@ class PlotProjCorrEmu(PlotCorr):
         except AssertionError as e:
             percentile_method = np.nanpercentile
         
-        err = np.abs(10**pred / 10**truth - 1).flatten()
+        if log_y:
+            err = np.abs(10**pred / 10**truth - 1).flatten()
+        else:
+            err = np.abs(pred / truth - 1).flatten()
         bins = np.logspace(-3, 0.5, 20)
         ax[1].hist(err, bins = bins, alpha=0.5)
         ax[1].set_xscale('log')
         percentiles = percentile_method(err, [84, 95])
-        ax[1].set_title(f'Error distribution, 84, 95th percentiles = {np.round(percentiles,2)}')
+        ax[1].set_title(f'Error distribution, 84, 95th percentiles = {np.round(percentiles,2)}', fontsize=10)
 
+        if model_err is not None:
+            if log_y:
+                relative_err = (10**pred - 10**truth) / 10**model_err
+            else:
+                relative_err = (pred - truth) / model_err
+            ax[2].hist(relative_err.flatten(), bins=np.linspace(-5, 5, 50), alpha=0.5)
+            ax[2].set_xlabel(r'$(pred - truth)/\sigma_{pred}$')
+            frac_within_1sigma = np.sum(np.abs(relative_err) < 1) / relative_err.size
+            ax[2].set_title('Fraction within '+r'$1 \sigma_{pred} = \ $'+f'{frac_within_1sigma:.2f}', fontsize=10)
+        
         fig.tight_layout()
 
-    def loo_pred_truth(self, savefile, seed=None, title=None):
+    def loo_pred_truth(self, savefile, seed=None, title=None, log_y=True):
         """
         """
         with h5py.File(savefile, 'r') as f:
@@ -264,7 +332,7 @@ class PlotProjCorrEmu(PlotCorr):
         
         self.logger.info(f'Number of simualtions {pred.shape[0]}')
         
-        self.pred_truth(pred, truth, rp, seed, title)
+        self.pred_truth(pred, truth, rp, model_err=np.sqrt(var_pred), seed=seed, title=title, log_y=log_y)
     
 
     def pred_truth_input_space(self, n_out=5, r_range=(0, 30)):
@@ -301,7 +369,7 @@ class PlotProjCorrEmu(PlotCorr):
         """
 
         if self.emu_type == 'LogLogSingleFid':
-            emu = wp_emus.LogLogSingleFid(data_dir=self.data_dir, r_range=r_range, cleaning_method=cleaning_method)
+            emu = wp_emus.SingleFid(data_dir=self.data_dir, r_range=r_range, cleaning_method=cleaning_method)
         emu.evaluate.train()
         X_min, X_max = emu.evaluate.sf.X_min.numpy(), emu.evaluate.sf.X_max.numpy()
 
@@ -330,16 +398,16 @@ class PlotProjCorrEmu(PlotCorr):
                 pred, var = emu.evaluate.predict(X_eval[None,:])
                 pred = pred.numpy().squeeze()
                 var = var.numpy().squeeze()
-                lower_upper_pred.append(pred)
+                lower_upper_pred.append(10**pred)
                 ax_ind_i, ax_ind_j = p//5, p%5
                 # Just for the sake of plotting:
                 if list(self.latex_labels.keys())[p] == 'scalar_amp':
                     param_value = X_eval[p]*1e9
                 else:
                     param_value = X_eval[p]
-                ax[ax_ind_i, ax_ind_j].plot(emu.rp,  pred, label=f'{label} = {param_value:.2f}', alpha=0.5, color=f'C{b}')
+                ax[ax_ind_i, ax_ind_j].plot(emu.rp,  10**pred, label=f'{label} = {param_value:.2f}', alpha=0.5, color=f'C{b}')
             
-            ax[ax_ind_i, ax_ind_j].set_ylim(3e-1, 1e1)
+            #ax[ax_ind_i, ax_ind_j].set_ylim(3e-1, 1e1)
             ax[ax_ind_i, ax_ind_j].set_title(label)
             ax[ax_ind_i, ax_ind_j].set_xscale('log')
             ax[ax_ind_i, ax_ind_j].set_yscale('log')
@@ -348,14 +416,14 @@ class PlotProjCorrEmu(PlotCorr):
             ax[ax_ind_i, ax_ind_j].legend()
 
 
-            ax_ratio[ax_ind_i, ax_ind_j].hlines(1, emu.rp.min(), emu.rp.max(), color='C0', ls='--')
-            ax_ratio[ax_ind_i, ax_ind_j].plot(emu.rp, lower_upper_pred[0]/lower_upper_pred[1], label=f'{label} = {param_value:.2f}', alpha=0.5, color=f'C{b}')
+            ax_ratio[ax_ind_i, ax_ind_j].hlines(0, emu.rp.min(), emu.rp.max(), color='C0', ls='--')
+            ax_ratio[ax_ind_i, ax_ind_j].plot(emu.rp, lower_upper_pred[0]/lower_upper_pred[1] - 1, label=f'{label} = {param_value:.2f}', alpha=0.5, color=f'C{b}')
             ax_ratio[ax_ind_i, ax_ind_j].set_title(label)
             ax_ratio[ax_ind_i, ax_ind_j].set_xscale('log')
-            ax_ratio[ax_ind_i, ax_ind_j].set_ylabel(r'$W_p(r) \ ratio$')
+            ax_ratio[ax_ind_i, ax_ind_j].set_ylabel(r'$W_{p,2} / W_{p,1} (r) - 1$')
             ax_ratio[ax_ind_i, ax_ind_j].set_xlabel(r'$r_p$')
-            ax_ratio[ax_ind_i, ax_ind_j].set_ylim(0.9, 2.5)
-        fig.suptitle(f'Cleaning method {cleaning_method}')
+            #ax_ratio[ax_ind_i, ax_ind_j].set_ylim(0.9, 2.5)
+        fig.suptitle(f'replcing negative wp bins with  {cleaning_method}')
         fig.tight_layout()
         fig_ratio.tight_layout()
 

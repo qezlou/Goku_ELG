@@ -28,7 +28,7 @@ class SingleFid:
         (self.X_min,  self.X_max, 
          self.mean_func, self.model_err) = self.normalize(X, Y, model_err)
         
-        self .model = None
+        self.model = None
 
     
     def configure_logging(self, logging_level):
@@ -148,11 +148,14 @@ class EvaluateSingleFid:
         logger.addHandler(console_handler)
         return logger
     
-    def train(self):
+    def train(self, X_train=None, Y_train=None):
         """
         Train the model
         """
-        self.sf.train()
+        if X_train is not None:
+            self.sf.train(X_train, Y_train)
+        else:
+            self.sf.train()
 
     def predict(self, X):
         """
@@ -229,7 +232,7 @@ class EvaluateSingleFid:
 
         return  self.sf.model, indices
 
-class EvaluateSingleFidMultieBins(EvaluateSingleFid):
+class EvaluateSingleFidMultiBins(EvaluateSingleFid):
     """Build a single fidelity emulator for each bin of the summary statistics"""
     def __init__(self, X, Y, model_err, logging_level='INFO'):
         """
@@ -253,7 +256,7 @@ class EvaluateSingleFidMultieBins(EvaluateSingleFid):
 
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level."""
-        logger = logging.getLogger('EvaluateSingleFidMultieBins')
+        logger = logging.getLogger('EvaluateSingleFidMultiBins')
         logger.setLevel(logging_level)
         console_handler = logging.StreamHandler()
         formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
@@ -267,9 +270,9 @@ class EvaluateSingleFidMultieBins(EvaluateSingleFid):
         """
         for i in range(self.ndim_output):
             if X_train is not None:
-                self.evalutors[i].sf.train(X_train, Y_train[:,i][:, None])
+                self.evalutors[i].train(X_train, Y_train[:,i][:, None])
             else:
-                self.evalutors[i].sf.train()
+                self.evalutors[i].train(self.X, self.Y[:,i][:, None])
     
     def predict(self, X):
         """
