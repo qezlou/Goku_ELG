@@ -281,7 +281,7 @@ class Corr():
             self.nbkit_comm.Barrier()
             # Apply RSD to the galaxies
             hod['RSDPosition'] = (hod['Position'] + hod['VelocityOffset'] * los)%halos.attrs['BoxSize']
-            mesh = hod.to_mesh(position='RSDPosition', Nmesh=1000, compensated=True)
+            mesh = hod.to_mesh(position='RSDPosition', Nmesh=Nmesh, compensated=True)
             pk_gal_zspace = FFTPower(mesh, mode=mode).power
             self.nbkit_comm.Barrier()
             all_pks.append(pk_gal_zspace['power'].real)
