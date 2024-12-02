@@ -221,8 +221,8 @@ class Corr():
         elif mode=='2d':
             all_corrs = np.zeros((seeds.size, len(r_edges)-1, Nmu))
         for i, sd in enumerate(seeds):
-            if (i in [10, 25, 50, 75]) and self.nbkit_rank==0:
-                self.logger.debug(f'progress in seeds pool {i} %')
+            if (i in [0, 10, 25, 50, 75]) and self.nbkit_rank==0:
+                self.logger.info(f'Color {self.color}, progress in seeds pool {i} % for {pig_dir}')
             if i==0:
                 hod = halos.populate(hod_model, seed=sd, **model_params)
             else:
