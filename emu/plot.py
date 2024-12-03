@@ -19,7 +19,7 @@ class PlotCorr():
                          'w0_fld', 'wa_fld', 'N_ur', 'alpha_s', 'm_nu']
         else:
             self.params = ['scalar_amp', 'ns']
-        self.latex_labels = {'omega0': r'$\Omega_0$', 'omegab': r'$\Omega_b$', 
+        self.latex_labels = {'omega0': r'$\Omega_m$', 'omegab': r'$\Omega_b$', 
                              'hubble': r'$h$', 'scalar_amp': r'$A_s$', 'ns': r'$n_s$', 
                              'w0_fld': r'$w_0$', 'wa_fld': r'$w_a$', 'N_ur': r'$N_{ur}$', 
                              'alpha_s': r'$\alpha_s$', 'm_nu': r'$m_{\nu}$'}
@@ -35,7 +35,7 @@ class PlotCorr():
         
         return logger
 
-    def compare_cosmos(self, corr_files, mode='projected', savefig=None, r_range=(0,100), legend=False, show_cosmo=False, errorbar=False):
+    def compare_cosmos(self, corr_files, fig=None, ax=None, mode='projected', savefig=None, r_range=(0,100), legend=False, show_cosmo=False, errorbar=False):
         """
         Compare the correlation functions of different cosmologies
         Parameters:
@@ -43,7 +43,8 @@ class PlotCorr():
         save_files: list
             List of files to compare
         """
-        fig, ax = plt.subplots(figsize=(8, 8))
+        if fig is None:
+            fig, ax = plt.subplots(figsize=(5, 5))
         if show_cosmo:
             plt_labels = self.get_cosmo_params(self.get_labels(corr_files))
 
@@ -83,7 +84,7 @@ class PlotCorr():
         if show_cosmo or legend:
             ax.legend()
         if savefig is not None:
-            plt.savefig(op.join(self.save_dir, savefig))
+            plt.savefig(savefig)
             plt.close()
     
     def bin_in_param_space(self, data_dir, fid, num_bins=2, mode='projected', r_range=(0, 100), savefig=None):
@@ -122,26 +123,34 @@ class PlotCorr():
                 a.set_title(pname)
         fig_ratio.tight_layout()
         fig.tight_layout()
+        if savefig is not None:
+            fig.savefig(savefig)
 
-    def compare_fidelities(self, save_dir, show_cosmo=False):
+    def compare_fidelities(self, save_dir, r_range=(0,100), show_cosmo=False, errorbar=False):
         """
         Compare the fidelities of the different cosmologies
         """
 
         hf_corrs, l2_corrs = self.get_comman_pairs(save_dir)
-        for i in range(len(hf_corrs)):
-            self.compare_cosmos([hf_corrs[i], l2_corrs[i]], mode='projected', legend=True, show_cosmo=show_cosmo)
+        pair_count = len(hf_corrs)
+        fig, ax = plt.subplots(int(np.ceil(pair_count/3)), 3, figsize=(12, 10))
+        for i in range(pair_count):
+            indx, indy = i//3, i%3
+            self.compare_cosmos([hf_corrs[i], l2_corrs[i]], fig=fig, ax=ax[indx, indy],  mode='projected', legend=True, show_cosmo=show_cosmo, errorbar=errorbar, r_range=r_range)
+        fig.tight_layout()
     
     def get_comman_pairs(self, save_dir):
         """
         Get the common pairs between the different cosmologies
         """
         hf_corrs = glob(op.join(save_dir, '*Box1000_Part3000*'))
+        self.logger.info(f'Number of HF files = {len(hf_corrs)}')
         numbers = [int(op.basename(f).split('_')[-1].split('.')[0]) for f in hf_corrs]
         l2_corrs = [glob(op.join(save_dir,  f'*Box250_Part750_{str(n).rjust(4, "0")}*')) for n in numbers]
+        self.logger.info(f'Number of L2 files = {len(l2_corrs)}')
         hf_corrs = [f for f in hf_corrs if len(l2_corrs[numbers.index(int(op.basename(f).split('_')[-1].split('.')[0]))])>0]
         l2_corrs = [item for sublist in l2_corrs for item in sublist]
-
+        self.logger.info(f'Number of common pairs = {len(hf_corrs)}')
         return hf_corrs, l2_corrs
     
     def load_ics(self, ic_file='all_ICs.json'):
@@ -220,13 +229,13 @@ class PlotCorr():
 
         fig.tight_layout()
 
-    def outlier_sims(self, data_dir, thresh=0.5, mode='projected', fid='L2', savefig=None):
+    def outlier_sims(self, data_dir, thresh=0.5, r_range=(0,30), mode='projected', fid='L2', savefig=None):
         """
         Plotting the sims with large varation in HOD realizaitons
         """
         if mode == 'projected':
             proj = summary_stats.ProjCorr(data_dir=data_dir, fid='L2', logging_level='ERROR')
-            rp, wp, model_err = proj.get_mean_std(r_range=(0,30))
+            rp, wp, model_err = proj.get_mean_std(r_range=r_range)
             relative_err = model_err / wp
         else:
             raise NotImplementedError('Only projected correlation function is implemented')
@@ -234,14 +243,14 @@ class PlotCorr():
         fig, ax = plt.subplots(1, 1, figsize=(4, 3))
         ## Plot the HOD mdoel error distribution
         _ = ax.hist(relative_err.flatten(), bins = np.linspace(0, 1, 100), histtype='step', color='k', label='Model Error')
-        ax.set_title(f'fraction of w_p bins with rel error > 0.5 = {(np.sum(relative_err > 0.5) / relative_err.size):.2f}')
+        ax.set_title(f'fraction of w_p bins with rel error > {thresh} = {(np.sum(relative_err > thresh) / relative_err.size):.2f}')
         ax.set_xlabel(r'$\sigma_{HOD} / \mu_{HOD}$')
 
         ind = np.where(relative_err > thresh)
         bad_sims = np.unique(ind[0])
 
         params_array = proj.get_params_array()
-        self.param_distribution(bad_sims, params_array, proj.param_names, label)
+        self.param_distribution(bad_sims, params_array, proj.param_names)
 
 
 
