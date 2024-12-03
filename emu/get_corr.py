@@ -106,7 +106,10 @@ class Corr():
         Returns
         -------
         pigs : dict
-            dictionary containing the PIG directories and the simulation parameters
+            dictionary containing :
+            'pig_dirs': The PIG directories 
+            'params': The simulation parameters
+            'sim_tags': The directory name holding the sims
         """
         sim_tags = [t for t in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, t))]
         sim_dirs = [os.path.join(base_dir, t) for t in sim_tags]
@@ -340,7 +343,7 @@ class Corr():
             
         return result, mbins
     
-    def fix_hod_all_pigs(self, base_dir, hod_model, stat='corr', mode='1d', pimax=None, seeds=[42], z=2.5, fft_model=False, savedir = '/work2/06536/qezlou/Goku/corr_funcs_smaller_bins/'):
+    def fix_hod_all_pigs(self, base_dir, hod_model, avoid_sims=[], stat='corr', mode='1d', pimax=None, seeds=[42], z=2.5, fft_model=False, savedir = '/work2/06536/qezlou/Goku/corr_funcs_smaller_bins/'):
         """
         Iterate over all FOF Catalogs at redshift z in `base_dir` directory keeping
         HOD paramters the same. We get manny realizations of the HOD populated catalogs.
@@ -355,7 +358,7 @@ class Corr():
         """
         
         pigs = self.get_pig_dirs(base_dir, z=z)
-        keep = self._remove_computed_snaps(pigs, savedir)
+        keep = self._remove_computed_snaps(pigs, savedir, avoid_sims)
 
         r_edges = np.logspace(-1.5, np.log10(2), 8)
         r_edges = np.append(r_edges, np.logspace(np.log10(2), np.log10(30), 10)[1:])
@@ -366,7 +369,7 @@ class Corr():
             r_edges = np.append(r_edges, np.logspace(np.log10(30), np.log10(200), 100)[1:])
         
         if self.rank ==0:
-            self.logger.info(f'Total existing sims {len(pigs["sim_tags"])}, but only {keep.size} of them are not yet computed, stat = {stat}, mode = {mode}')
+            self.logger.info(f'Total existing sims {len(pigs["sim_tags"])}, but only {keep.size} of them are not yet computed or not avoided, stat = {stat}, mode = {mode}')
             self.logger.info(f'r_edges = {r_edges}')
             self.logger.info(f'len(seeds) = {len(seeds)}')
         # Distribute the jobs accross the available tasks, i.e. self.nbkit_comm_counts
@@ -395,13 +398,13 @@ class Corr():
 
             except Exception as e:
                 if self.rank ==0:
-                    self.logger.info(f'Skipping, {pigs["sim_tags"][i]} because {e}')
+                    self.logger.info(f'color {self.color} | Skipping, {pigs["sim_tags"][i]} because {e}')
                 continue
             self.nbkit_comm.Barrier()
             
             save_file = os.path.join(savedir, save_file)
             if self.nbkit_rank ==0:
-                self.logger.info(f'save_file = {save_file}')
+                self.logger.info(f'Color {self.color} | save_file = {save_file}')
                 with h5py.File(save_file, 'w') as f:
                     if stat == 'corr':
                         f['r'] = ( r_edges[:-1] + r_edges[1:] ) / 2
@@ -411,16 +414,20 @@ class Corr():
                     f['seeds'] = seeds
         self.comm.Barrier()
         
-    def _remove_computed_snaps(self, pigs, save_dir):
+    def _remove_computed_snaps(self, pigs, save_dir, avoid_sims):
         """
         Remove the simulations from the list
         """
+        if len(avoid_sims) > 0:
+            avoid_sims_string = [str(a).rjust(4,'0') for a in avoid_sims]
+        else:
+            avoid_sims_string = []
         if self.rank == 0:
             remove = []
             for i in range(len(pigs['sim_tags'])):
                 save_file=f'Zheng07_seeds_{pigs["sim_tags"][i]}.hdf5'
                 savefile = os.path.join(save_dir, save_file)
-                if os.path.exists(savefile):
+                if os.path.exists(savefile) or pigs["sim_tags"][i].split("_")[-1] in avoid_sims_string:
                     remove.append(i)
             remove = np.array(remove)
             keep = np.array(list(set(np.arange(len(pigs['sim_tags']))) - set(remove)), dtype='i')
@@ -452,6 +459,7 @@ if __name__ == '__main__':
     parser.add_argument('--hod_model', required=False, type=str, default='Zheng07Model', help='"power" or "corr"')
     parser.add_argument('--seed', required=False, type=int, default=127, help='fix to have same list of seeds defined below')
     parser.add_argument('--realizations', required=False, type=int, default=100, help='fix to have same list of seeds defined below')
+    parser.add_argument('--avoid_sims', type=int, nargs='*', default=[], help='Range of r to consider')
 
     args = parser.parse_args()
     if args.logging_level == 'INFO':
@@ -471,8 +479,12 @@ if __name__ == '__main__':
 
     if args.pimax == 0:
         args.pimax = None
+    print(args.avoid_sims)
+    
     with CurrentMPIComm.enter(corr.nbkit_comm):
         corr.fix_hod_all_pigs(args.base_dir, hod_model=hod_model, seeds=seeds, 
                               z=args.z, stat=args.stat, savedir=args.savedir,
                               mode=args.mode, pimax= args.pimax,
-                              fft_model=args.fft_model)
+                              fft_model=args.fft_model,
+                              avoid_sims=args.avoid_sims)
+    
