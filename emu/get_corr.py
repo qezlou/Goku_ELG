@@ -111,7 +111,8 @@ class Corr():
             'params': The simulation parameters
             'sim_tags': The directory name holding the sims
         """
-        sim_tags = [t for t in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, t))]
+        # Find all the directories in `base_dir` that look like a snapshot
+        sim_tags = [t for t in os.listdir(base_dir) if ( os.path.isdir(os.path.join(base_dir, t)) and ('Box' in os.path.join(base_dir, t)) )]
         sim_dirs = [os.path.join(base_dir, t) for t in sim_tags]
         pigs = {'sim_tags':sim_tags, 'pig_dirs':[], 'params':[]}
         if self.rank == 0:
