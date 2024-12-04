@@ -344,7 +344,7 @@ class Corr():
             
         return result, mbins
     
-    def fix_hod_all_pigs(self, base_dir, hod_model, avoid_sims=[], stat='corr', mode='1d', pimax=None, seeds=[42], z=2.5, fft_model=False, savedir = '/work2/06536/qezlou/Goku/corr_funcs_smaller_bins/'):
+    def fix_hod_all_pigs(self, base_dir, hod_model, avoid_sims=[], only_sims=[], stat='corr', mode='1d', pimax=None, seeds=[42], z=2.5, fft_model=False, savedir = '/work2/06536/qezlou/Goku/corr_funcs_smaller_bins/'):
         """
         Iterate over all FOF Catalogs at redshift z in `base_dir` directory keeping
         HOD paramters the same. We get manny realizations of the HOD populated catalogs.
@@ -359,7 +359,7 @@ class Corr():
         """
         
         pigs = self.get_pig_dirs(base_dir, z=z)
-        keep = self._remove_computed_snaps(pigs, savedir, avoid_sims)
+        keep = self._remove_computed_snaps(pigs, savedir, avoid_sims, only_sims)
 
         r_edges = np.logspace(-1.5, np.log10(2), 8)
         r_edges = np.append(r_edges, np.logspace(np.log10(2), np.log10(30), 10)[1:])
@@ -415,7 +415,7 @@ class Corr():
                     f['seeds'] = seeds
         self.comm.Barrier()
         
-    def _remove_computed_snaps(self, pigs, save_dir, avoid_sims):
+    def _remove_computed_snaps(self, pigs, save_dir, avoid_sims=[],  only_sims=[]):
         """
         Remove the simulations from the list
         """
@@ -423,13 +423,22 @@ class Corr():
             avoid_sims_string = [str(a).rjust(4,'0') for a in avoid_sims]
         else:
             avoid_sims_string = []
+        if len(only_sims) > 0:
+            only_sims_string = [str(a).rjust(4,'0') for a in only_sims]
+        else:
+            only_sims_string = []
+        
         if self.rank == 0:
             remove = []
             for i in range(len(pigs['sim_tags'])):
                 save_file=f'Zheng07_seeds_{pigs["sim_tags"][i]}.hdf5'
                 savefile = os.path.join(save_dir, save_file)
-                if os.path.exists(savefile) or pigs["sim_tags"][i].split("_")[-1] in avoid_sims_string:
-                    remove.append(i)
+                if len(only_sims_string) == 0:
+                    if os.path.exists(savefile) or pigs["sim_tags"][i].split("_")[-1] in avoid_sims_string:
+                        remove.append(i)
+                else:
+                    if not (pigs["sim_tags"][i].split("_")[-1] in only_sims_string):
+                        remove.append(i)
             remove = np.array(remove)
             keep = np.array(list(set(np.arange(len(pigs['sim_tags']))) - set(remove)), dtype='i')
             keep = np.ascontiguousarray(keep, dtype='i')

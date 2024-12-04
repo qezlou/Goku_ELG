@@ -1,15 +1,17 @@
 #!/bin/bash
 #SBATCH -J corr_pigs
-#SBATCH -p skx
-#SBATCH -N 1
+#SBATCH -p skx-dev
+#SBATCH -N 4
 #SBATCH --ntasks-per-node 48
-#SBATCH --job-name=Wp-HF
-#SBATCH --time=10:00:00
+#SBATCH --job-name=Wp-L1
+#SBATCH --time=2:00:00
 #SBATCH --output=%x-%j.out
 
 hostname; pwd; date
 
-BASEDIR='/scratch/06536/qezlou/Goku/FOF/HF/'
+BASEDIR='/scratch/06536/qezlou/Goku/FOF/L1/'
 SAVEDIR='/scratch/06536/qezlou/Goku/processed_data/corr_projected/averaged/'
 
-ibrun python get_corr.py --ranks_for_nbkit 48 --base_dir $BASEDIR --z 2.5 --logging_level 'INFO' --stat 'corr' --mode 'projected' --pimax 40 --fft_model 0 --savedir $SAVEDIR --realizations 100 --avoid_sims 25 54 55 56 242
+ibrun python get_corr.py --ranks_for_nbkit 12 --base_dir $BASEDIR --z 2.5 --logging_level 'INFO' --stat 'corr' --mode 'projected' --pimax 40 --fft_model 0 --savedir $SAVEDIR --realizations 100 
+#--avoid_sims 270 465 67
+#--avoid_sims 25 54 55 56 242 302
