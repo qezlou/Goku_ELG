@@ -7,9 +7,9 @@ import json
 import re
 import logging
 
-import summary_stats
-import wp_emus
-import single_fid
+from . import summary_stats
+from . import wp_emus
+from . import single_fid
 
 class PlotCorr():
     def __init__(self, logging_level='INFO', show_full_params=False):
@@ -352,6 +352,16 @@ class PlotProjCorrEmu(PlotCorr):
         
         self.pred_truth(pred, truth, rp, model_err=np.sqrt(var_pred), seed=seed, title=title, log_y=log_y)
     
+    def leave_bunch_out(self, data_dir, fid='L2', n_out=5, narrow=False):
+        """
+        Leaves out a random bunch of samples out
+        n_out: Number of samples to leave out
+        """ 
+        emu = wp_emus.SingleFid(data_dir=data_dir, fid='L2', logging_level='INFO')
+        X_test, Y_test, Y_pred, var_pred = emu.leave_bunch_out(n_out=n_out, narrow=narrow)
+        Y_pred = Y_pred.numpy()
+        var_pred = var_pred.numpy()
+        self.pred_truth(Y_pred, Y_test, emu.rp, model_err=np.sqrt(var_pred), seed=None, title='Leave bunch out', log_y=True)
 
     def pred_truth_input_space(self, n_out=5, r_range=(0, 30)):
         """

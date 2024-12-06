@@ -216,12 +216,15 @@ class EvaluateSingleFid:
         #loo_errors = np.sqrt(loo_errors)
         # return loo_errors
 
-    def leave_bunch_out(self, n_out=1):
+    def leave_bunch_out(self, n_out=1, sub_sample=None):
         """
         Leave one out cross validation
         """
-
-        indices = np.sort(np.random.choice(self.n_samples, n_out, replace=False))
+        if sub_sample is None:
+            sample = self.n_samples
+        else:
+            sample = sub_sample
+        indices = np.sort(np.random.choice(sample, n_out, replace=False))
 
         self.logger.info(f'Leaving out {len(indices)} samples')
         X_train = np.delete(self.X, indices, axis=0)
@@ -230,7 +233,11 @@ class EvaluateSingleFid:
         
         self.sf.train(X_train, Y_train)
 
-        return  self.sf.model, indices
+        X_test = self.X[indices]
+        Y_test = self.Y[indices]
+        Y_pred, var_pred = self.sf.predict(X_test)
+
+        return  X_test, Y_test, Y_pred, var_pred
 
 class EvaluateSingleFidMultiBins(EvaluateSingleFid):
     """Build a single fidelity emulator for each bin of the summary statistics"""

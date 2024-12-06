@@ -6,8 +6,8 @@ generated Projectedcorrelation functions.
 import logging
 import argparse
 import numpy as np
-import summary_stats
-import single_fid
+from . import summary_stats
+from . import single_fid
 
 class SingleFid():
     def __init__(self, data_dir, y_log=True, r_range=(0,30), fid='L2', cleaning_method='linear_interp', multi_bin=False, logging_level='INFO'):
@@ -28,7 +28,8 @@ class SingleFid():
 
 
         proj = summary_stats.ProjCorr(data_dir=self.data_dir, fid=fid, logging_level=self.logging_level)
-        self.rp, wp,  self.model_err = proj.get_mean_std(r_range=self.r_range)
+        #self.sim_specs = proj.get_sims_specs()
+        self.rp, wp, self.model_err = proj.get_mean_std(r_range=self.r_range)
         self.X = proj.get_params_array()
         # CLeaningthe missing bins
         self.Y = self.clean_mssing_bins(wp, y_log=y_log)
@@ -97,16 +98,17 @@ class SingleFid():
         pred, var_pred = self.evaluate.predict(self.X)
         return pred, self.Y, self.rp
     
-    def leave_bunch_out(self, n_out=5):
+    def leave_bunch_out(self, n_out=5, narrow=0):
         """
         Leaves out a random bunch of samples out
         n_out: Number of samples to leave out
         """
-        model, out_indices = self.evaluate.leave_bunch_out(n_out=n_out)
-        X_test = self.X[out_indices]
-        Y_test = self.Y[out_indices]
-
-        return  model, X_test, Y_test
+        if narrow:
+            sub_sample = np.where(self.sim_specs['narrow'] == 1)[0]
+        else:
+            sub_sample = None
+        X_test, Y_test, Y_pred, var_pred = self.evaluate.leave_bunch_out(n_out=n_out, sub_sample=sub_sample)
+        return X_test, Y_test, Y_pred, var_pred
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Get LOO for the single fidelity emulator')

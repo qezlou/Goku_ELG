@@ -12,16 +12,15 @@ from matplotlib import pyplot as plt
 class ProjCorr:
     """Projected correlation function, w_p"""
 
-    def __init__(self, data_dir, fid, logging_level='INFO', ic_file='all_ICs.json'):
+    def __init__(self, data_dir, fid, logging_level='INFO'):
 
         self.rank = 0
-        self.ic_file = ic_file
         self.logger = self.configure_logging(logging_level)
         self.data_dir = data_dir
+        self.ic_file = op.join(self.data_dir, 'all_ICs.json')
         self.rp = None
         self.param_names = ['omega0', 'omegab', 'hubble', 'scalar_amp', 'ns',
                              'w0_fld', 'wa_fld', 'N_ur',  'alpha_s', 'm_nu']
-       
         # All the files in the data directory
         if fid == 'HF':
             pref = 'Box1000_Part3000'
@@ -54,6 +53,30 @@ class ProjCorr:
             data = json.load(file)
         return data
 
+    def get_sims_specs(self):
+        """
+        Get the simulation specs from the ICs file
+        """
+        all_ics = self.load_ics()
+        not_computed_sims = []
+
+        for i, ic in enumerate(all_ics):
+            if not ic['label'] in self.data_files:
+                not_computed_sims.append(i)
+        for index in sorted(not_computed_sims, reverse=True):
+            del all_ics[index]
+        all_ics.remove(not_computed_sims)
+
+        sim_specs = {}
+        for k in ['box','npart']:
+            sim_specs[k] = [ic[k] for ic in all_ics]
+
+        sim_specs['narrow'] = np.zeros(len(all_ics))
+        for i, ic in enumerate(all_ics):
+            if 'narrow' in ic['label']:
+                sim_specs['narrow'][i] = 1
+        return sim_specs
+        
     def get_labels(self):
         """Get the labels we use for each simulation, they are in this format ``cosmo_10p_Box{BoxSize}_Par{Npart}_0001``"""
         labels = [re.search(r'10p_Box\d+_Part\d+_\d{4}',pl).group(0) for pl in self.data_files]
@@ -74,7 +97,7 @@ class ProjCorr:
                     break
         assert len(cosmo_params) == len(labels), f'Some labels not found in the ICs file, foumd = {len(cosmo_params)}, asked for = {len(labels)}'
         return cosmo_params
-    
+
     def get_params_array(self):
         """Get the cosmological parameters as an array"""
         params_dict = self.get_cosmo_params()
