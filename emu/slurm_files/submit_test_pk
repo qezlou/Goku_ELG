@@ -1,0 +1,14 @@
+#!/bin/bash
+#SBATCH -p skx
+#SBATCH -N 2
+#SBATCH --ntasks-per-node 48
+#SBATCH --job-name=test_pow
+#SBATCH --time=2:00:00
+#SBATCH --output=%x-%j.out
+
+hostname; pwd; date
+
+
+
+ibrun python test_pk.py
+
