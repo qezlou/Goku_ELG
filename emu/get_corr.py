@@ -67,7 +67,8 @@ class Corr():
 
     def make_big_ic_file(self, base_dirs = ['/scratch/06536/qezlou/Goku/FOF/HF/',
                                             '/scratch/06536/qezlou/Goku/FOF/L1/',
-                                            '/scratch/06536/qezlou/Goku/FOF/L2/']):
+                                            '/scratch/06536/qezlou/Goku/FOF/L2/',
+                                            '/scratch/06536/qezlou/Goku/FOF/L2/narrow/']):
         
         
         # Load JSON file as a dictionary
@@ -79,12 +80,19 @@ class Corr():
         all_ICs = []
         for bsd in base_dirs:
             # Example usage
-            fnames = glob(op.join(bsd,f'*_10p_Box*/SimulationICs.json'))
-            self.logger.info(f'number of files in {bsd} is {len(fnames)}')
-            for fn in fnames:
-                data_dict = load_json_as_dict(fn)
-                num = data_dict['outdir'].split('_')[-1].split('.')[0]
-                data_dict['label'] = f'10p_Box{data_dict["box"]}_Part{data_dict["npart"]}_{num}'
+            path = glob(op.join(bsd,f'*_10p_Box*'))
+            dir_names = [p for p in path if op.isdir(p)]
+            self.logger.info(f'number of files in {bsd} is {len(dir_names)}')
+            for dir_n in dir_names:
+                data_dict = load_json_as_dict(op.join(dir_n, 'SimulationICs.json'))
+                # Get sim number, Box, Part from the directory name
+                # "box" and "naprt" are not properly recorded on the SimulcationICs.json files
+                snap_num = dir_n.split('_')[-1].split('.')[0] 
+                box = re.search(r'Box(\d+)', dir_n).group(1)
+                part = re.search(r'Part(\d+)', dir_n).group(1)
+                data_dict['box'] = int(box)
+                data_dict['npart']= int(part)
+                data_dict['label'] = f'10p_Box{box}_Part{part}_{snap_num}'
                 all_ICs.append(data_dict)
         save_file = 'all_ICs.json'
         self.logger.info(f'writing on {save_file}')
@@ -95,7 +103,7 @@ class Corr():
             data = json.load(json_file)
             self.logger.info(f'totla files = {len(data)}')
 
-    def get_pig_dirs(self, base_dir, z=2.5):
+    def get_pig_dirs(self, base_dir, z=2.5, narrow=False):
         """Get the directories of the PIGs at redshift z
         Parameters
         ----------
@@ -114,6 +122,9 @@ class Corr():
         # Find all the directories in `base_dir` that look like a snapshot
         sim_tags = [t for t in os.listdir(base_dir) if ( os.path.isdir(os.path.join(base_dir, t)) and ('Box' in os.path.join(base_dir, t)) )]
         sim_dirs = [os.path.join(base_dir, t) for t in sim_tags]
+        if narrow:
+            sim_tags_new = [t+'_narrow' for t in sim_tags]
+            sim_tags = sim_tags_new
         pigs = {'sim_tags':sim_tags, 'pig_dirs':[], 'params':[]}
         if self.rank == 0:
             self.logger.info(f'base_dir = {base_dir} | number of sims = {len(sim_dirs)}, z = {z}')
@@ -344,7 +355,7 @@ class Corr():
             
         return result, mbins
     
-    def fix_hod_all_pigs(self, base_dir, hod_model, avoid_sims=[], stat='corr', mode='1d', pimax=None, seeds=[42], z=2.5, fft_model=False, savedir = '/work2/06536/qezlou/Goku/corr_funcs_smaller_bins/'):
+    def fix_hod_all_pigs(self, base_dir, hod_model, narrow= True, avoid_sims=[], only_sims=[], stat='corr', mode='1d', pimax=None, seeds=[42], z=2.5, fft_model=False, savedir = '/work2/06536/qezlou/Goku/corr_funcs_smaller_bins/'):
         """
         Iterate over all FOF Catalogs at redshift z in `base_dir` directory keeping
         HOD paramters the same. We get manny realizations of the HOD populated catalogs.
@@ -358,8 +369,8 @@ class Corr():
             The directory to save the correlation functions at
         """
         
-        pigs = self.get_pig_dirs(base_dir, z=z)
-        keep = self._remove_computed_snaps(pigs, savedir, avoid_sims)
+        pigs = self.get_pig_dirs(base_dir, z=z, narrow=narrow)
+        keep = self._remove_computed_snaps(pigs, savedir, avoid_sims, only_sims)
 
         r_edges = np.logspace(-1.5, np.log10(2), 8)
         r_edges = np.append(r_edges, np.logspace(np.log10(2), np.log10(30), 10)[1:])
@@ -415,7 +426,7 @@ class Corr():
                     f['seeds'] = seeds
         self.comm.Barrier()
         
-    def _remove_computed_snaps(self, pigs, save_dir, avoid_sims):
+    def _remove_computed_snaps(self, pigs, save_dir, avoid_sims=[],  only_sims=[]):
         """
         Remove the simulations from the list
         """
@@ -423,13 +434,22 @@ class Corr():
             avoid_sims_string = [str(a).rjust(4,'0') for a in avoid_sims]
         else:
             avoid_sims_string = []
+        if len(only_sims) > 0:
+            only_sims_string = [str(a).rjust(4,'0') for a in only_sims]
+        else:
+            only_sims_string = []
+        
         if self.rank == 0:
             remove = []
             for i in range(len(pigs['sim_tags'])):
                 save_file=f'Zheng07_seeds_{pigs["sim_tags"][i]}.hdf5'
                 savefile = os.path.join(save_dir, save_file)
-                if os.path.exists(savefile) or pigs["sim_tags"][i].split("_")[-1] in avoid_sims_string:
-                    remove.append(i)
+                if len(only_sims_string) == 0:
+                    if os.path.exists(savefile) or pigs["sim_tags"][i].split("_")[-1] in avoid_sims_string:
+                        remove.append(i)
+                else:
+                    if not (pigs["sim_tags"][i].split("_")[-1] in only_sims_string):
+                        remove.append(i)
             remove = np.array(remove)
             keep = np.array(list(set(np.arange(len(pigs['sim_tags']))) - set(remove)), dtype='i')
             keep = np.ascontiguousarray(keep, dtype='i')
@@ -461,6 +481,8 @@ if __name__ == '__main__':
     parser.add_argument('--seed', required=False, type=int, default=127, help='fix to have same list of seeds defined below')
     parser.add_argument('--realizations', required=False, type=int, default=100, help='fix to have same list of seeds defined below')
     parser.add_argument('--avoid_sims', type=int, nargs='*', default=[], help='Range of r to consider')
+    parser.add_argument('--only_sims', type=int, nargs='*', default=[], help='Only these sims to be computed')
+    parser.add_argument('--narrow', type=int, default=0, help='Wether the sim is Goku-narrow or not, just to add extra suffix to the saveed corr func ')
 
     args = parser.parse_args()
     if args.logging_level == 'INFO':
@@ -487,5 +509,7 @@ if __name__ == '__main__':
                               z=args.z, stat=args.stat, savedir=args.savedir,
                               mode=args.mode, pimax= args.pimax,
                               fft_model=args.fft_model,
-                              avoid_sims=args.avoid_sims)
+                              avoid_sims=args.avoid_sims,
+                              only_sims=args.only_sims,
+                              narrow=args.narrow)
     

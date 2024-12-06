@@ -13,8 +13,8 @@ def run_globus(fidelity, start, end):
     # Stampede3
     destination_end_point = '1e9ddd41-fe4b-406f-95ff-f3d79f9cb523'
 
-    source_path = '/stornext/ranch_01/ranch/projects/AST21005/Goku_emulator_sims/Goku_sims/'
-    destination_path = f'/scratch/06536/qezlou/Goku/FOF/{fidelity}'
+    source_path = '/stornext/ranch_01/ranch/projects/AST21005/Goku_emulator_sims/Goku_narrow_sims/'
+    destination_path = f'/scratch/06536/qezlou/Goku/FOF/{fidelity}/narrow/'
 
     pattern = f'Box{box[fidelity]}_Part{part[fidelity]}'
     print(f'pattern is {pattern}')
@@ -41,7 +41,6 @@ def run_globus(fidelity, start, end):
         for j in range(3):
             with open(f'{file_list}_{j}.txt', 'w') as fw:
                 files = distribute_files(all_lines, j)
-                print(f'files for job {j} are {files}')
                 for line in files:
                     line = line.strip('\n')
                     s = op.join(source_path, line)
