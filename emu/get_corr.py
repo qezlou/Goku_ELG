@@ -93,6 +93,8 @@ class Corr():
                 data_dict['box'] = int(box)
                 data_dict['npart']= int(part)
                 data_dict['label'] = f'10p_Box{box}_Part{part}_{snap_num}'
+                if 'narrow' in bsd:
+                    data_dict['label'] += '_narrow'
                 all_ICs.append(data_dict)
         save_file = 'all_ICs.json'
         self.logger.info(f'writing on {save_file}')
