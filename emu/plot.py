@@ -126,32 +126,41 @@ class PlotCorr():
         if savefig is not None:
             fig.savefig(savefig)
 
-    def compare_fidelities(self, save_dir, r_range=(0,100), show_cosmo=False, errorbar=False):
+    def compare_fidelities(self, save_dir, r_range=(0,100), fids=['HF','L2'], show_cosmo=False, errorbar=False):
         """
         Compare the fidelities of the different cosmologies
         """
 
-        hf_corrs, l2_corrs = self.get_comman_pairs(save_dir)
-        pair_count = len(hf_corrs)
-        fig, ax = plt.subplots(int(np.ceil(pair_count/3)), 3, figsize=(12, 10))
+        first_corrs, second_corrs = self.get_comman_pairs(save_dir, fids=fids)
+        pair_count = len(first_corrs)
+        fig, ax = plt.subplots(int(np.ceil(pair_count/3)), 3, figsize=(10, 3*pair_count//3))
         for i in range(pair_count):
             indx, indy = i//3, i%3
-            self.compare_cosmos([hf_corrs[i], l2_corrs[i]], fig=fig, ax=ax[indx, indy],  mode='projected', legend=True, show_cosmo=show_cosmo, errorbar=errorbar, r_range=r_range)
+            self.compare_cosmos([first_corrs[i], second_corrs[i]], fig=fig, ax=ax[indx, indy],  mode='projected', legend=True, show_cosmo=show_cosmo, errorbar=errorbar, r_range=r_range)
         fig.tight_layout()
     
-    def get_comman_pairs(self, save_dir):
+    def get_comman_pairs(self, save_dir, fids=['HF','L2']):
         """
         Get the common pairs between the different cosmologies
         """
-        hf_corrs = glob(op.join(save_dir, '*Box1000_Part3000*'))
-        self.logger.info(f'Number of HF files = {len(hf_corrs)}')
-        numbers = [int(op.basename(f).split('_')[-1].split('.')[0]) for f in hf_corrs]
-        l2_corrs = [glob(op.join(save_dir,  f'*Box250_Part750_{str(n).rjust(4, "0")}*')) for n in numbers]
-        self.logger.info(f'Number of L2 files = {len(l2_corrs)}')
-        hf_corrs = [f for f in hf_corrs if len(l2_corrs[numbers.index(int(op.basename(f).split('_')[-1].split('.')[0]))])>0]
-        l2_corrs = [item for sublist in l2_corrs for item in sublist]
-        self.logger.info(f'Number of common pairs = {len(hf_corrs)}')
-        return hf_corrs, l2_corrs
+        patterns = {'HF': 'Box1000_Part3000', 'L2': 'Box250_Part750', 'L1': 'Box1000_Part750'}
+        if 'HF' in fids:
+            fids.remove('HF')
+            first_corrs = glob(op.join(save_dir, f'*{patterns["HF"]}*'))
+            self.logger.info(f'Number of HF files = {len(first_corrs)}')
+        elif 'L2' in fids:
+            fids.remove('L2')
+            first_corrs = glob(op.join(save_dir,f'*{patterns["L2"]}*'))
+            self.logger.info(f'Number of L2 files = {len(first_corrs)}')
+        
+        numbers = [int(op.basename(f).split('_')[-1].split('.')[0]) for f in first_corrs]
+
+        second_corrs = [glob(op.join(save_dir,  f'*{patterns[fids[0]]}_{str(n).rjust(4, "0")}*')) for n in numbers]
+        self.logger.info(f'Number of L2 files = {len(second_corrs)}')
+        first_corrs = [f for f in first_corrs if len(second_corrs[numbers.index(int(op.basename(f).split('_')[-1].split('.')[0]))])>0]
+        second_corrs = [item for sublist in second_corrs for item in sublist]
+        self.logger.info(f'Number of common pairs = {len(first_corrs)}')
+        return first_corrs, second_corrs
     
     def load_ics(self, ic_file='all_ICs.json'):
         """
