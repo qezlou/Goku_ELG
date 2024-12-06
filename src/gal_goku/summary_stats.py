@@ -59,27 +59,38 @@ class ProjCorr:
         """
         all_ics = self.load_ics()
         not_computed_sims = []
+        labels = self.get_labels()
 
-        for i, ic in enumerate(all_ics):
-            if not ic['label'] in self.data_files:
-                not_computed_sims.append(i)
-        for index in sorted(not_computed_sims, reverse=True):
-            del all_ics[index]
-        all_ics.remove(not_computed_sims)
+        matched_labels = []
+        ics_existing_sims = []
 
+        for label in labels:
+            for ic in all_ics:
+                if ic['label'] == label:
+                    ics_existing_sims.append(ic)
+                    break
+        self.logger.debug(f'Found {len(ics_existing_sims)} matching labels')
+
+        del all_ics
         sim_specs = {}
         for k in ['box','npart']:
-            sim_specs[k] = [ic[k] for ic in all_ics]
+            sim_specs[k] = [ic[k] for ic in ics_existing_sims]
 
-        sim_specs['narrow'] = np.zeros(len(all_ics))
-        for i, ic in enumerate(all_ics):
+        sim_specs['narrow'] = np.zeros(len(ics_existing_sims))
+        for i, ic in enumerate(ics_existing_sims):
             if 'narrow' in ic['label']:
                 sim_specs['narrow'][i] = 1
         return sim_specs
         
     def get_labels(self):
         """Get the labels we use for each simulation, they are in this format ``cosmo_10p_Box{BoxSize}_Par{Npart}_0001``"""
-        labels = [re.search(r'10p_Box\d+_Part\d+_\d{4}',pl).group(0) for pl in self.data_files]
+        labels = []
+        for df in self.data_files:
+            label = re.search(r'10p_Box\d+_Part\d+_\d{4}',df).group(0)
+            if 'narrow' in df:
+                label += '_narrow'
+            labels.append(label)
+
         return labels        
 
     def get_cosmo_params(self):

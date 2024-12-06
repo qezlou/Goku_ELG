@@ -8,7 +8,6 @@ import argparse
 import numpy as np
 from . import summary_stats
 from . import single_fid
-
 class SingleFid():
     def __init__(self, data_dir, y_log=True, r_range=(0,30), fid='L2', cleaning_method='linear_interp', multi_bin=False, logging_level='INFO'):
         """
@@ -28,7 +27,7 @@ class SingleFid():
 
 
         proj = summary_stats.ProjCorr(data_dir=self.data_dir, fid=fid, logging_level=self.logging_level)
-        #self.sim_specs = proj.get_sims_specs()
+        self.sim_specs = proj.get_sims_specs()
         self.rp, wp, self.model_err = proj.get_mean_std(r_range=self.r_range)
         self.X = proj.get_params_array()
         # CLeaningthe missing bins
@@ -84,11 +83,15 @@ class SingleFid():
         else:
             return np.exp(-wp)
     
-    def loo_train_pred(self, savefile):
+    def loo_train_pred(self, savefile, narrow=0):
         """
         Get the leave one out predictions
         """
-        self.evaluate.loo_train_pred(rp=self.rp, savefile=savefile, labels=self.labels)
+        if narrow:
+            sub_sample = np.where(self.sim_specs['narrow'] == 1)[0]
+        else:
+            sub_sample = None
+        self.evaluate.loo_train_pred(rp=self.rp, savefile=savefile, labels=self.labels, sub_sample=sub_sample)
     
     def train_pred_all_sims(self):
         """
@@ -118,11 +121,12 @@ if __name__ == '__main__':
     parser.add_argument('--r_range', type=float, nargs=2, default=[0,30], help='Range of r to consider')
     parser.add_argument('--y_log', type=int, default=1, help='Wether to train on log10 of wp')
     parser.add_argument('--savefile', type=str, default= '/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/train/loo_pred_lin_interp_not_log_y.hdf5', help='Save the results to a file')
+    parser.add_argument('--narrow', type=int, default=0, help='Use only the narrow simulations')
     args = parser.parse_args()
     
     if args.emu_type == 'SingleFid':
         emu = SingleFid(data_dir=args.data_dir, y_log=args.y_log, r_range=args.r_range, multi_bin=args.multi_bin, logging_level='INFO')
-        emu.loo_train_pred(savefile=args.savefile)
+        emu.loo_train_pred(savefile=args.savefile, narrow=args.narrow)
 
 
 

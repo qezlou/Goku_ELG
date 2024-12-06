@@ -135,7 +135,7 @@ class EvaluateSingleFid:
         self.n_samples = X.shape[0]
         assert Y.ndim == 2, 'Output data should be 2D'
         assert X.ndim == 2, 'Input data should be 2D'
-        self.logger.info(f'X shape: {X.shape}, Y shape: {Y.shape}, model_err shape: {model_err.shape}')
+        self.logger.debug(f'X shape: {X.shape}, Y shape: {Y.shape}, model_err shape: {model_err.shape}')
         self.sf = SingleFid(X = X, Y = Y, model_err = model_err, logging_level='INFO')
     
     def configure_logging(self, logging_level):
@@ -163,7 +163,7 @@ class EvaluateSingleFid:
         """
         return self.sf.predict(X)
 
-    def loo_train_pred(self, rp, savefile=None, labels=None):
+    def loo_train_pred(self, rp, savefile=None, labels=None, sub_sample=None):
         """
         Iterate over the samples to leave one out and train the model
         Parameters:
@@ -178,20 +178,23 @@ class EvaluateSingleFid:
         mean_pred: the predictions for the left out samples while trained on the rest
         var_pred: the variance of the predictions
         """
-        n_samples = self.Y.shape[0]
-        mean_pred = np.zeros((n_samples, self.Y.shape[1]) )
-        var_pred = np.zeros((n_samples, self.Y.shape[1]) )
+        if sub_sample is None:
+            sample = np.arange(self.n_samples)
+        else:
+            sample = sub_sample
+        mean_pred = np.zeros((sample.size, self.Y.shape[1]) )
+        var_pred = np.zeros((sample.size, self.Y.shape[1]) )
         
         progress = np.arange(0, 1, 0.01)
-        print_marks = (progress*n_samples).astype(int)
+        print_marks = (progress * sample.size).astype(int)
 
-        for i in range(n_samples):
+        for i, s in enumerate(sample):
             if i in print_marks:
-                self.logger.info(f'Progress: {i/n_samples*100:.2f}%')
-            X_train = np.delete(self.X, i, axis=0)
-            Y_train = np.delete(self.Y, i, axis=0)
-            X_test = self.X[i][np.newaxis, :]
-            Y_test = self.Y[i]
+                self.logger.info(f'Progress: {i/sample.size*100:.2f}%')
+            X_train = np.delete(self.X, s, axis=0)
+            Y_train = np.delete(self.Y, s, axis=0)
+            X_test = self.X[s][np.newaxis, :]
+            Y_test = self.Y[s]
             self.sf.train(X_train, Y_train)
             mean_pred[i], var_pred[i] = self.sf.predict(X_test)
         if savefile is not None:
