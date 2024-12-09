@@ -201,8 +201,8 @@ class EvaluateSingleFid:
             with h5py.File(savefile, 'w') as f:
                 f.create_dataset('pred', data=mean_pred)
                 f.create_dataset('var_pred', data=var_pred)
-                f.create_dataset('truth', data=self.Y)
-                f.create_dataset('X', data=self.X)
+                f.create_dataset('truth', data=self.Y[sub_sample])
+                f.create_dataset('X', data=self.X[sub_sample])
                 f.create_dataset('rp', data=rp)
                 if labels is not None:
                     f.create_dataset('labels', data=labels)
