@@ -344,7 +344,7 @@ class PlotProjCorrEmu(PlotCorr):
         with h5py.File(savefile, 'r') as f:
             pred = f['pred'][:]
             var_pred = f['var_pred'][:]
-            truth = f['truth'][:]
+            truth = f['truth'][:].squeeze()
             X = f['X'][:]
             rp = f['rp'][:]
         
