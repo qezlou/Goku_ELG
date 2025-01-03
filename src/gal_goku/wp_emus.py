@@ -112,6 +112,13 @@ class SingleFid():
             sub_sample = None
         X_test, Y_test, Y_pred, var_pred = self.evaluate.leave_bunch_out(n_out=n_out, sub_sample=sub_sample)
         return X_test, Y_test, Y_pred, var_pred
+    
+    def predict(self, X_test):
+        """
+        Predict the mean and variance of the emulator
+        """
+        self.evaluate.train()
+        return self.evaluate.predict(X_test)
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Get LOO for the single fidelity emulator')

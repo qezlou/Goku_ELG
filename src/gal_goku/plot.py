@@ -48,7 +48,7 @@ class PlotCorr():
         if show_cosmo:
             plt_labels = self.get_cosmo_params(self.get_labels(corr_files))
 
-        numbers = [int(op.basename(f).split('_')[-1].split('.')[0]) for f in corr_files]
+        numbers = [int(re.search(r'\d{4}.hdf5', op.basename(f)).group(0).split('.')[0])  for f in corr_files]
         for c, svf in enumerate(corr_files):
             if not show_cosmo:
                 if 'Box250_Part750' in svf:
@@ -126,12 +126,12 @@ class PlotCorr():
         if savefig is not None:
             fig.savefig(savefig)
 
-    def compare_fidelities(self, save_dir, r_range=(0,100), fids=['HF','L2'], show_cosmo=False, errorbar=False):
+    def compare_fidelities(self, save_dir, r_range=(0,100), fids=['HF','L2'], show_cosmo=False, errorbar=False, narrow=False):
         """
         Compare the fidelities of the different cosmologies
         """
 
-        first_corrs, second_corrs = self.get_comman_pairs(save_dir, fids=fids)
+        first_corrs, second_corrs = self.get_comman_pairs(save_dir, fids=fids, narrow=narrow)
         pair_count = len(first_corrs)
         fig, ax = plt.subplots(int(np.ceil(pair_count/3)), 3, figsize=(10, 3*pair_count//3))
         for i in range(pair_count):
@@ -139,11 +139,13 @@ class PlotCorr():
             self.compare_cosmos([first_corrs[i], second_corrs[i]], fig=fig, ax=ax[indx, indy],  mode='projected', legend=True, show_cosmo=show_cosmo, errorbar=errorbar, r_range=r_range)
         fig.tight_layout()
     
-    def get_comman_pairs(self, save_dir, fids=['HF','L2']):
+    def get_comman_pairs(self, save_dir, fids=['HF','L2'], narrow=False):
         """
         Get the common pairs between the different cosmologies
         """
         patterns = {'HF': 'Box1000_Part3000', 'L2': 'Box250_Part750', 'L1': 'Box1000_Part750'}
+        if narrow:
+            raise NotImplementedError('Goku-Narrow not implemented yet')
         if 'HF' in fids:
             fids.remove('HF')
             first_corrs = glob(op.join(save_dir, f'*{patterns["HF"]}*'))
@@ -153,10 +155,12 @@ class PlotCorr():
             first_corrs = glob(op.join(save_dir,f'*{patterns["L2"]}*'))
             self.logger.info(f'Number of L2 files = {len(first_corrs)}')
         
-        numbers = [int(op.basename(f).split('_')[-1].split('.')[0]) for f in first_corrs]
+        numbers = [int(re.search(r'\d{4}.hdf5', op.basename(f)).group(0).split('.')[0]) for f in first_corrs]
 
-        second_corrs = [glob(op.join(save_dir,  f'*{patterns[fids[0]]}_{str(n).rjust(4, "0")}*')) for n in numbers]
-        self.logger.info(f'Number of L2 files = {len(second_corrs)}')
+        second_corrs = [glob(op.join(save_dir,  f'*{patterns[fids[0]]}_{str(n).rjust(4, "0")}.hdf5')) for n in numbers]
+        print(f'first_corrs {first_corrs}')
+        print(f'second_corrs {second_corrs}')
+        self.logger.info(f'Number of {fids[0]} files = {len(second_corrs)}')
         first_corrs = [f for f in first_corrs if len(second_corrs[numbers.index(int(op.basename(f).split('_')[-1].split('.')[0]))])>0]
         second_corrs = [item for sublist in second_corrs for item in sublist]
         self.logger.info(f'Number of common pairs = {len(first_corrs)}')
@@ -455,8 +459,21 @@ class PlotProjCorrEmu(PlotCorr):
         fig.tight_layout()
         fig_ratio.tight_layout()
 
+    def plot_planck_prediction(self, data_dir):
 
-        
+        planck_cosmo = np.array([0.31, 0.048, 0.68, 2.1e-9, 0.97, -1.0, 0, 3.08, 0, 0.1])[None,:]
+        emu = wp_emus.SingleFid(data_dir=data_dir, fid='L2', logging_level='INFO')
+        planck_cosmo = np.array([0.31, 0.048, 0.68, 2.1e-9, 0.97, -1.0, 0, 3.08, 0, 0.1])[None,:]
+        wp_planck , _ = emu.predict(planck_cosmo) 
+        fig, ax = plt.subplots()
+        ax.plot(emu.rp, 10**wp_planck[0], label='Planck')
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.grid(which='both')
+        ax.set_xlabel(r'$r_p$')
+        ax.set_ylabel(r'$w_p(r_p)$')
+
+
 
 
 
