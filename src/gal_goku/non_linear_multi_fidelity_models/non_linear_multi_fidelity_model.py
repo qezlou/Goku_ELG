@@ -14,7 +14,6 @@ Original code from:
 https://github.com/emukit/emukit
 
 Modified by jibancat to:
-https://github.com/jibanCat/matter_emu_mfbox/blob/public/matter_multi_fidelity_emu/non_linear_multi_fidelity_models/non_linear_multi_fidelity_model.py
 1. Only make low-fidelity use ARD; force high-fidelity turn off ARD.
 2. Remove the condition on fix noise due to did not find the result not converged.
 """
