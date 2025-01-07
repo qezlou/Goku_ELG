@@ -61,8 +61,19 @@ class Hmf(get_corr.Corr):
         hmf = hist[0]/(vol*(bins[1]-bins[0]))
         return hmf
     
-    def get_all_fof_hmfs(self, base_dir, z=2.5):
-        """iterate over all avaiable pigs in base_dir and co,pue the halo mas function"""
+    def get_all_fof_hmfs(self, base_dir, bins, save_file, z=2.5):
+        """iterate over all avaiable pigs in base_dir and compue the halo mas function"""
 
         pigs = self.get_pig_dirs(base_dir, z=z)
+        num_sims = len(pigs['sim_tags'])
+        hmfs = np.zeros((num_sims, bins.size-1))
+        for i in range(num_sims):
+            vol = pigs['params'][i]['box']**3
+            hmfs[i] = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, bins=bins)
+        
+        with h5py.File(save_file, 'w') as fw:
+            fw['sim_tags'] = pigs['sim_tags']
+            fw['hmfs'] = hmfs
+            fw['bins'] = bins
+        
         

@@ -11,7 +11,8 @@ from . import summary_stats
 from . import wp_emus
 from . import single_fid
 
-class PlotCorr():
+
+class BasePlot():
     def __init__(self, logging_level='INFO', show_full_params=False):
         self.logger = self.configure_logging(logging_level)
         if show_full_params:
@@ -34,6 +35,10 @@ class PlotCorr():
         logger.addHandler(console_handler)
         
         return logger
+
+class PlotCorr(BasePlot):
+    def __init__(self, logging_level='INFO', show_full_params=False):
+        super().__init__(logging_level, show_full_params)
 
     def compare_cosmos(self, corr_files, fig=None, ax=None, mode='projected', savefig=None, r_range=(0,100), legend=False, show_cosmo=False, errorbar=False):
         """
@@ -547,3 +552,44 @@ class PlotTestEmus():
         ax.set_ylabel('Latent 2')
         ax.legend()
         plt.show()
+
+
+class PlotHMF(BasePlot):
+    """
+    Class to plot Halo Mass fucntion and the meualtor
+    
+    """
+    def __init__(self, logging_level='INFO', show_full_params=False):
+        super().__init__(logging_level, show_full_params)
+
+    def _hmf(bins, hmf, fig=None, ax=None):
+        """
+        base function to plot halo mass functions
+        """
+        if fig is None:
+            fig, ax = plt.subplots(2, 1, figsize=(8, 8), gridspec_kw={'height_ratios': [2, 1]})
+    
+    def load_hmf_sims(self, save_dir, fid):
+        
+        with h5py.File(op.join(save_dir, '{fd}_HMF.hdf5')) as f:
+            hmf = f['hmfs'][:]
+            mbins =  0.5*(10**f['bins'][1:]+10**f['bins'][:-1])
+        return hmf, mbins
+
+    def sim_hmf(self, save_dir, fids=['HF','L2']):
+        """
+        Plots the  halo mas sfunction for simulations
+        Parameters:
+        --------------
+        save_file: str
+            h5 file storing the halpo mass functions
+        """
+        ws = [7, 2, 2]
+        alphas = [0.5, 0.9, 0.8]
+        fig, ax = plt.subplots(2, 1, figsize=(8, 8), gridspec_kw={'height_ratios': [2, 1]})
+        hmf = []
+
+        for fd in fids:
+            hmf[fd], mbins = self.load_hmf_sims(save_dir=save_dir, fid=fd)
+            ax[0].plot(mbins, hmf[fd])
+
