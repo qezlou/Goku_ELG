@@ -12,8 +12,8 @@ from nbodykit.cosmology import Planck15 as cosmo
 import h5py
 import logging
 import warnings
-import mpi_helper
-import get_corr
+from . import mpi_helper
+from . import get_corr
 warnings.filterwarnings("ignore")
 
 class Hmf(get_corr.Corr):
@@ -40,21 +40,26 @@ class Hmf(get_corr.Corr):
         
         return logger
     
-    def get_fof_hmf(self, pig_dir, bins=100,  z=2.5):
+    def get_fof_hmf(self, pig_dir, vol,  bins):
         """
         Plot the halo mass function for the FoF halos
         Parameters:
         -----------
         pig_dir: str
             The directory containing the PIGs
-        z: float
-            The redshift of the snapshot
+        vol:
+            Survey volume in Mpc/h
+        bins: Array
+            An array of mass bins to compute HMF in
+        Returns: Array
+            Halo mass function, log10(dn/log(M)) in units of
+            dex^-1 hMpc^-1
         """
         halos = self.load_halo_cat(pig_dir)
-        hist = np.histogram(halos['Mass'], bins=bins, range=(np.min(halos['Mass']), np.max(halos['Mass'])))
+        hist = np.histogram(np.log10(halos['Mass']).compute(), bins=bins)
         mass = 0.5*(hist[1][1:]+hist[1][:-1])
-
-        return mass, hist[0]
+        hmf = hist[0]/(vol*(bins[1]-bins[0]))
+        return hmf
     
     def get_all_fof_hmfs(self, base_dir, z=2.5):
         """iterate over all avaiable pigs in base_dir and co,pue the halo mas function"""
