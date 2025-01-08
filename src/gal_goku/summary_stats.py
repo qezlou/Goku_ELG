@@ -9,29 +9,25 @@ import logging
 import json
 import re
 from matplotlib import pyplot as plt
-class ProjCorr:
-    """Projected correlation function, w_p"""
 
+class BaseSummaryStats:
+    """Base class for summary statistics"""
     def __init__(self, data_dir, fid, logging_level='INFO'):
-
         self.rank = 0
         self.logger = self.configure_logging(logging_level)
         self.data_dir = data_dir
         self.ic_file = op.join(self.data_dir, 'all_ICs.json')
-        self.rp = None
         self.param_names = ['omega0', 'omegab', 'hubble', 'scalar_amp', 'ns',
-                             'w0_fld', 'wa_fld', 'N_ur',  'alpha_s', 'm_nu']
+                        'w0_fld', 'wa_fld', 'N_ur',  'alpha_s', 'm_nu']
+
         # All the files in the data directory
         if fid == 'HF':
-            pref = 'Box1000_Part3000'
+            self.pref = 'Box1000_Part3000'
         elif fid == 'L1':
-            pref = 'Box1000_Part750'
+            self.pref = 'Box1000_Part750'
         elif fid == 'L2':
-            pref = 'Box250_Part750'
-
-        self.data_files = [op.join(data_dir, f) for f in os.listdir(self.data_dir) if pref in f]
-        self.logger.info(f'Total snapshots: {len(self.data_files)}')
-
+            self.pref = 'Box250_Part750'
+    
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level."""
         logger = logging.getLogger('get ProjCorr')
@@ -42,6 +38,17 @@ class ProjCorr:
         logger.addHandler(console_handler)
         
         return logger
+
+class ProjCorr(BaseSummaryStats):
+    """Projected correlation function, w_p"""
+    def __init__(self, data_dir, fid, logging_level='INFO'):
+
+        super().__init__(data_dir, fid, logging_level)
+        self.rp = None
+        self.data_files = [op.join(data_dir, f) for f in os.listdir(self.data_dir) if self.pref in f]
+        self.logger.info(f'Total snapshots: {len(self.data_files)}')
+
+
 
     def load_ics(self):
         """
@@ -186,3 +193,96 @@ class ProjCorr:
         log10_wp = np.log10(wp)
         nan_bins = np.where(np.isnan(log10_wp))
         self.logger.info(f'Found {100*nan_bins[0].size/wp.size:.1f} % of W_p is nan')
+
+
+class HMF(BaseSummaryStats):
+    """
+    Halo mass function
+    """
+    def __init__(self, data_dir, logging_level='INFO'):
+        super().__init__(data_dir, logging_level)
+    
+    def load_hmf_sims(self, fids=[]):
+        """
+        Load the Halo Mass Function computed for simulations at a given fidelity.
+        Parameters:
+        --------------
+        save_dir: str
+            Directory where the HMF files are stored.
+        fids: list
+            List of fidelities to compare.
+        Returns:
+        --------------
+        hmf: dict
+            Dictionary containing the Halo Mass Function in units of Mpc^-3 h^3 dex^-1.
+            The keys are the fidelities, e.g., 'HF', 'L2', 'L1'.
+        mbins: np.ndarray
+            Mass bins.
+        sim_tags: dict
+            Dictionary containing lists of simulation tags.
+        """
+        hmfs = {}
+        sim_tags = {}
+        for fd in fids:
+            with h5py.File(op.join(self.data_dir, f'{fd}_hmfs.hdf5'), 'r') as f:
+                hmfs[fd] = f['hmfs'][:]
+                mbins =  0.5*(10**f['bins'][1:]+10**f['bins'][:-1])
+                sim_tags[fd] = []
+                # We need to convert from binary to str
+                for tag in f['sim_tags']:
+                    sim_tags[fd].append(tag.decode('utf-8'))
+        return hmfs, mbins, sim_tags
+
+    def _sim_nums(self, sim_tags):
+        """
+        Get the simulation id from the simulation tags
+        Parameters:
+        --------------
+        sim_tags: list
+            List of simulation tags
+        Returns:
+        --------------
+        sim_nums: np.ndarray
+            Array of simulation numbers
+        """
+        sim_nums = []
+        for tag in sim_tags:
+            sim_nums.append(int(re.search(r'_\d{4}',tag)[0][1:]))
+        sim_nums = np.array(sim_nums)
+        return sim_nums
+
+    def _common_pairs(self, fids=['HF','L2']):
+        """
+        Get the common pairs between the different cosmologies
+        Parameters:
+        --------------
+        save_dir: str
+            Directory where the hmf files are stored
+        fids: list
+            List of fidelities to compare
+        Returns:
+        --------------
+        first_corrs: list
+            List of files for the first fid
+        """
+        hmfs, mbins, sim_tags = self.load_hmf_sims(fids)
+        
+        # Find the common pairs
+        for fd in fids: 
+            sim_nums = self._sim_nums(sim_tags[fd])
+            if fd == fids[0]:
+                common_nums = sim_nums
+            else:
+                common_nums = np.intersect1d(common_nums, sim_nums)
+        
+        self.logger.info(f'Found {len(common_nums)} common pairs')
+        # Now keeping only the common hmfs
+        for fd in fids:
+            sim_nums = self._sim_nums(sim_tags=sim_tags[fd])
+            ind = np.where(np.isin(sim_nums, common_nums))[0]
+            # Sort based on sim # for consistency
+            arg_sort = np.argsort(sim_nums[ind])
+            hmfs[fd] = hmfs[fd][ind][arg_sort]
+            sim_tags[fd] = np.array(sim_tags[fd])[ind][arg_sort]
+
+        return hmfs, mbins,sim_tags

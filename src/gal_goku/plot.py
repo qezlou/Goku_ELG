@@ -10,7 +10,8 @@ import logging
 from . import summary_stats
 from . import wp_emus
 from . import single_fid
-
+import warnings
+warnings.filterwarnings("ignore")
 
 class BasePlot():
     def __init__(self, logging_level='INFO', show_full_params=False):
@@ -559,26 +560,15 @@ class PlotHMF(BasePlot):
     Class to plot Halo Mass fucntion and the meualtor
     
     """
-    def __init__(self, logging_level='INFO', show_full_params=False):
+    def __init__(self, data_dir, logging_level='INFO', show_full_params=False):
         super().__init__(logging_level, show_full_params)
 
-    def _hmf(bins, hmf, fig=None, ax=None):
-        """
-        base function to plot halo mass functions
-        """
-        if fig is None:
-            fig, ax = plt.subplots(2, 1, figsize=(8, 8), gridspec_kw={'height_ratios': [2, 1]})
-    
-    def load_hmf_sims(self, save_dir, fid):
-        
-        with h5py.File(op.join(save_dir, '{fd}_HMF.hdf5')) as f:
-            hmf = f['hmfs'][:]
-            mbins =  0.5*(10**f['bins'][1:]+10**f['bins'][:-1])
-        return hmf, mbins
+        # Use summary_stats to load the HMF
+        self.hmf = summary_stats.HMF(data_dir)
 
-    def sim_hmf(self, save_dir, fids=['HF','L2']):
+    def sim_hmf(self, fids=['HF'], fig=None, ax=None):
         """
-        Plots the  halo mas sfunction for simulations
+        Plots the  halo mass function for simulations
         Parameters:
         --------------
         save_file: str
@@ -586,10 +576,56 @@ class PlotHMF(BasePlot):
         """
         ws = [7, 2, 2]
         alphas = [0.5, 0.9, 0.8]
+        if fig is None:
+            fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+
+        hmfs, mbins, _ = self.hmf.load_hmf_sims(fids=fids)
+        for i, fd in enumerate(fids):
+            for j in range(hmfs[fd].shape[0]):
+                ax.plot(mbins, hmfs[fd][j], alpha=alphas[i], lw=ws[i])
+
+        ax.set_xscale('log')
+        ax.legend()
+        ax.set_yscale('log')
+        ax.set_ylabel(r'$\psi \ [dex^{-1} cMph^{-3}]$')
+        ax.set_xlim(1e11, 1e14)
+        ax.set_xlim(1e11, 1e14)
+        ax.grid()
+        fig.tight_layout()
+    
+    def compare_fids(self, fids=['HF','L2']):
+        """
+        Compare the Halo Mass functions for different fidelities
+        """
+        ws = [7, 2, 2]
+        alphas = [0.5, 0.9, 0.8]
         fig, ax = plt.subplots(2, 1, figsize=(8, 8), gridspec_kw={'height_ratios': [2, 1]})
-        hmf = []
 
-        for fd in fids:
-            hmf[fd], mbins = self.load_hmf_sims(save_dir=save_dir, fid=fd)
-            ax[0].plot(mbins, hmf[fd])
+        hmfs, mbins, sim_tags = self.hmf._common_pairs(fids)
+        for i, fd in enumerate(fids):
+            for j in range(hmfs[fd].shape[0]):
+                ax[0].plot(mbins, hmfs[fd][j], alpha=alphas[i], lw=ws[i], color=f'C{j}')
+        if 'HF' in fids:
+            ax[1].plot(mbins, np.zeros((hmfs['HF'].shape[1])), ls='dashed')
+            ref = 'HF'
+        elif 'L2' in fids:
+            ax[1].plot(mbins, np.zeros((hmfs['L2'].shape[1])), ls='dashed')
+            ref = 'L2'
+        
+        for i, k in enumerate(fids):
+            if i > 0:
+                for j in range(hmfs[k].shape[0]):
+                    ax[1].plot(mbins, hmfs[k][j]/hmfs[ref][j] - 1, alpha=0.5, color=f'C{j}')
 
+        ax[1].set_ylim((-0.5,0.5))
+        ax[1].grid()
+        for i in range(2):
+            ax[i].set_xscale('log')
+            ax[i].legend()
+        ax[0].set_yscale('log')
+        ax[1].set_xlabel('FOF halo Mass')
+        ax[0].set_ylabel(r'$\psi \ [dex^{-1} cMph^{-3}]$')
+        ax[0].set_xlim(1e11, 1e14)
+        ax[0].set_xlim(1e11, 1e14)
+        ax[1].set_ylabel('Ratio to HF')
+        fig.tight_layout()
