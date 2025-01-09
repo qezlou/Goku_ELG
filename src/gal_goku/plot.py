@@ -594,20 +594,19 @@ class PlotHMF(BasePlot):
         ax.grid()
         fig.tight_layout()
     
-    def compare_fids(self, fids=['HF','L2'], sigma=None):
+    def compare_fids(self, fids=['HF','L2']):
         """
         Compare the Halo Mass functions for different fidelities
         """
-        ws = [7, 2, 2]
+        ws = [4, 2]
         alphas = [0.5, 0.9, 0.8]
-        fig, ax = plt.subplots(2, 1, figsize=(8, 8), gridspec_kw={'height_ratios': [2, 1]})
+        fig, ax = plt.subplots(2, 1, figsize=(8, 10), gridspec_kw={'height_ratios': [6, 1]})
 
-        hmfs, mbins, sim_tags = self.hmf.common_pairs(fids)
+        (hmfs, mbins, sim_tags, hmfs_coarse, mbins_coarse, hmfs_fine) = self.hmf.common_pairs(fids, load_coarse=True)
         for i, fd in enumerate(fids):
             for j in range(hmfs[fd].shape[0]):
-                if sigma is not None:
-                    hmfs[fd][j] = gf1d(hmfs[fd][j], sigma)
                 ax[0].plot(mbins, hmfs[fd][j], alpha=alphas[i], lw=ws[i], color=f'C{j}')
+                ax[0].plot(mbins, hmfs_fine[fd][j], alpha=alphas[i], lw=ws[i], color=f'C{j}', ls='--')
         if 'HF' in fids:
             ax[1].plot(mbins, np.zeros((hmfs['HF'].shape[1])), ls='dashed')
             ref = 'HF'
@@ -621,7 +620,7 @@ class PlotHMF(BasePlot):
                     ax[1].plot(mbins, hmfs[k][j]/hmfs[ref][j] - 1, alpha=0.5, color=f'C{j}')
 
         ax[1].set_ylim((-0.5,0.5))
-        ax[0].set_ylim((1e-8, 1e-1))
+        ax[0].set_ylim((1e-5, 1e-1))
         ax[1].grid()
         for i in range(2):
             ax[i].set_xscale('log')
@@ -634,7 +633,7 @@ class PlotHMF(BasePlot):
         ax[1].set_ylabel('Ratio to HF')
         fig.tight_layout()
 
-    def check_smoothed_hmf(self, fids=['HF', 'L2'], sigma=1):
+    def check_smoothed_hmf(self, fids=['HF', 'L2']):
 
         (hmfs, mbins, sim_tags, hmfs_coarse, mbins_coarse, hmfs_fine) = self.hmf.load_hmf_sims(fids, load_coarse=True)
         for i, fd in enumerate(fids):

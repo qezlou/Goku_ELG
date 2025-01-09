@@ -272,7 +272,7 @@ class HMF(BaseSummaryStats):
         sim_nums = np.array(sim_nums)
         return sim_nums
 
-    def common_pairs(self, fids=['HF','L2']):
+    def common_pairs(self, fids=['HF','L2'], load_coarse=False):
         """
         Get the common pairs between the different cosmologies
         Parameters:
@@ -286,7 +286,7 @@ class HMF(BaseSummaryStats):
         first_corrs: list
             List of files for the first fid
         """
-        hmfs, mbins, sim_tags = self.load_hmf_sims(fids)
+        (hmfs, mbins, sim_tags, hmfs_coarse, mbins_coarse, hmfs_fine) = self.load_hmf_sims(fids, load_coarse=load_coarse)
         
         # Find the common pairs
         for fd in fids: 
@@ -305,5 +305,10 @@ class HMF(BaseSummaryStats):
             arg_sort = np.argsort(sim_nums[ind])
             hmfs[fd] = hmfs[fd][ind][arg_sort]
             sim_tags[fd] = np.array(sim_tags[fd])[ind][arg_sort]
-
-        return hmfs, mbins,sim_tags
+            if load_coarse:
+                hmfs_coarse[fd] = hmfs_coarse[fd][ind][arg_sort]
+                hmfs_fine[fd] = hmfs_fine[fd][ind][arg_sort]
+        if load_coarse:
+            return hmfs, mbins, sim_tags, hmfs_coarse, mbins_coarse, hmfs_fine
+        else:
+            return hmfs, mbins,sim_tags
