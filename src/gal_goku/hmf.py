@@ -63,29 +63,31 @@ class Hmf(get_corr.Corr):
     
     def get_all_fof_hmfs(self, base_dir, save_file, bins=None, z=2.5):
         """iterate over all avaiable pigs in base_dir and compue the halo mas function"""
-
-        if bins is None:
-            bins = np.arange(11, 13.5, 0.1)
         pigs = self.get_pig_dirs(base_dir, z=z)
         num_sims = len(pigs['sim_tags'])
+        if bins is None:
+            bins = np.arange(11, 13.5, 0.1)
         hmfs = np.zeros((num_sims, bins.size-1))
-        for i in range(num_sims):
-            vol = pigs['params'][i]['box']**3
-            hmfs[i] = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, bins=bins)
-        
         # We use CubicSpline to refine the mass bins
         # The mass resolution we need is 0.05 dex
         mbins = 0.5*(bins[1:]+bins[:-1])
-        bins_refined = np.arange(11, 13.5, 0.05)
-        mbins_refined = 0.5*(bins_refined[1:]+bins_refined[:-1])
-        hmfs_refined = np.zeros((hmfs.shape[0], mbins_refined.size))
+        bins_fine = np.arange(11, 13.5, 0.05)
+        mbins_refined = 0.5*(bins_fine[1:]+bins_fine[:-1])
+        hmfs_interp = np.zeros((hmfs.shape[0], mbins_refined.size))
+        hmfs_fine = np.zeros((hmfs.shape[0], mbins_refined.size))
+        
         for i in range(num_sims):
+            vol = pigs['params'][i]['box']**3
+            hmfs[i] = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, bins=bins)
+            hmfs_fine[i] = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, bins=bins_fine)
+            # We use CubicSpline to refine the mass bins
             spl = ius(mbins, hmfs[i], k=3)
-            hmfs_refined[i] = spl(mbins_refined)
+            hmfs_interp[i] = spl(mbins_refined)
         
         with h5py.File(save_file, 'w') as fw:
             fw['sim_tags'] = pigs['sim_tags']
             fw['hmfs_coarse'] = hmfs
             fw['bins_coarse'] = bins
-            fw['hmfs'] = hmfs_refined
-            fw['bins'] = bins_refined
+            fw['hmfs_fine'] = hmfs_fine
+            fw['hmfs'] = hmfs_interp
+            fw['bins'] = bins_fine
