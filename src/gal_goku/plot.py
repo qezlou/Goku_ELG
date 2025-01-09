@@ -584,7 +584,7 @@ class PlotHMF(BasePlot):
         for i, fd in enumerate(fids):
             for j in range(hmfs[fd].shape[0]):
                 ax.plot(mbins, hmfs[fd][j], alpha=alphas[i], lw=ws[i])
-
+        ax.set_ylim((1e-8, 1e-1))
         ax.set_xscale('log')
         ax.legend()
         ax.set_yscale('log')
@@ -636,29 +636,23 @@ class PlotHMF(BasePlot):
 
     def check_smoothed_hmf(self, fids=['HF', 'L2'], sigma=1):
 
-        ws = [7, 2, 2]
-        alphas = [0.5, 0.9, 0.8]
-
-        hmfs, mbins, sim_tags = self.hmf.common_pairs(fids)
+        (hmfs, mbins, sim_tags, hmfs_coarse, mbins_coarse, hmfs_fine) = self.hmf.load_hmf_sims(fids, load_coarse=True)
         for i, fd in enumerate(fids):
-            fig, ax = plt.subplots(2, 1, figsize=(8, 8), gridspec_kw={'height_ratios': [2, 1]})
-            for j in range(hmfs[fd].shape[0]):
-                if sigma is not None:
-                    hmf_smoothed = gf1d(hmfs[fd][j], sigma)
-                ax[0].plot(mbins, hmfs[fd][j], alpha=alphas[i], lw=ws[i], color=f'C{j}')
-                ax[0].plot(mbins, hmf_smoothed, alpha=alphas[i], lw=ws[i], color=f'C{j}', ls='--')
-                ax[1].plot(mbins, hmfs[fd][j]/hmf_smoothed - 1, alpha=0.5, color=f'C{j}')
+            sim_nums = hmfs[fd].shape[0]
+            rand_sample = np.random.randint(0, sim_nums, 21)
+            fig, ax = plt.subplots(1,1, figsize=(8,8))
 
-            ax[1].set_ylim((-0.5,0.5))
-            ax[0].set_ylim((1e-8, 1e-1))
-            ax[1].grid()
-            for i in range(2):
-                ax[i].set_xscale('log')
-                ax[i].legend()
-            ax[0].set_yscale('log')
-            ax[1].set_xlabel('FOF halo Mass')
-            ax[0].set_ylabel(r'$\psi \ [dex^{-1} cMph^{-3}]$')
-            ax[0].set_xlim(1e11, 1e14)
-            ax[0].set_xlim(1e11, 1e14)
-            ax[1].set_ylabel('Ratio to HF')
-            fig.tight_layout()
+            for p, j in enumerate(rand_sample):
+                ax.plot(mbins, hmfs[fd][j], alpha=0.5, lw=2, color=f'C{j}', label='Interpolated')
+                ax.plot(mbins_coarse, hmfs_coarse[fd][j], alpha=0.7, lw=2, color=f'C{j}', ls='--', label='coarse bin')
+                ax.plot(mbins, hmfs_fine[fd][j], alpha=0.9, lw=2, color=f'C{j}', ls='dotted', label='fine bin')
+                if p==0:
+                    ax.legend()
+
+                ax.set_ylim((1e-7, 1e-1))
+                ax.set_xscale('log')
+                ax.set_yscale('log')
+                ax.set_ylabel(r'$\psi \ [dex^{-1} cMph^{-3}]$')
+                ax.set_xlim(1e11, 1e14)
+                ax.set_xlim(1e11, 1e14)
+                fig.tight_layout()

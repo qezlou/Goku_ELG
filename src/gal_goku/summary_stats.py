@@ -203,7 +203,7 @@ class HMF(BaseSummaryStats):
     def __init__(self, data_dir, logging_level='INFO'):
         super().__init__(data_dir, logging_level)
     
-    def load_hmf_sims(self, fids=[]):
+    def load_hmf_sims(self, fids=[], load_coarse=False):
         """
         Load the Halo Mass Function computed for simulations 
         at a given fidelity.
@@ -213,6 +213,10 @@ class HMF(BaseSummaryStats):
             Directory where the HMF files are stored.
         fids: list
             List of fidelities to compare.
+        load_coarse: bool
+            If True, load the HMFs on the coarse mass bins. This is
+            the bins the HMF was originally computed on and then interpolated
+            to the fine bins.
         Returns:
         --------------
         hmfs: dict
@@ -222,36 +226,33 @@ class HMF(BaseSummaryStats):
             Mass bins.
         sim_tags: dict
             Dictionary containing lists of simulation tags.
+        If load_coarse is True:
+        hmfs_coarse: dict
+            Dictionary containing the HMFs on the coarse mass bins.
+        mbins_coarse: np.ndarray
+            Mass bins on the coarse grid.
         """
         hmfs = {}
         sim_tags = {}
+        if load_coarse:
+            hmfs_coarse = {}
+            hmfs_fine = {}
         for fd in fids:
             with h5py.File(op.join(self.data_dir, f'{fd}_hmfs.hdf5'), 'r') as f:
                 hmfs[fd] = f['hmfs'][:]
                 mbins =  0.5*(10**f['bins'][1:]+10**f['bins'][:-1])
+                if load_coarse:
+                    hmfs_coarse[fd] = f['hmfs_coarse'][:]
+                    hmfs_fine[fd] = f['hmfs_fine'][:]
+                    mbin_coarse = 0.5*(10**f['bins_coarse'][1:]+10**f['bins_coarse'][:-1])
                 sim_tags[fd] = []
                 # We need to convert from binary to str
                 for tag in f['sim_tags']:
                     sim_tags[fd].append(tag.decode('utf-8'))
-        return hmfs, mbins, sim_tags
-
-    def clean_bins(self, fids=[], cleaning_method='cubic-spline'):
-        """
-        Clean the fluctuating bins opf the HMF, so it is smmother. 
-        This should make an HMF which is closer to the estimates from 
-        the HighFidelity (HF) sims. 
-        Parameters:
-        -----------------
-        """
-        hmfs, mbins, sim_tags = self.load_hmf_sims(fids)
-        
-        for fd in fids:
-            spl = ius(mbins, hmfs[fd], k=3)
-            hmfs[fd] = spl(mbins)
-        
-        return hmfs, mbins, sim_tags
-
-    
+        if load_coarse:
+            return hmfs, mbins, sim_tags, hmfs_coarse, mbin_coarse, hmfs_fine
+        else:
+            return hmfs, mbins, sim_tags
 
     def _sim_nums(self, sim_tags):
         """
