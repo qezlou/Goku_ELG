@@ -9,6 +9,7 @@ import logging
 import json
 import re
 from matplotlib import pyplot as plt
+from scipy.interpolate import InterpolatedUnivariateSpline as ius
 
 class BaseSummaryStats:
     """Base class for summary statistics"""
@@ -204,7 +205,8 @@ class HMF(BaseSummaryStats):
     
     def load_hmf_sims(self, fids=[]):
         """
-        Load the Halo Mass Function computed for simulations at a given fidelity.
+        Load the Halo Mass Function computed for simulations 
+        at a given fidelity.
         Parameters:
         --------------
         save_dir: str
@@ -213,9 +215,9 @@ class HMF(BaseSummaryStats):
             List of fidelities to compare.
         Returns:
         --------------
-        hmf: dict
+        hmfs: dict
             Dictionary containing the Halo Mass Function in units of Mpc^-3 h^3 dex^-1.
-            The keys are the fidelities, e.g., 'HF', 'L2', 'L1'.
+            The keys are the fidelities, e.g., 'HF', 'L2', 'L1'. The values are the HMFs.
         mbins: np.ndarray
             Mass bins.
         sim_tags: dict
@@ -232,6 +234,24 @@ class HMF(BaseSummaryStats):
                 for tag in f['sim_tags']:
                     sim_tags[fd].append(tag.decode('utf-8'))
         return hmfs, mbins, sim_tags
+
+    def clean_bins(self, fids=[], cleaning_method='cubic-spline'):
+        """
+        Clean the fluctuating bins opf the HMF, so it is smmother. 
+        This should make an HMF which is closer to the estimates from 
+        the HighFidelity (HF) sims. 
+        Parameters:
+        -----------------
+        """
+        hmfs, mbins, sim_tags = self.load_hmf_sims(fids)
+        
+        for fd in fids:
+            spl = ius(mbins, hmfs[fd], k=3)
+            hmfs[fd] = spl(mbins)
+        
+        return hmfs, mbins, sim_tags
+
+    
 
     def _sim_nums(self, sim_tags):
         """
@@ -251,7 +271,7 @@ class HMF(BaseSummaryStats):
         sim_nums = np.array(sim_nums)
         return sim_nums
 
-    def _common_pairs(self, fids=['HF','L2']):
+    def common_pairs(self, fids=['HF','L2']):
         """
         Get the common pairs between the different cosmologies
         Parameters:

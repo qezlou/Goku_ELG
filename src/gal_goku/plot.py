@@ -1,11 +1,12 @@
-import h5py
-import numpy as np
-from matplotlib import pyplot as plt
-from glob import glob
-from os import path as op
 import json
 import re
 import logging
+from glob import glob
+from os import path as op
+import h5py
+import numpy as np
+from matplotlib import pyplot as plt
+from scipy.ndimage import gaussian_filter1d as gf1d
 
 from . import summary_stats
 from . import wp_emus
@@ -593,7 +594,7 @@ class PlotHMF(BasePlot):
         ax.grid()
         fig.tight_layout()
     
-    def compare_fids(self, fids=['HF','L2']):
+    def compare_fids(self, fids=['HF','L2'], sigma=None):
         """
         Compare the Halo Mass functions for different fidelities
         """
@@ -601,9 +602,11 @@ class PlotHMF(BasePlot):
         alphas = [0.5, 0.9, 0.8]
         fig, ax = plt.subplots(2, 1, figsize=(8, 8), gridspec_kw={'height_ratios': [2, 1]})
 
-        hmfs, mbins, sim_tags = self.hmf._common_pairs(fids)
+        hmfs, mbins, sim_tags = self.hmf.common_pairs(fids)
         for i, fd in enumerate(fids):
             for j in range(hmfs[fd].shape[0]):
+                if sigma is not None:
+                    hmfs[fd][j] = gf1d(hmfs[fd][j], sigma)
                 ax[0].plot(mbins, hmfs[fd][j], alpha=alphas[i], lw=ws[i], color=f'C{j}')
         if 'HF' in fids:
             ax[1].plot(mbins, np.zeros((hmfs['HF'].shape[1])), ls='dashed')
@@ -618,6 +621,7 @@ class PlotHMF(BasePlot):
                     ax[1].plot(mbins, hmfs[k][j]/hmfs[ref][j] - 1, alpha=0.5, color=f'C{j}')
 
         ax[1].set_ylim((-0.5,0.5))
+        ax[0].set_ylim((1e-8, 1e-1))
         ax[1].grid()
         for i in range(2):
             ax[i].set_xscale('log')
@@ -629,3 +633,32 @@ class PlotHMF(BasePlot):
         ax[0].set_xlim(1e11, 1e14)
         ax[1].set_ylabel('Ratio to HF')
         fig.tight_layout()
+
+    def check_smoothed_hmf(self, fids=['HF', 'L2'], sigma=1):
+
+        ws = [7, 2, 2]
+        alphas = [0.5, 0.9, 0.8]
+
+        hmfs, mbins, sim_tags = self.hmf.common_pairs(fids)
+        for i, fd in enumerate(fids):
+            fig, ax = plt.subplots(2, 1, figsize=(8, 8), gridspec_kw={'height_ratios': [2, 1]})
+            for j in range(hmfs[fd].shape[0]):
+                if sigma is not None:
+                    hmf_smoothed = gf1d(hmfs[fd][j], sigma)
+                ax[0].plot(mbins, hmfs[fd][j], alpha=alphas[i], lw=ws[i], color=f'C{j}')
+                ax[0].plot(mbins, hmf_smoothed, alpha=alphas[i], lw=ws[i], color=f'C{j}', ls='--')
+                ax[1].plot(mbins, hmfs[fd][j]/hmf_smoothed - 1, alpha=0.5, color=f'C{j}')
+
+            ax[1].set_ylim((-0.5,0.5))
+            ax[0].set_ylim((1e-8, 1e-1))
+            ax[1].grid()
+            for i in range(2):
+                ax[i].set_xscale('log')
+                ax[i].legend()
+            ax[0].set_yscale('log')
+            ax[1].set_xlabel('FOF halo Mass')
+            ax[0].set_ylabel(r'$\psi \ [dex^{-1} cMph^{-3}]$')
+            ax[0].set_xlim(1e11, 1e14)
+            ax[0].set_xlim(1e11, 1e14)
+            ax[1].set_ylabel('Ratio to HF')
+            fig.tight_layout()

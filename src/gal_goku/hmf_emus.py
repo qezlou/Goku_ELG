@@ -1,13 +1,15 @@
 """
-To evaluate all the emulators for W_p, the projected correlation fucntion.
+To evaluate all the emulators for the Halo Mass Function.
 This is the interface of `single_fid.py` and `summary_stats.py` to work with the
-generated Projectedcorrelation functions.
+generated emulated Halo Mass Fucntion functions.
 """
+
 import logging
 import argparse
 import numpy as np
 from . import summary_stats
 from . import single_fid
+
 class SingleFid():
     def __init__(self, data_dir, y_log=True, r_range=(0,30), fid='L2', cleaning_method='linear_interp', multi_bin=False, logging_level='INFO'):
         """
@@ -82,60 +84,3 @@ class SingleFid():
             return np.log10(wp)
         else:
             return np.exp(-wp)
-    
-    def loo_train_pred(self, savefile, narrow=0):
-        """
-        Get the leave one out predictions
-        """
-        if narrow:
-            sub_sample = np.where(self.sim_specs['narrow'] == 1)[0]
-        else:
-            sub_sample = None
-        self.evaluate.loo_train_pred(rp=self.rp, savefile=savefile, labels=self.labels, sub_sample=sub_sample)
-    
-    def train_pred_all_sims(self):
-        """
-        Train the model on all simulations and comapre with the truth
-        """
-        self.evaluate.sf.train()
-        pred, var_pred = self.evaluate.predict(self.X)
-        return pred, self.Y, self.rp
-    
-    def leave_bunch_out(self, n_out=5, narrow=0):
-        """
-        Leaves out a random bunch of samples out
-        n_out: Number of samples to leave out
-        """
-        if narrow:
-            sub_sample = np.where(self.sim_specs['narrow'] == 1)[0]
-        else:
-            sub_sample = None
-        X_test, Y_test, Y_pred, var_pred = self.evaluate.leave_bunch_out(n_out=n_out, sub_sample=sub_sample)
-        return X_test, Y_test, Y_pred, var_pred
-    
-    def predict(self, X_test):
-        """
-        Predict the mean and variance of the emulator
-        """
-        self.evaluate.train()
-        return self.evaluate.predict(X_test)
-        
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Get LOO for the single fidelity emulator')
-    parser.add_argument('--data_dir', type=str, default='/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/', help='Directory where the data is stored')
-    parser.add_argument('--emu_type', type=str, default='SingleFid', help='Type of the emulator')
-    parser.add_argument('--multi_bin', type=int, default=0, help='Build one mu per rp bin?')
-    parser.add_argument('--r_range', type=float, nargs=2, default=[0,30], help='Range of r to consider')
-    parser.add_argument('--y_log', type=int, default=1, help='Wether to train on log10 of wp')
-    parser.add_argument('--savefile', type=str, default= '/home/qezlou/HD2/HETDEX/cosmo/data/corr_projected_corrected/train/loo_pred_lin_interp_not_log_y.hdf5', help='Save the results to a file')
-    parser.add_argument('--narrow', type=int, default=0, help='Use only the narrow simulations')
-    args = parser.parse_args()
-    
-    if args.emu_type == 'SingleFid':
-        emu = SingleFid(data_dir=args.data_dir, y_log=args.y_log, r_range=args.r_range, multi_bin=args.multi_bin, logging_level='INFO')
-        emu.loo_train_pred(savefile=args.savefile, narrow=args.narrow)
-
-
-
-
-    
