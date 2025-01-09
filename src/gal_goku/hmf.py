@@ -4,7 +4,7 @@ import json
 from glob import glob
 import numpy as np
 import re
-
+from scipy.interpolate import InterpolatedUnivariateSpline as ius
 from nbodykit import CurrentMPIComm
 from nbodykit.hod import Zheng07Model
 from nbodykit.lab import *
@@ -61,9 +61,11 @@ class Hmf(get_corr.Corr):
         hmf = hist[0]/(vol*(bins[1]-bins[0]))
         return hmf
     
-    def get_all_fof_hmfs(self, base_dir, bins, save_file, z=2.5):
+    def get_all_fof_hmfs(self, base_dir, save_file, bins=None, z=2.5):
         """iterate over all avaiable pigs in base_dir and compue the halo mas function"""
 
+        if bins is None:
+            bins = np.arange(11, 13.5, 0.1)
         pigs = self.get_pig_dirs(base_dir, z=z)
         num_sims = len(pigs['sim_tags'])
         hmfs = np.zeros((num_sims, bins.size-1))
@@ -71,9 +73,19 @@ class Hmf(get_corr.Corr):
             vol = pigs['params'][i]['box']**3
             hmfs[i] = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, bins=bins)
         
+        # We use CubicSpline to refine the mass bins
+        # The mass resolution we need is 0.05 dex
+        mbins = 0.5*(bins[1:]+bins[:-1])
+        bins_refined = np.arange(11, 13.5, 0.05)
+        mbins_refined = 0.5*(bins_refined[1:]+bins_refined[:-1])
+        hmfs_refined = np.zeros((hmfs.shape[0], mbins_refined.size))
+        for i in range(num_sims):
+            spl = ius(mbins, hmfs[i], k=3)
+            hmfs_refined[i] = spl(mbins_refined)
+        
         with h5py.File(save_file, 'w') as fw:
             fw['sim_tags'] = pigs['sim_tags']
-            fw['hmfs'] = hmfs
-            fw['bins'] = bins
-        
-        
+            fw['hmfs_coarse'] = hmfs
+            fw['bins_coarse'] = bins
+            fw['hmfs'] = hmfs_refined
+            fw['bins'] = bins_refined
