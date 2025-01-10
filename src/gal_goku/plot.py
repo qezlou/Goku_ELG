@@ -37,6 +37,61 @@ class BasePlot():
         logger.addHandler(console_handler)
         
         return logger
+   
+    def pred_truth(self, pred, truth, rp, model_err=None, seed=None, title=None, log_y=True):
+        """
+        Plot the leave one out cross validation
+        """
+        if model_err is not None:
+            fig, ax = plt.subplots(1, 3, figsize=(12, 4))
+        else:
+            fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        if seed is not None:
+            np.random.seed(seed)
+        ind = np.random.randint(0, pred.shape[0], 10)
+        for c,i in enumerate(ind):
+            if log_y:
+                ax[0].plot(rp, 10**truth[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5 )
+                ax[0].plot(rp, 10**pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
+            else:
+                ax[0].plot(rp, truth[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5)
+                ax[0].plot(rp, pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
+            if c == 0:
+                ax[0].legend()
+        if log_y:
+            ax[0].set_yscale('log')
+        if title is not None:
+            ax[0].set_title(title, fontsize=8)
+        
+        # plot histogram of LOO error
+        assert np.all(10**truth > 0), 'Truth has negative values'
+        try:
+             assert np.all(10**pred > 0), f'Pred has negative values, pred nans: = {pred}'
+             percentile_method = np.percentile
+        except AssertionError as e:
+            percentile_method = np.nanpercentile
+        
+        if log_y:
+            err = np.abs(10**pred / 10**truth - 1).flatten()
+        else:
+            err = np.abs(pred / truth - 1).flatten()
+        bins = np.logspace(-3, 0.5, 20)
+        ax[1].hist(err, bins = bins, alpha=0.5)
+        ax[1].set_xscale('log')
+        percentiles = percentile_method(err, [84, 95])
+        ax[1].set_title(f'Error distribution, 84, 95th percentiles = {np.round(percentiles,2)}', fontsize=10)
+
+        if model_err is not None:
+            if log_y:
+                relative_err = (10**pred - 10**truth) / 10**model_err
+            else:
+                relative_err = (pred - truth) / model_err
+            ax[2].hist(relative_err.flatten(), bins=np.linspace(-5, 5, 50), alpha=0.5)
+            ax[2].set_xlabel(r'$(pred - truth)/\sigma_{pred}$')
+            frac_within_1sigma = np.sum(np.abs(relative_err) < 1) / relative_err.size
+            ax[2].set_title('Fraction within '+r'$1 \sigma_{pred} = \ $'+f'{frac_within_1sigma:.2f}', fontsize=10)
+        
+        return fig, ax
 
 class PlotCorr(BasePlot):
     def __init__(self, logging_level='INFO', show_full_params=False):
@@ -655,3 +710,34 @@ class PlotHMF(BasePlot):
                 ax.set_xlim(1e11, 1e14)
                 ax.set_xlim(1e11, 1e14)
                 fig.tight_layout()
+
+class PlotHmfEmu(BasePlot):
+    def __init__(self, logging_level='INFO', show_full_params=False):
+        super().__init__(logging_level, show_full_params)
+    
+    def pred_truth(self, pred, truth, mbins, model_err=None, seed=None, title=None, log_y=True):
+        """
+        Plot the difference between the predicted and the truth
+        """
+        fig, ax = plt.subplots(1, 3, figsize=(12, 4))
+
+    def pred_truth(self, pred, truth, mbins, model_err=None, seed=None, title=None, log_y=True):
+        
+        fig, ax = super().pred_truth(pred, truth, mbins, model_err=model_err, seed=seed, title=title, log_y=log_y)
+        fig.tight_layout()
+
+    
+    def loo_pred_truth(self, savefile, seed=None, title=None):
+        """
+        """
+        with h5py.File(savefile, 'r') as f:
+            pred = f['pred'][:]
+            var_pred = f['var_pred'][:]
+            truth = f['truth'][:].squeeze()
+            X = f['X'][:]
+            mbins = f['bins'][:]
+        
+        self.logger.info(f'Number of simualtions {pred.shape[0]}')
+        
+        self.pred_truth(pred, truth, mbins, model_err=np.sqrt(var_pred), seed=seed, title=title, log_y=True)
+    

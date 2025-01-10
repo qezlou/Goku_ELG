@@ -39,18 +39,7 @@ class BaseSummaryStats:
         logger.addHandler(console_handler)
         
         return logger
-
-class ProjCorr(BaseSummaryStats):
-    """Projected correlation function, w_p"""
-    def __init__(self, data_dir, fid, logging_level='INFO'):
-
-        super().__init__(data_dir, fid, logging_level)
-        self.rp = None
-        self.data_files = [op.join(data_dir, f) for f in os.listdir(self.data_dir) if self.pref in f]
-        self.logger.info(f'Total snapshots: {len(self.data_files)}')
-
-
-
+    
     def load_ics(self):
         """
         Load the IC json file
@@ -60,6 +49,11 @@ class ProjCorr(BaseSummaryStats):
         with open(self.ic_file, 'r') as file:
             data = json.load(file)
         return data
+    
+    def get_labels(self):
+        """
+        Get the labels we use for each simulation, they are in this format ``10p_Box{BoxSize}_Par{Npart}_0001``"""
+        raise NotImplementedError('Either define this for the child class or pass `labels` to `get_params_array`')
 
     def get_sims_specs(self):
         """
@@ -72,9 +66,9 @@ class ProjCorr(BaseSummaryStats):
         matched_labels = []
         ics_existing_sims = []
 
-        for label in labels:
+        for lb in labels:
             for ic in all_ics:
-                if ic['label'] == label:
+                if ic['label'] in lb:
                     ics_existing_sims.append(ic)
                     break
         self.logger.debug(f'Found {len(ics_existing_sims)} matching labels')
@@ -89,17 +83,6 @@ class ProjCorr(BaseSummaryStats):
             if 'narrow' in ic['label']:
                 sim_specs['narrow'][i] = 1
         return sim_specs
-        
-    def get_labels(self):
-        """Get the labels we use for each simulation, they are in this format ``cosmo_10p_Box{BoxSize}_Par{Npart}_0001``"""
-        labels = []
-        for df in self.data_files:
-            label = re.search(r'10p_Box\d+_Part\d+_\d{4}',df).group(0)
-            if 'narrow' in df:
-                label += '_narrow'
-            labels.append(label)
-
-        return labels        
 
     def get_cosmo_params(self):
         """
@@ -107,11 +90,12 @@ class ProjCorr(BaseSummaryStats):
         """
         
         ics = self.load_ics()
+        
         labels = self.get_labels()
         cosmo_params = []
         for lb in labels:
             for ic in ics:
-                if ic['label'] == lb:
+                if ic['label'] in lb:
                     cosmo_params.append({k:ic[k] for k in self.param_names})
                     break
         assert len(cosmo_params) == len(labels), f'Some labels not found in the ICs file, foumd = {len(cosmo_params)}, asked for = {len(labels)}'
@@ -121,6 +105,26 @@ class ProjCorr(BaseSummaryStats):
         """Get the cosmological parameters as an array"""
         params_dict = self.get_cosmo_params()
         return np.array([[cp[p] for p in self.param_names] for cp in params_dict])
+    
+class ProjCorr(BaseSummaryStats):
+    """Projected correlation function, w_p"""
+    def __init__(self, data_dir, fid, logging_level='INFO'):
+
+        super().__init__(data_dir, fid, logging_level)
+        self.rp = None
+        self.data_files = [op.join(data_dir, f) for f in os.listdir(self.data_dir) if self.pref in f]
+        self.logger.info(f'Total snapshots: {len(self.data_files)}')
+        
+    def get_labels(self):
+        """Get the labels we use for each simulation, they are in this format ``10p_Box{BoxSize}_Par{Npart}_0001``"""
+        labels = []
+        for df in self.data_files:
+            label = re.search(r'10p_Box\d+_Part\d+_\d{4}',df).group(0)
+            if 'narrow' in df:
+                label += '_narrow'
+            labels.append(label)
+
+        return labels
     
 
     def get_wp(self):
@@ -200,10 +204,19 @@ class HMF(BaseSummaryStats):
     """
     Halo mass function
     """
-    def __init__(self, data_dir, logging_level='INFO'):
+    def __init__(self, data_dir, fid, logging_level='INFO'):
         super().__init__(data_dir, logging_level)
+        self.fid = fid
+        self.sim_tags = None
     
-    def load_hmf_sims(self, fids=[], load_coarse=False):
+    def get_labels(self):
+        """It is just the simulation tags"""
+        if self.sim_tags is None:
+            raise ValueError('The simulation tags are not loaded yet, call `load_hmf_sims` first')
+        return self.sim_tags
+
+    
+    def load_hmf_sims(self, load_coarse=False):
         """
         Load the Halo Mass Function computed for simulations 
         at a given fidelity.
@@ -211,8 +224,6 @@ class HMF(BaseSummaryStats):
         --------------
         save_dir: str
             Directory where the HMF files are stored.
-        fids: list
-            List of fidelities to compare.
         load_coarse: bool
             If True, load the HMFs on the coarse mass bins. This is
             the bins the HMF was originally computed on and then interpolated
@@ -232,23 +243,18 @@ class HMF(BaseSummaryStats):
         mbins_coarse: np.ndarray
             Mass bins on the coarse grid.
         """
-        hmfs = {}
-        sim_tags = {}
-        if load_coarse:
-            hmfs_coarse = {}
-            hmfs_fine = {}
-        for fd in fids:
-            with h5py.File(op.join(self.data_dir, f'{fd}_hmfs.hdf5'), 'r') as f:
-                hmfs[fd] = f['hmfs'][:]
-                mbins =  0.5*(10**f['bins'][1:]+10**f['bins'][:-1])
-                if load_coarse:
-                    hmfs_coarse[fd] = f['hmfs_coarse'][:]
-                    hmfs_fine[fd] = f['hmfs_fine'][:]
-                    mbin_coarse = 0.5*(10**f['bins_coarse'][1:]+10**f['bins_coarse'][:-1])
-                sim_tags[fd] = []
-                # We need to convert from binary to str
-                for tag in f['sim_tags']:
-                    sim_tags[fd].append(tag.decode('utf-8'))
+        with h5py.File(op.join(self.data_dir, f'{self.fid}_hmfs.hdf5'), 'r') as f:
+            hmfs = f['hmfs'][:]
+            mbins =  0.5*(10**f['bins'][1:]+10**f['bins'][:-1])
+            if load_coarse:
+                hmfs_coarse= f['hmfs_coarse'][:]
+                hmfs_fine= f['hmfs_fine'][:]
+                mbin_coarse = 0.5*(10**f['bins_coarse'][1:]+10**f['bins_coarse'][:-1])
+            sim_tags = []
+            # We need to convert from binary to str
+            for tag in f['sim_tags']:
+                sim_tags.append(tag.decode('utf-8'))
+        self.sim_tags = sim_tags
         if load_coarse:
             return hmfs, mbins, sim_tags, hmfs_coarse, mbin_coarse, hmfs_fine
         else:
@@ -272,7 +278,7 @@ class HMF(BaseSummaryStats):
         sim_nums = np.array(sim_nums)
         return sim_nums
 
-    def common_pairs(self, fids=['HF','L2'], load_coarse=False):
+    def common_pairs(self, load_coarse=False):
         """
         Get the common pairs between the different cosmologies
         Parameters:
@@ -286,19 +292,19 @@ class HMF(BaseSummaryStats):
         first_corrs: list
             List of files for the first fid
         """
-        (hmfs, mbins, sim_tags, hmfs_coarse, mbins_coarse, hmfs_fine) = self.load_hmf_sims(fids, load_coarse=load_coarse)
+        (hmfs, mbins, sim_tags, hmfs_coarse, mbins_coarse, hmfs_fine) = self.load_hmf_sims(load_coarse=load_coarse)
         
         # Find the common pairs
-        for fd in fids: 
+        for fd in self.fids: 
             sim_nums = self._sim_nums(sim_tags[fd])
-            if fd == fids[0]:
+            if fd == self.fids[0]:
                 common_nums = sim_nums
             else:
                 common_nums = np.intersect1d(common_nums, sim_nums)
         
         self.logger.info(f'Found {len(common_nums)} common pairs')
         # Now keeping only the common hmfs
-        for fd in fids:
+        for fd in self.fids:
             sim_nums = self._sim_nums(sim_tags=sim_tags[fd])
             ind = np.where(np.isin(sim_nums, common_nums))[0]
             # Sort based on sim # for consistency

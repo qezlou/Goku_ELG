@@ -163,13 +163,13 @@ class EvaluateSingleFid:
         """
         return self.sf.predict(X)
 
-    def loo_train_pred(self, rp, savefile=None, labels=None, sub_sample=None):
+    def loo_train_pred(self, bins, savefile=None, labels=None, sub_sample=None):
         """
         Iterate over the samples to leave one out and train the model
         Parameters:
         -------
-        rp: array
-            The projected rp radii that used for training
+        bins: array
+            The projected bins radii that used for training
         savefile: 
             The file to save the results to
 
@@ -203,7 +203,7 @@ class EvaluateSingleFid:
                 f.create_dataset('var_pred', data=var_pred)
                 f.create_dataset('truth', data=self.Y[sub_sample])
                 f.create_dataset('X', data=self.X[sub_sample])
-                f.create_dataset('rp', data=rp)
+                f.create_dataset('bins', data=bins)
                 if labels is not None:
                     f.create_dataset('labels', data=labels)
         else:
@@ -294,13 +294,13 @@ class EvaluateSingleFidMultiBins(EvaluateSingleFid):
             Y_pred[:,i], Y_var[:,i] = self.evalutors[i].predict(X)
         return Y_pred, Y_var
     
-    def loo_train_pred(self, rp, savefile=None, labels=None):
+    def loo_train_pred(self, bins, savefile=None, labels=None):
         """
         Iterate over the samples to leave one out and train the model
         Parameters:
         -------
-        rp: array
-            The projected rp radii that used for training
+        bins: array
+            The projected bins radii that used for training
         savefile:
             The file to save the results to
         """
@@ -327,7 +327,7 @@ class EvaluateSingleFidMultiBins(EvaluateSingleFid):
                 f.create_dataset('var_pred', data=var_pred)
                 f.create_dataset('truth', data=self.Y)
                 f.create_dataset('X', data=self.X)
-                f.create_dataset('rp', data=rp)
+                f.create_dataset('bins', data=bins)
                 if labels is not None:
                     f.create_dataset('labels', data=labels)
         else:
@@ -374,6 +374,3 @@ class TestSingleFiled():
             X = self.X_train
         Y_pred, Y_var = self.eval.sf.predict(X)
         return Y_pred, Y_var
-
-
-    
