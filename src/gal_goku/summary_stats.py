@@ -216,7 +216,7 @@ class HMF(BaseSummaryStats):
         return self.sim_tags
 
     
-    def load_hmf_sims(self, load_coarse=False):
+    def load_hmf_sims(self, load_coarse=False, narrow=False):
         """
         Load the Halo Mass Function computed for simulations 
         at a given fidelity.
@@ -243,6 +243,10 @@ class HMF(BaseSummaryStats):
         mbins_coarse: np.ndarray
             Mass bins on the coarse grid.
         """
+        if narrow:
+            save_file = f'{self.fid}_hmfs_narrow.hdf5'
+        else:
+            save_file = f'{self.fid}_hmfs.hdf5'
         with h5py.File(op.join(self.data_dir, f'{self.fid}_hmfs.hdf5'), 'r') as f:
             hmfs = f['hmfs'][:]
             mbins =  0.5*(10**f['bins'][1:]+10**f['bins'][:-1])

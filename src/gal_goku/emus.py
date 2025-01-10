@@ -72,7 +72,7 @@ class BaseStatEmu():
 
 
 class Hmf(BaseStatEmu):
-    def __init__(self, data_dir, y_log=True, fid='L2', multi_bin=False, logging_level='INFO'):
+    def __init__(self, data_dir, y_log=True, fid='L2', multi_bin=False, logging_level='INFO', narrow=False):
         """
         data_dir: Directory where the data is stored
         r_range: Range of r to consider
