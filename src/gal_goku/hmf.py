@@ -1,14 +1,5 @@
-import os
-import argparse
-import json
-from glob import glob
 import numpy as np
-import re
 from scipy.interpolate import InterpolatedUnivariateSpline as ius
-from nbodykit import CurrentMPIComm
-from nbodykit.hod import Zheng07Model
-from nbodykit.lab import *
-from nbodykit.cosmology import Planck15 as cosmo
 import h5py
 import logging
 import warnings
@@ -28,7 +19,7 @@ class Hmf(get_corr.Corr):
         logger.setLevel(logging_level)
         try:
             from nbodykit import setup_logging
-            setup_logging('info')
+            setup_logging('warning')
         except ImportError:
             console_handler = logging.StreamHandler()
             formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
@@ -75,17 +66,28 @@ class Hmf(get_corr.Corr):
         mbins_refined = 0.5*(bins_fine[1:]+bins_fine[:-1])
         hmfs_interp = np.zeros((hmfs.shape[0], mbins_refined.size))
         hmfs_fine = np.zeros((hmfs.shape[0], mbins_refined.size))
-        
+        bad_sims = []
+        sim_tags = []
         for i in range(num_sims):
             vol = pigs['params'][i]['box']**3
-            hmfs[i] = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, bins=bins)
-            hmfs_fine[i] = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, bins=bins_fine)
-            # We use CubicSpline to refine the mass bins
-            spl = ius(mbins, hmfs[i], k=3)
-            hmfs_interp[i] = spl(mbins_refined)
+            try:
+                hmfs[i] = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, bins=bins)
+                hmfs_fine[i] = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, bins=bins_fine)
+                # We use CubicSpline to refine the mass bins
+                spl = ius(mbins, hmfs[i], k=3)
+                hmfs_interp[i] = spl(mbins_refined)
+                sim_tags.append(pigs['sim_tags'][i])
+            except FileNotFoundError:
+                bad_sims.append(i)
+                continue
+        
+        hmfs = np.delete(hmfs, bad_sims, axis=0)
+        hmfs_fine = np.delete(hmfs_fine, bad_sims, axis=0)
+        hmfs_interp = np.delete(hmfs_interp, bad_sims, axis=0)
+        self.logger.info(f'{len(bad_sims)} sims could not be opened')
         
         with h5py.File(save_file, 'w') as fw:
-            fw['sim_tags'] = pigs['sim_tags']
+            fw['sim_tags'] = sim_tags
             fw['hmfs_coarse'] = hmfs
             fw['bins_coarse'] = bins
             fw['hmfs_fine'] = hmfs_fine
