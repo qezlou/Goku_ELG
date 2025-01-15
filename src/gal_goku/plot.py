@@ -38,9 +38,16 @@ class BasePlot():
         
         return logger
    
-    def pred_truth(self, pred, truth, rp, model_err=None, seed=None, title=None, log_y=True):
+    def pred_truth(self, pred, truth, bins, model_err=None, seed=None, title=None, log_y=True):
         """
         Plot the leave one out cross validation
+        Parameters:
+        -----------
+        pred: Array
+            Predicted values, SHOULD be in log space, e.g. log(w_p)
+        truth: Array
+            Truth values, SHOULD be in log space, e.g. log(w_p)
+        
         """
         if model_err is not None:
             fig, ax = plt.subplots(1, 3, figsize=(12, 4))
@@ -51,11 +58,11 @@ class BasePlot():
         ind = np.random.randint(0, pred.shape[0], 10)
         for c,i in enumerate(ind):
             if log_y:
-                ax[0].plot(rp, 10**truth[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5 )
-                ax[0].plot(rp, 10**pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
+                ax[0].plot(bins, 10**truth[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5 )
+                ax[0].plot(bins, 10**pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
             else:
-                ax[0].plot(rp, truth[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5)
-                ax[0].plot(rp, pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
+                ax[0].plot(bins, truth[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5)
+                ax[0].plot(bins, pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
             if c == 0:
                 ax[0].legend()
         if log_y:
@@ -618,9 +625,7 @@ class PlotHMF(BasePlot):
     """
     def __init__(self, data_dir, logging_level='INFO', show_full_params=False):
         super().__init__(logging_level, show_full_params)
-
-        # Use summary_stats to load the HMF
-        self.hmf = summary_stats.HMF(data_dir)
+        self.data_dir = data_dir
 
     def sim_hmf(self, fids=['HF'], fig=None, ax=None):
         """
@@ -690,16 +695,18 @@ class PlotHMF(BasePlot):
 
     def check_smoothed_hmf(self, fids=['HF', 'L2']):
 
-        (hmfs, mbins, sim_tags, hmfs_coarse, mbins_coarse, hmfs_fine) = self.hmf.load_hmf_sims(fids, load_coarse=True)
-        for i, fd in enumerate(fids):
-            sim_nums = hmfs[fd].shape[0]
+        for i, fd in enumerate(fids):        
+            # Use summary_stats to load the HMF
+            halo_func = summary_stats.HMF(self.data_dir, fid=fd)
+            (hmfs, mbins, sim_tags, hmfs_coarse, mbins_coarse, hmfs_fine) = halo_func.load_hmf_sims(load_coarse=True)
+            sim_nums = hmfs.shape[0]
             rand_sample = np.random.randint(0, sim_nums, 21)
             fig, ax = plt.subplots(1,1, figsize=(8,8))
 
             for p, j in enumerate(rand_sample):
-                ax.plot(mbins, hmfs[fd][j], alpha=0.5, lw=2, color=f'C{j}', label='Interpolated')
-                ax.plot(mbins_coarse, hmfs_coarse[fd][j], alpha=0.7, lw=2, color=f'C{j}', ls='--', label='coarse bin')
-                ax.plot(mbins, hmfs_fine[fd][j], alpha=0.9, lw=2, color=f'C{j}', ls='dotted', label='fine bin')
+                ax.plot(mbins, hmfs[j], alpha=0.5, lw=2, color=f'C{j}', label='Interpolated')
+                ax.plot(mbins_coarse, hmfs_coarse[j], alpha=0.7, lw=2, color=f'C{j}', ls='--', label='coarse bin')
+                ax.plot(mbins, hmfs_fine[j], alpha=0.9, lw=2, color=f'C{j}', ls='dotted', label='fine bin')
                 if p==0:
                     ax.legend()
 
@@ -724,8 +731,10 @@ class PlotHmfEmu(BasePlot):
     def pred_truth(self, pred, truth, mbins, model_err=None, seed=None, title=None, log_y=True):
         
         fig, ax = super().pred_truth(pred, truth, mbins, model_err=model_err, seed=seed, title=title, log_y=log_y)
+        ax[0].set_yscale('log')
+        ax[0].set_xscale('log')
         fig.tight_layout()
-
+        return fig, ax
     
     def loo_pred_truth(self, savefile, seed=None, title=None):
         """
@@ -739,5 +748,6 @@ class PlotHmfEmu(BasePlot):
         
         self.logger.info(f'Number of simualtions {pred.shape[0]}')
         
-        self.pred_truth(pred, truth, mbins, model_err=np.sqrt(var_pred), seed=seed, title=title, log_y=True)
+        fig, ax = self.pred_truth(pred, truth, mbins, model_err=np.sqrt(var_pred), seed=seed, title=title, log_y=True)
+        ax[0].set_ylim((1e-7, 1e-1))
     

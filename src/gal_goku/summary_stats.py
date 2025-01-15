@@ -13,7 +13,7 @@ from scipy.interpolate import InterpolatedUnivariateSpline as ius
 
 class BaseSummaryStats:
     """Base class for summary statistics"""
-    def __init__(self, data_dir, fid, logging_level='INFO'):
+    def __init__(self, data_dir, fid, narrow=False, logging_level='INFO'):
         self.rank = 0
         self.logger = self.configure_logging(logging_level)
         self.data_dir = data_dir
@@ -28,6 +28,7 @@ class BaseSummaryStats:
             self.pref = 'Box1000_Part750'
         elif fid == 'L2':
             self.pref = 'Box250_Part750'
+        self.narrow = narrow
     
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level."""
@@ -50,6 +51,22 @@ class BaseSummaryStats:
             data = json.load(file)
         return data
     
+    def get_ics(self, keys):
+        """
+        Get the desired keys from the ICs file
+        """
+        raw_ics = self.load_ics()
+        all_ics = {}
+        for k in keys:
+            all_ics[k] = []
+            for ic in raw_ics:
+                if self.narrow:
+                    if 'narrow' in ic['label']:
+                        all_ics[k].append(ic[k])
+                else:
+                    all_ics[k].append(ic[k])
+        return all_ics
+    
     def get_labels(self):
         """
         Get the labels we use for each simulation, they are in this format ``10p_Box{BoxSize}_Par{Npart}_0001``"""
@@ -59,29 +76,29 @@ class BaseSummaryStats:
         """
         Get the simulation specs from the ICs file
         """
-        all_ics = self.load_ics()
+        all_ics = self.get_ics(keys=['box', 'npart', 'label'])
         not_computed_sims = []
         labels = self.get_labels()
 
         matched_labels = []
-        ics_existing_sims = []
+        existing_sims = []
 
         for lb in labels:
-            for ic in all_ics:
-                if ic['label'] in lb:
-                    ics_existing_sims.append(ic)
+            for i in range (len(all_ics['label'])):
+                if all_ics['label'][i] in lb:
+                    existing_sims.append(i)
                     break
-        self.logger.debug(f'Found {len(ics_existing_sims)} matching labels')
-
-        del all_ics
+        existing_sims = np.array(existing_sims)
+        self.logger.info(f'Found {len(existing_sims)} matching labels')
         sim_specs = {}
         for k in ['box','npart']:
-            sim_specs[k] = [ic[k] for ic in ics_existing_sims]
+            sim_specs[k] = [all_ics[k][i] for i in existing_sims]
 
-        sim_specs['narrow'] = np.zeros(len(ics_existing_sims))
-        for i, ic in enumerate(ics_existing_sims):
-            if 'narrow' in ic['label']:
+        sim_specs['narrow'] = np.zeros((len(existing_sims),))
+        for i, sim in enumerate(existing_sims):
+            if 'narrow' in all_ics['label'][sim]:
                 sim_specs['narrow'][i] = 1
+        
         return sim_specs
 
     def get_cosmo_params(self):
@@ -204,10 +221,11 @@ class HMF(BaseSummaryStats):
     """
     Halo mass function
     """
-    def __init__(self, data_dir, fid, logging_level='INFO'):
+    def __init__(self, data_dir, fid, narrow=False, logging_level='INFO'):
         super().__init__(data_dir, logging_level)
         self.fid = fid
         self.sim_tags = None
+        self.narrow = narrow
     
     def get_labels(self):
         """It is just the simulation tags"""
@@ -216,7 +234,7 @@ class HMF(BaseSummaryStats):
         return self.sim_tags
 
     
-    def load_hmf_sims(self, load_coarse=False, narrow=False):
+    def load_hmf_sims(self, load_coarse=False):
         """
         Load the Halo Mass Function computed for simulations 
         at a given fidelity.
@@ -243,11 +261,12 @@ class HMF(BaseSummaryStats):
         mbins_coarse: np.ndarray
             Mass bins on the coarse grid.
         """
-        if narrow:
+        if self.narrow:
             save_file = f'{self.fid}_hmfs_narrow.hdf5'
+            self.logger.info(f'Loading narrow HMFs from {save_file}')
         else:
             save_file = f'{self.fid}_hmfs.hdf5'
-        with h5py.File(op.join(self.data_dir, f'{self.fid}_hmfs.hdf5'), 'r') as f:
+        with h5py.File(op.join(self.data_dir, save_file), 'r') as f:
             hmfs = f['hmfs'][:]
             mbins =  0.5*(10**f['bins'][1:]+10**f['bins'][:-1])
             if load_coarse:

@@ -31,6 +31,11 @@ class Hmf(get_corr.Corr):
         
         return logger
     
+    def smooth_hmf():
+        """
+        Fit piecewise polynomial to the halo mass function
+        """
+
     def get_fof_hmf(self, pig_dir, vol,  bins):
         """
         Plot the halo mass function for the FoF halos
