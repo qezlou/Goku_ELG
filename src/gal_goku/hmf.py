@@ -35,7 +35,7 @@ class Hmf(get_corr.Corr):
         """
         Fit piecewise polynomial to the halo mass function
         """
-
+    
     def get_fof_hmf(self, pig_dir, vol,  bins, counts_min = 20):
         """
         Plot the halo mass function for the FoF halos
@@ -61,11 +61,13 @@ class Hmf(get_corr.Corr):
             i -= 1
             combined_counts += counts[i]
             ind = np.insert(ind, 0, i)
+        self.logger.debug(f'Deleting the last {len(ind)} bins of hmf for {pig_dir}, with counts {counts[ind]}')
         counts = np.delete(counts, ind)
-        trimmed_bins = bins[0:ind[0]]
+        trimmed_bins = bins[:-len(ind)]
         counts = np.append(counts, combined_counts)
 
         bins_delta  = trimmed_bins[1::] - trimmed_bins[0:-1]
+        print(f'trimmed_bins {trimmed_bins}, bins_delta {bins_delta}')
         hmf = counts/(vol*bins_delta)
         return hmf, trimmed_bins
     
