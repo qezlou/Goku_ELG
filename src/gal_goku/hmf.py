@@ -40,18 +40,27 @@ class Hmf(get_corr.Corr):
         Routin to clean to merge the last bins with counts less than counts_min
         """
         ind = np.where(counts<counts_min)[0]
-        print('ind = ', ind)
+        if len(ind) == 0:
+            self.logger.debug(f'Deleting the last {len(ind)} bins of hmf, with counts {counts[ind]}')
+            return counts, bins
+
         combined_counts = np.sum(counts[ind])
         i = ind[0]
+        if i==0:
+            raise FileNotFoundError(f"Counts all < {counts_min} | counts = {counts}")
         while combined_counts < counts_min:
             i -= 1
             combined_counts += counts[i]
             ind = np.insert(ind, 0, i)
-        self.logger.debug(f'Deleting the last {len(ind)} bins of hmf, with counts {counts[ind]}')
+            if i==0:
+                raise FileNotFoundError(f"Counts all < {counts_min} | counts = {counts}")
+        self.logger.debug(f'Deleting the last {len(ind)} bins of total {len(bins)-1}, with counts {counts[ind]}')
         counts = np.delete(counts, ind)
         trimmed_bins = np.append(bins[:-len(ind)], bins[-1])
         counts = np.append(counts, combined_counts)
         return counts, trimmed_bins
+            
+        
 
     def get_fof_hmf(self, pig_dir, vol,  bins, counts_min = 20):
         """
@@ -81,7 +90,7 @@ class Hmf(get_corr.Corr):
         pigs = self.get_pig_dirs(base_dir, z=z, narrow=narrow)
         num_sims = len(pigs['sim_tags'])
         if bins is None:
-            bins = np.arange(11, 13.5, 0.1)
+            bins = np.arange(11.1, 13.5, 0.1)
         hmfs, trimmed_bins = [], []
         bad_sims = []
         sim_tags = []
@@ -92,8 +101,9 @@ class Hmf(get_corr.Corr):
                 hmfs.append(h)
                 trimmed_bins.append(tbins)
                 sim_tags.append(pigs['sim_tags'][i])
-            except FileNotFoundError:
-                bad_sims.append(i)
+            except FileNotFoundError as e:
+                self.logger.info(f'{e} for {pigs["pig_dirs"][i]}')
+                bad_sims.append(pigs['sim_tags'][i])
                 continue
         
         self.logger.info(f'{len(bad_sims)} sims could not be opened')
@@ -107,4 +117,5 @@ class Hmf(get_corr.Corr):
             dset = fw.create_dataset('bins_coarse', (len(trimmed_bins),), dtype=dtype)
             for i, data in enumerate(trimmed_bins):
                 dset[i] = data
-            fw['sim_tags'] = sim_tags
+            fw['sim_tags'] = sim_tags   
+            fw['bad_sims'] = bad_sims
