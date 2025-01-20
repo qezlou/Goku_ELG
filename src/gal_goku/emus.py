@@ -86,7 +86,7 @@ class Hmf(BaseStatEmu):
         self.logger = self.configure_logging(logging_level)
         self.data_dir = data_dir
 
-        halo_func = summary_stats.HMF(data_dir=data_dir, fid=fid)
+        halo_func = summary_stats.HMF(data_dir, fid=fid, narrow=True)
         self.Y, self.bins, sim_tags = halo_func.load_hmf_sims()
         self.labels = sim_tags
         # Get rid of negative values at large masses
@@ -95,7 +95,6 @@ class Hmf(BaseStatEmu):
         self.Y[self.Y < 1e-15] = 1e-15
 
         self.sim_specs = halo_func.get_sims_specs()
-        
         if y_log:
             self.Y = np.log10(self.Y)
 

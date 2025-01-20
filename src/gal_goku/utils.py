@@ -1,44 +1,90 @@
-from typing import List, Tuple
-from numpy.typing import NDArray
 import numpy as np
+import pymc3 as pm
+from scipy.interpolate import PPoly
 
 """
 Common utilities for all emulators
 """
 
-
-class PiecewisePoly:
-    """
-    Fitting Piecewise Polynomial to the summary statistics
-    """
-    def __init__(self, x: NDArray[np.float64], y: NDArray[np.float64], d: int, window: int):
+class BayesianPiecewisePolynomialFitter:
+    def __init__(self):
         """
-        Initialize the PiecewisePoly object.
+        Initialize the fitter for piecewise quadratic polynomials with Bayesian inference.
+        """
+        self.degree = 2  # Quadratic polynomial
+
+    def fit_piecewise(self, x, y, m):
+        """
+        Fit piecewise quadratic polynomials to m consecutive bins using Bayesian inference.
+
         Parameters:
-        ------------
-        x: np.ndarray, shape (n,)
-            The x values of the summary statistics
-        y: np.ndarray, shape (m, n)
-            The y values of the summary statistics for all the simulations
-        d: int
-            The degree of the polynomial
-        window: int
-            Number of consecutive bins of x within which the polynoomial of degree d
-        """
-        self.x = x
-        self.y = y
-        self.n = len(x)
-        self.m = len(y[0])
+        x (array): 1D array of x-coordinates.
+        y (2D array): 2D array of y-coordinates with shape (num_examples, num_dimensions).
+        m (int): Number of bins to group for fitting.
 
-    def __call__(self, x):
+        Returns:
+        list: A list of lists containing posterior samples for polynomial coefficients. Outer list corresponds to dimensions.
         """
-        Evaluate the piecewise polynomial at x
+        if len(x) != y.shape[1]:
+            raise ValueError("Length of x must match the second dimension of y.")
+        num_examples, num_dimensions = y.shape
+        all_posteriors = []
+
+        for dim in range(num_dimensions):
+            dimension_posteriors = []
+            
+            for i in range(0, len(x) - m + 1, m - 1):
+                x_segment = x[i:i + m]
+                y_segment = y[:, dim][:, i:i + m]
+
+                if len(x_segment) < m:
+                    break
+
+                with pm.Model() as model:
+                    # Prior distributions for coefficients
+                    a = pm.Normal("a", mu=0, sigma=10)
+                    b = pm.Normal("b", mu=0, sigma=10)
+                    c = pm.Normal("c", mu=0, sigma=10) 
+
+                    # Polynomial model
+                    mu = a * x_segment**2 + b * x_segment + c
+
+                    # Likelihood
+                    sigma = pm.HalfNormal("sigma", sigma=1)
+                    y_obs = pm.Normal("y_obs", mu=mu, sigma=sigma, observed=y_segment)
+
+                    # Perform MCMC sampling
+                    trace = pm.sample(1000, return_inferencedata=False, progressbar=True)
+
+                dimension_posteriors.append(trace)
+
+            all_posteriors.append(dimension_posteriors)
+
+        return all_posteriors
+    
+
+
+    def evaluate_piecewise(self, x, posteriors, x_eval):
         """
-        if x < self.x[0]:
-            return self.y[0]
-        if x > self.x[-1]:
-            return self.y[-1]
-        for i in range(self.n - 1):
-            if x < self.x[i + 1]:
-                break
-        return sum([self.y[i][j] * (x - self.x[i]) ** j for j in range(self.m)])
+        Evaluate the piecewise quadratic model at new points using posterior samples.
+
+        Parameters:
+        x (array): Original x-coordinates used in fitting.
+        posteriors (list): List of posterior samples for each segment and dimension.
+        x_eval (array): Points at which to evaluate the piecewise polynomials.
+
+        Returns:
+        np.ndarray: Evaluated values at x_eval.
+        """
+        results = np.zeros((len(posteriors), len(x_eval)))
+        
+                segment_mask = (x_eval >= x[segment]) & (x_eval < x[segment + 1])
+                x_segment_eval = x_eval[segment_mask]
+
+                if len(x_segment_eval) > 0:
+                    for a, b, c in zip(a_samples, b_samples, c_samples):
+                        results[dim, segment_mask] += a * x_segment_eval**2 + b * x_segment_eval + c
+
+                    results[dim, segment_mask] /= len(a_samples)
+
+        return results

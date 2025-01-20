@@ -750,4 +750,4 @@ class PlotHmfEmu(BasePlot):
         
         fig, ax = self.pred_truth(pred, truth, mbins, model_err=np.sqrt(var_pred), seed=seed, title=title, log_y=True)
         ax[0].set_ylim((1e-7, 1e-1))
-    
+        return fig, ax
