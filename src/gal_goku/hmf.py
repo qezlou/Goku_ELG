@@ -35,7 +35,24 @@ class Hmf(get_corr.Corr):
         """
         Fit piecewise polynomial to the halo mass function
         """
-    
+    def _merge_bins(self, bins, counts, counts_min):
+        """
+        Routin to clean to merge the last bins with counts less than counts_min
+        """
+        ind = np.where(counts<counts_min)[0]
+        print('ind = ', ind)
+        combined_counts = np.sum(counts[ind])
+        i = ind[0]
+        while combined_counts < counts_min:
+            i -= 1
+            combined_counts += counts[i]
+            ind = np.insert(ind, 0, i)
+        self.logger.debug(f'Deleting the last {len(ind)} bins of hmf, with counts {counts[ind]}')
+        counts = np.delete(counts, ind)
+        trimmed_bins = np.append(bins[:-len(ind)], bins[-1])
+        counts = np.append(counts, combined_counts)
+        return counts, trimmed_bins
+
     def get_fof_hmf(self, pig_dir, vol,  bins, counts_min = 20):
         """
         Plot the halo mass function for the FoF halos
@@ -54,20 +71,8 @@ class Hmf(get_corr.Corr):
         halos = self.load_halo_cat(pig_dir)
         counts, bins = np.histogram(np.log10(halos['Mass']).compute(), bins=bins)
         # Combine the last bins which have less than 20 counts
-        ind = np.where(counts<counts_min)[0]
-        combined_counts = np.sum(counts[ind])
-        i = ind[0]
-        while combined_counts < counts_min:
-            i -= 1
-            combined_counts += counts[i]
-            ind = np.insert(ind, 0, i)
-        self.logger.debug(f'Deleting the last {len(ind)} bins of hmf for {pig_dir}, with counts {counts[ind]}')
-        counts = np.delete(counts, ind)
-        trimmed_bins = bins[:-len(ind)]
-        counts = np.append(counts, combined_counts)
-
+        counts, trimmed_bins = self._merge_bins(bins, counts, counts_min)
         bins_delta  = trimmed_bins[1::] - trimmed_bins[0:-1]
-        print(f'trimmed_bins {trimmed_bins}, bins_delta {bins_delta}')
         hmf = counts/(vol*bins_delta)
         return hmf, trimmed_bins
     
