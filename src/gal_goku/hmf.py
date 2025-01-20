@@ -36,7 +36,7 @@ class Hmf(get_corr.Corr):
         Fit piecewise polynomial to the halo mass function
         """
 
-    def get_fof_hmf(self, pig_dir, vol,  bins):
+    def get_fof_hmf(self, pig_dir, vol,  bins, counts_min = 20):
         """
         Plot the halo mass function for the FoF halos
         Parameters:
@@ -52,10 +52,22 @@ class Hmf(get_corr.Corr):
             dex^-1 hMpc^-1
         """
         halos = self.load_halo_cat(pig_dir)
-        hist = np.histogram(np.log10(halos['Mass']).compute(), bins=bins)
-        mass = 0.5*(hist[1][1:]+hist[1][:-1])
-        hmf = hist[0]/(vol*(bins[1]-bins[0]))
-        return hmf
+        counts, bins = np.histogram(np.log10(halos['Mass']).compute(), bins=bins)
+        # Combine the last bins which have less than 20 counts
+        ind = np.where(counts<counts_min)[0]
+        combined_counts = np.sum(counts[ind])
+        i = ind[0]
+        while combined_counts < counts_min:
+            i -= 1
+            combined_counts += counts[i]
+            ind = np.insert(ind, 0, i)
+        counts = np.delete(counts, ind)
+        trimmed_bins = bins[0:ind[0]]
+        counts = np.append(counts, combined_counts)
+
+        bins_delta  = trimmed_bins[1::] - trimmed_bins[0:-1]
+        hmf = counts/(vol*bins_delta)
+        return hmf, trimmed_bins
     
     def get_all_fof_hmfs(self, base_dir, save_file, narrow=False, bins=None, z=2.5):
         """iterate over all avaiable pigs in base_dir and compue the halo mas function"""
@@ -63,38 +75,29 @@ class Hmf(get_corr.Corr):
         num_sims = len(pigs['sim_tags'])
         if bins is None:
             bins = np.arange(11, 13.5, 0.1)
-        hmfs = np.zeros((num_sims, bins.size-1))
-        # We use CubicSpline to refine the mass bins
-        # The mass resolution we need is 0.05 dex
-        mbins = 0.5*(bins[1:]+bins[:-1])
-        bins_fine = np.arange(11, 13.5, 0.05)
-        mbins_refined = 0.5*(bins_fine[1:]+bins_fine[:-1])
-        hmfs_interp = np.zeros((hmfs.shape[0], mbins_refined.size))
-        hmfs_fine = np.zeros((hmfs.shape[0], mbins_refined.size))
+        hmfs, trimmed_bins = [], []
         bad_sims = []
         sim_tags = []
         for i in range(num_sims):
             vol = pigs['params'][i]['box']**3
             try:
-                hmfs[i] = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, bins=bins)
-                hmfs_fine[i] = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, bins=bins_fine)
-                # We use CubicSpline to refine the mass bins
-                spl = ius(mbins, hmfs[i], k=3)
-                hmfs_interp[i] = spl(mbins_refined)
+                h, tbins = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, bins=bins)
+                hmfs.append(h)
+                trimmed_bins.append(tbins)
                 sim_tags.append(pigs['sim_tags'][i])
             except FileNotFoundError:
                 bad_sims.append(i)
                 continue
         
-        hmfs = np.delete(hmfs, bad_sims, axis=0)
-        hmfs_fine = np.delete(hmfs_fine, bad_sims, axis=0)
-        hmfs_interp = np.delete(hmfs_interp, bad_sims, axis=0)
         self.logger.info(f'{len(bad_sims)} sims could not be opened')
         
         with h5py.File(save_file, 'w') as fw:
+            dtype = h5py.special_dtype(vlen=hmfs[0].dtype)
+            dset = fw.create_dataset('hmfs_coarse', (len(hmfs),), dtype=dtype)
+            for i, data in enumerate(hmfs):
+                dset[i] = data
+            dtype = h5py.special_dtype(vlen=trimmed_bins[0].dtype)
+            dset = fw.create_dataset('bins_coarse', (len(trimmed_bins),), dtype=dtype)
+            for i, data in enumerate(trimmed_bins):
+                dset[i] = data
             fw['sim_tags'] = sim_tags
-            fw['hmfs_coarse'] = hmfs
-            fw['bins_coarse'] = bins
-            fw['hmfs_fine'] = hmfs_fine
-            fw['hmfs'] = hmfs_interp
-            fw['bins'] = bins_fine
