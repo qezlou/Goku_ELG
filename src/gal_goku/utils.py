@@ -1,6 +1,8 @@
+import logging
 import numpy as np
-import pymc3 as pm
-from scipy.interpolate import PPoly
+#mport pymc3 as pm
+from scipy.interpolate import BSpline, splev, generate_knots # Requires scipy>=1.15.0 on python>=3.10
+from scipy.optimize import minimize
 
 """
 Common utilities for all emulators
@@ -64,27 +66,95 @@ class BayesianPiecewisePolynomialFitter:
     
 
 
-    def evaluate_piecewise(self, x, posteriors, x_eval):
+class ConstrainedSplineFitter:
+    def __init__(self, degree=2, s=None, constraints=True, logging_level='INFO'):
         """
-        Evaluate the piecewise quadratic model at new points using posterior samples.
+        A Spline fitter which requires the second derivative to be all negative.
+        Of particular use in fitting the halo mass function where we expect the slope
+        to be decreasing with mass.  THis is similar to what implemented in MiraTitanII arxiv:2003.12116
+        Parameters:
+        -----------
+        degree: int, default=2
+            Degree of the spline
+        s: int, default=x.size, optional
+            Smoothing factor, refer to scipy.interpolate.generate_knots.
+            This helps find the internal knots to achieve the desired smoothness.
+        constraints: bool, default=True
+            If True, enforce the constraints on the second derivative to be negative
+        
+        """
+        self.degree = degree
+        self.s = s
+        self.constraints = constraints
+        self.logger = self.configure_logging(logging_level)
+
+        self.logger.info(f'Fitting spline with degree={self.degree}, s={self.s}, constraints={self.constraints}')
+
+    def configure_logging(self, logging_level):
+        """Sets up logging based on the provided logging level."""
+        logger = logging.getLogger('ConstrainedSplineFitter')
+        logger.setLevel(logging_level)
+        console_handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        return logger
+
+    def fit_spline(self, x, y):
+        """
+        Fit a spline with constraints on the coefficients of the quadratic term.
 
         Parameters:
-        x (array): Original x-coordinates used in fitting.
-        posteriors (list): List of posterior samples for each segment and dimension.
-        x_eval (array): Points at which to evaluate the piecewise polynomials.
+        x (array): 1D array of x-coordinates.
+        y (array): 1D array of y-coordinates.
+        knots (array): Internal knot positions for the spline.
 
         Returns:
-        np.ndarray: Evaluated values at x_eval.
+        BSpline: A spline object with the specified constraints.
         """
-        results = np.zeros((len(posteriors), len(x_eval)))
+        # Generate internal knots to achieve the desired smoothness
+        if self.s is None:
+            s = x.size
+            if s < 5:
+                s = 0
+        self.logger.debug(f'Fit for x.shape={x.shape}, y.shape={y.shape}, s={s}')
+        t = list(generate_knots(x, y, k=self.degree, s=s))[-1]
+
+        # Objective function: Sum of squared errors
+        def objective(c):
+            return np.sum((BSpline(t, c, self.degree)(x) - y)**2)
+
+        # Constraint: For degree=2, all quadratic term coefficients (x^2) must be negative
+        if self.degree ==2 and self.constraints:
+            constraints = [{'type': 'ineq', 'fun': lambda c: -BSpline(t, c, self.degree).derivative(2).c}]  # Ensure all coefficients are negative
+        else:
+            constraints = []
         
-                segment_mask = (x_eval >= x[segment]) & (x_eval < x[segment + 1])
-                x_segment_eval = x_eval[segment_mask]
+        # Optimize the objective function
+        result = minimize(
+            objective,
+            x0=np.zeros(len(t)),
+            constraints=constraints,
+            #method='L-BFGS-B',
+            options={'disp': False,
+            'maxiter': 1000000}
+    )
 
-                if len(x_segment_eval) > 0:
-                    for a, b, c in zip(a_samples, b_samples, c_samples):
-                        results[dim, segment_mask] += a * x_segment_eval**2 + b * x_segment_eval + c
+        if not result.success:
+            raise RuntimeError("Optimization failed: " + result.message)
 
-                    results[dim, segment_mask] /= len(a_samples)
+        # Return the constrained spline
+        return BSpline(t, result.x, self.degree)
+    
+    def evaluate_spline(self, x, spline):
+        """
+        Evaluate the spline at the given x-coordinates.
 
-        return results
+        Parameters:
+        x (array): 1D array of x-coordinates.
+        spline (BSpline): A spline object.
+
+        Returns:
+        array: 1D array of y-coordinates.
+        """
+        return splev(x, spline)

@@ -9,7 +9,7 @@ import logging
 import json
 import re
 from matplotlib import pyplot as plt
-from scipy.interpolate import InterpolatedUnivariateSpline as ius
+from . import utils
 
 class BaseSummaryStats:
     """Base class for summary statistics"""
@@ -226,6 +226,7 @@ class HMF(BaseSummaryStats):
         self.fid = fid
         self.sim_tags = None
         self.narrow = narrow
+        self.logging_level = logging_level
     
     def get_labels(self):
         """It is just the simulation tags"""
@@ -233,33 +234,9 @@ class HMF(BaseSummaryStats):
             raise ValueError('The simulation tags are not loaded yet, call `load_hmf_sims` first')
         return self.sim_tags
 
-    
-    def load_hmf_sims(self, load_coarse=False):
+    def load(self):
         """
-        Load the Halo Mass Function computed for simulations 
-        at a given fidelity.
-        Parameters:
-        --------------
-        save_dir: str
-            Directory where the HMF files are stored.
-        load_coarse: bool
-            If True, load the HMFs on the coarse mass bins. This is
-            the bins the HMF was originally computed on and then interpolated
-            to the fine bins.
-        Returns:
-        --------------
-        hmfs: dict
-            Dictionary containing the Halo Mass Function in units of Mpc^-3 h^3 dex^-1.
-            The keys are the fidelities, e.g., 'HF', 'L2', 'L1'. The values are the HMFs.
-        mbins: np.ndarray
-            Mass bins.
-        sim_tags: dict
-            Dictionary containing lists of simulation tags.
-        If load_coarse is True:
-        hmfs_coarse: dict
-            Dictionary containing the HMFs on the coarse mass bins.
-        mbins_coarse: np.ndarray
-            Mass bins on the coarse grid.
+        Load the Halo Mass Function computed for simulations and saved on `data_dir`
         """
         if self.narrow:
             save_file = f'{self.fid}_hmfs_narrow.hdf5'
@@ -267,21 +244,51 @@ class HMF(BaseSummaryStats):
         else:
             save_file = f'{self.fid}_hmfs.hdf5'
         with h5py.File(op.join(self.data_dir, save_file), 'r') as f:
-            hmfs = f['hmfs'][:]
-            mbins =  0.5*(10**f['bins'][1:]+10**f['bins'][:-1])
-            if load_coarse:
-                hmfs_coarse= f['hmfs_coarse'][:]
-                hmfs_fine= f['hmfs_fine'][:]
-                mbin_coarse = 0.5*(10**f['bins_coarse'][1:]+10**f['bins_coarse'][:-1])
+            bins = f['bins_coarse'][:]
+            hmfs = f['hmfs_coarse'][:]
             sim_tags = []
+            bad_sims = []
             # We need to convert from binary to str
             for tag in f['sim_tags']:
                 sim_tags.append(tag.decode('utf-8'))
+            for bd in f['bad_sims']:
+                bad_sims.append(bd.decode('utf-8'))
         self.sim_tags = sim_tags
-        if load_coarse:
-            return hmfs, mbins, sim_tags, hmfs_coarse, mbin_coarse, hmfs_fine
-        else:
-            return hmfs, mbins, sim_tags
+        self.bad_sims = bad_sims
+        return hmfs, bins
+
+    def _do_fits(self, *kwargs):
+        """
+        Fit the halo mass function with a splie.
+        Parameters:
+        --------------
+        kwargs: dict
+            Keyword arguments for utils.ConstrainedSplineFitter
+        """
+        hmfs, bins = self.load()
+        fit = utils.ConstrainedSplineFitter(*kwargs, logging_level=self.logging_level)
+        splines = []
+        for i in range(len(hmfs)):
+            mbins = 0.5*(bins[i][1:] + bins[i][:-1])
+            splines.append(fit.fit_spline(mbins, np.log10(hmfs[i])))
+        return splines
+
+    def get_smoothed(self, x, *kwargs):
+        """
+        Get the smoothed halo mass function evaluated at x
+        Parameters:
+        --------------
+        kwargs: dict
+            Keyword arguments for utils.ConstrainedSplineFitter
+        """
+        splines = self._do_fits(*kwargs)
+        fit = utils.ConstrainedSplineFitter(*kwargs, logging_level=self.logging_level)
+        y = np.zeros((len(splines), len(x)))
+        for i, spl in enumerate(splines):
+            y[i] = fit.evaluate_spline(x, spl)
+        # The Spline fit was done in log space
+        y = 10**y
+        return y
 
     def _sim_nums(self, sim_tags):
         """
@@ -303,6 +310,7 @@ class HMF(BaseSummaryStats):
 
     def common_pairs(self, load_coarse=False):
         """
+        DEPRECATED FOR NOW : the instance is build for individual fidelities
         Get the common pairs between the different cosmologies
         Parameters:
         --------------

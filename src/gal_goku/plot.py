@@ -9,8 +9,8 @@ from matplotlib import pyplot as plt
 from scipy.ndimage import gaussian_filter1d as gf1d
 
 from . import summary_stats
-from . import wp_emus
-from . import single_fid
+#from . import wp_emus
+#from . import single_fid
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -640,7 +640,8 @@ class PlotHMF(BasePlot):
         if fig is None:
             fig, ax = plt.subplots(1, 1, figsize=(8, 4))
 
-        hmfs, mbins, _ = self.hmf.load_hmf_sims(fids=fids)
+        hmfs, bins = self.hmf.load(fids=fids)
+        mbins = 0.5*(bins[1:] + bins[:-1])
         for i, fd in enumerate(fids):
             for j in range(hmfs[fd].shape[0]):
                 ax.plot(mbins, hmfs[fd][j], alpha=alphas[i], lw=ws[i])
@@ -693,30 +694,40 @@ class PlotHMF(BasePlot):
         ax[1].set_ylabel('Ratio to HF')
         fig.tight_layout()
 
-    def check_smoothed_hmf(self, fids=['HF', 'L2']):
+    
+    def smoothed(self, fids=['L2'], *kwargs):
+        fig, ax = None, None
 
         for i, fd in enumerate(fids):        
             # Use summary_stats to load the HMF
             halo_func = summary_stats.HMF(self.data_dir, fid=fd)
-            (hmfs, mbins, sim_tags, hmfs_coarse, mbins_coarse, hmfs_fine) = halo_func.load_hmf_sims(load_coarse=True)
+            hmfs, bins = halo_func.load()
+            x= np.arange(11.1, 13.5, 0.1)
             sim_nums = hmfs.shape[0]
-            rand_sample = np.random.randint(0, sim_nums, 21)
-            fig, ax = plt.subplots(1,1, figsize=(8,8))
+            smoothed = halo_func.get_smoothed(x, *kwargs)
 
-            for p, j in enumerate(rand_sample):
-                ax.plot(mbins, hmfs[j], alpha=0.5, lw=2, color=f'C{j}', label='Interpolated')
-                ax.plot(mbins_coarse, hmfs_coarse[j], alpha=0.7, lw=2, color=f'C{j}', ls='--', label='coarse bin')
-                ax.plot(mbins, hmfs_fine[j], alpha=0.9, lw=2, color=f'C{j}', ls='dotted', label='fine bin')
-                if p==0:
-                    ax.legend()
+            if fig is None:
+                panels = sim_nums // 10
+                columns = 5
+                rows = np.ceil(panels/columns).astype(int)
+                fig, ax = plt.subplots(rows, columns, figsize=(20, 30))
+            for j in range(hmfs.shape[0]):
+                p = j//10
+                ax_indx, ax_indy = p//columns, int(p%columns)
+                mbins = 0.5 * (bins[j][1:] + bins[j][:-1])
+                ax[ax_indx, ax_indy].scatter(10**mbins, hmfs[j], alpha=0.5, lw=2, color=f'C{j}', label='Interpolated')
+                ax[ax_indx, ax_indy].plot(10**x, smoothed[j], alpha=0.9, lw=2, color=f'C{j}', ls='dotted', label='fine bin')
+                if ax_indy == 0:
+                    ax[ax_indx, ax_indy].set_ylabel(r'$\psi \ [dex^{-1} cMph^{-3}]$')
+                ax[ax_indx, ax_indy].set_xscale('log')
+                ax[ax_indx, ax_indy].set_yscale('log')
+                ax[ax_indx, ax_indy].set_xlim(1e11, 1e14)
+                ax[ax_indx, ax_indy].set_ylim(1e-7, 1e-1)
+                #ax[ax_indx, ax_indy].set_xlabel('Mass')
+            
+            fig.tight_layout()
 
-                ax.set_ylim((1e-7, 1e-1))
-                ax.set_xscale('log')
-                ax.set_yscale('log')
-                ax.set_ylabel(r'$\psi \ [dex^{-1} cMph^{-3}]$')
-                ax.set_xlim(1e11, 1e14)
-                ax.set_xlim(1e11, 1e14)
-                fig.tight_layout()
+
 
 class PlotHmfEmu(BasePlot):
     def __init__(self, logging_level='INFO', show_full_params=False):
