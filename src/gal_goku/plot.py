@@ -707,13 +707,14 @@ class PlotHMF(BasePlot):
             smoothed = halo_func.get_smoothed(x, *kwargs)
 
             if fig is None:
-                panels = sim_nums // 10
+                panels = np.ceil(sim_nums /10).astype(int)
                 columns = 5
                 rows = np.ceil(panels/columns).astype(int)
+                print(f'sim_nums = {sim_nums}, panels = {panels}, rows = {rows}, columns = {columns}')
                 fig, ax = plt.subplots(rows, columns, figsize=(20, 30))
             for j in range(hmfs.shape[0]):
-                p = j//10
-                ax_indx, ax_indy = p//columns, int(p%columns)
+                p = np.floor(j/10).astype(int)
+                ax_indx, ax_indy =  np.floor(p/columns).astype(int), int(p%5)
                 mbins = 0.5 * (bins[j][1:] + bins[j][:-1])
                 ax[ax_indx, ax_indy].scatter(10**mbins, hmfs[j], alpha=0.5, lw=2, color=f'C{j}', label='Interpolated')
                 ax[ax_indx, ax_indy].plot(10**x, smoothed[j], alpha=0.9, lw=2, color=f'C{j}', ls='dotted', label='fine bin')
@@ -726,6 +727,29 @@ class PlotHMF(BasePlot):
                 #ax[ax_indx, ax_indy].set_xlabel('Mass')
             
             fig.tight_layout()
+    
+    def smoothed_err(self, fids=['L2'], *kwargs):
+
+        for i in enumerate(fids):        
+            # Use summary_stats to load the HMF
+            halo_func = summary_stats.HMF(self.data_dir, fid=fd)
+            hmfs, bins = halo_func.load()
+            x= np.arange(11.1, 13.5, 0.1)
+            sim_nums = hmfs.shape[0]
+            smoothed = halo_func.get_smoothed(x, *kwargs)
+
+            for j in range(hmfs.shape[0]):
+                mbins = 0.5 * (bins[j][1:] + bins[j][:-1])
+                err = np.abs(smoothed[j] - hmfs[j])
+                plt.plot(10**x, err, alpha=0.5, lw=2, color=f'C{j}', label='Interpolated')
+                plt.xscale('log')
+                plt.yscale('log')
+                plt.xlim(1e11, 1e14)
+                plt.ylim(1e-7, 1e-1)
+                plt.xlabel('Mass')
+                plt.ylabel('Error')
+                plt.legend()
+                plt.show()
 
 
 
