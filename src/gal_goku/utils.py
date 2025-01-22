@@ -88,7 +88,7 @@ class ConstrainedSplineFitter:
         self.constraints = constraints
         self.logger = self.configure_logging(logging_level)
 
-        self.logger.info(f'Fitting spline with degree={self.degree}, s={self.s}, constraints={self.constraints}')
+        self.logger.debug(f'Fitting spline with degree={self.degree}, s={self.s}, constraints={self.constraints}')
 
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level."""

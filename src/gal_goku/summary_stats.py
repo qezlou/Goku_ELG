@@ -240,7 +240,7 @@ class HMF(BaseSummaryStats):
         """
         if self.narrow:
             save_file = f'{self.fid}_hmfs_narrow.hdf5'
-            self.logger.info(f'Loading narrow HMFs from {save_file}')
+            self.logger.debug(f'Loading narrow HMFs from {save_file}')
         else:
             save_file = f'{self.fid}_hmfs.hdf5'
         with h5py.File(op.join(self.data_dir, save_file), 'r') as f:
@@ -257,7 +257,7 @@ class HMF(BaseSummaryStats):
         self.bad_sims = bad_sims
         return hmfs, bins
 
-    def _do_fits(self, *kwargs):
+    def _do_fits(self, ind=None, *kwargs):
         """
         Fit the halo mass function with a splie.
         Parameters:
@@ -266,22 +266,28 @@ class HMF(BaseSummaryStats):
             Keyword arguments for utils.ConstrainedSplineFitter
         """
         hmfs, bins = self.load()
+        if ind is None:
+            ind = np.arange(len(hmfs))
         fit = utils.ConstrainedSplineFitter(*kwargs, logging_level=self.logging_level)
         splines = []
-        for i in range(len(hmfs)):
+        for i in ind:
             mbins = 0.5*(bins[i][1:] + bins[i][:-1])
             splines.append(fit.fit_spline(mbins, np.log10(hmfs[i])))
         return splines
 
-    def get_smoothed(self, x, *kwargs):
+    def get_smoothed(self, x, ind=None, *kwargs):
         """
         Get the smoothed halo mass function evaluated at x
         Parameters:
         --------------
+        x: np.ndarray
+            Array of x values to evaluate the spline at
+        ind: np.ndarray, optional, default=None
+            Index of the simulations to fit. If None, fit all simulations
         kwargs: dict
             Keyword arguments for utils.ConstrainedSplineFitter
         """
-        splines = self._do_fits(*kwargs)
+        splines = self._do_fits(ind=ind, *kwargs)
         fit = utils.ConstrainedSplineFitter(*kwargs, logging_level=self.logging_level)
         y = np.zeros((len(splines), len(x)))
         for i, spl in enumerate(splines):
@@ -308,7 +314,7 @@ class HMF(BaseSummaryStats):
         sim_nums = np.array(sim_nums)
         return sim_nums
 
-    def common_pairs(self, load_coarse=False):
+    def get_pairs(self, labels1, tags2, load_coarse=False):
         """
         DEPRECATED FOR NOW : the instance is build for individual fidelities
         Get the common pairs between the different cosmologies
@@ -323,7 +329,6 @@ class HMF(BaseSummaryStats):
         first_corrs: list
             List of files for the first fid
         """
-        (hmfs, mbins, sim_tags, hmfs_coarse, mbins_coarse, hmfs_fine) = self.load_hmf_sims(load_coarse=load_coarse)
         
         # Find the common pairs
         for fd in self.fids: 

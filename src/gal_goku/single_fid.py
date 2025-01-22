@@ -163,12 +163,12 @@ class EvaluateSingleFid:
         """
         return self.sf.predict(X)
 
-    def loo_train_pred(self, bins, savefile=None, labels=None, sub_sample=None):
+    def loo_train_pred(self, mbins, savefile=None, labels=None, sub_sample=None):
         """
         Iterate over the samples to leave one out and train the model
         Parameters:
         -------
-        bins: array
+        mbins: array
             The projected bins radii that used for training
         savefile: 
             The file to save the results to
@@ -203,7 +203,7 @@ class EvaluateSingleFid:
                 f.create_dataset('var_pred', data=var_pred)
                 f.create_dataset('truth', data=self.Y[sub_sample])
                 f.create_dataset('X', data=self.X[sub_sample])
-                f.create_dataset('bins', data=bins)
+                f.create_dataset('bins', data=mbins)
                 if labels is not None:
                     f.create_dataset('labels', data=labels)
         else:
@@ -241,6 +241,22 @@ class EvaluateSingleFid:
         Y_pred, var_pred = self.sf.predict(X_test)
 
         return  X_test, Y_test, Y_pred, var_pred
+    
+    def load_saved_loo(self, savefile):
+        """
+        Load the saved leave one out predictions
+        """
+        with h5py.File(savefile, 'r') as f:
+            mean_pred = f['pred'][:]
+            var_pred = f['var_pred'][:]
+            truth = f['truth'][:]
+            X = f['X'][:]
+            bins = f['bins'][:]
+            try:
+                labels = f['labels'][:]
+            except KeyError:
+                labels = None
+        return mean_pred, var_pred, truth, X, bins, labels
 
 class EvaluateSingleFidMultiBins(EvaluateSingleFid):
     """Build a single fidelity emulator for each bin of the summary statistics"""

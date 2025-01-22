@@ -31,7 +31,7 @@ class BaseStatEmu():
         logger.addHandler(console_handler)
         
         return logger
-
+        
     def loo_train_pred(self, savefile, narrow=0):
         """
         Get the leave one out predictions
@@ -41,7 +41,7 @@ class BaseStatEmu():
             self.logger.info('Narrow sims are selected, sub_sample size is %d', len(sub_sample))
         else:
             sub_sample = None
-        self.evaluate.loo_train_pred(bins=self.bins, savefile=savefile, labels=self.labels, sub_sample=sub_sample)
+        self.evaluate.loo_train_pred(mbins=self.mbins, savefile=savefile, labels=self.labels, sub_sample=sub_sample)
     
     def train_pred_all_sims(self):
         """
@@ -49,7 +49,7 @@ class BaseStatEmu():
         """
         self.evaluate.train()
         pred, var_pred = self.evaluate.predict(self.X)
-        return pred, self.Y, self.bins
+        return pred, self.Y, self.mbins
     
     def leave_bunch_out(self, n_out=5, narrow=0):
         """
@@ -86,14 +86,13 @@ class Hmf(BaseStatEmu):
         self.logger = self.configure_logging(logging_level)
         self.data_dir = data_dir
 
-        halo_func = summary_stats.HMF(data_dir, fid=fid, narrow=True)
-        self.Y, self.bins, sim_tags = halo_func.load_hmf_sims()
-        self.labels = sim_tags
-        # Get rid of negative values at large masses
-        # This originates from the spline interpolation of
-        # the orignal hmf
-        self.Y[self.Y < 1e-15] = 1e-15
-
+        halo_func = summary_stats.HMF(data_dir, fid=fid, narrow=narrow)
+        hmfs, _ = halo_func.load()
+        num_sims = len(hmfs)
+        del hmfs
+        self.mbins = np.arange(11.1, 13.5, 0.1)
+        self.Y =  halo_func.get_smoothed(self.mbins)
+        self.labels = halo_func.sim_tags
         self.sim_specs = halo_func.get_sims_specs()
         if y_log:
             self.Y = np.log10(self.Y)
@@ -102,5 +101,5 @@ class Hmf(BaseStatEmu):
         self.X = halo_func.get_params_array()
         assert np.all(np.isfinite(self.X)), "Some parameters are not finite"
         assert np.all(np.isfinite(self.Y)), f"Some Y values are not finite"        
-        assert len(sim_tags) == self.Y.shape[0]
+        #assert len(sim_tags) == self.Y.shape[0]
         super().__init__(X=self.X, Y=self.Y, model_error=model_error, logging_level=logging_level, multi_bin=multi_bin)
