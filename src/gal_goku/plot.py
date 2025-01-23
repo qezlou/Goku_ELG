@@ -691,53 +691,112 @@ class PlotHMF(BasePlot):
         ax[1].set_ylabel('Ratio to HF')
         fig.tight_layout()
 
-def compare_fids(self):
-    """
-    """
-    for fd in ['HF', 'L2']:
-        halo_func = summary_stats.HMF(self.data_dir, fid=fd)
+    def get_pairs(self, x=None):
+        """
+        """            
+        halo_funcs = {}
+        hmfs = {}
+        bins = {}
+        smoothed = {}
+        for fd in ['HF', 'L2']:
+            halo_funcs[fd] = summary_stats.HMF(self.data_dir, fid=fd)
+            hmfs[fd], bins[fd] = halo_funcs[fd].load()
+            sim_nums = halo_funcs[fd]._sim_nums()
+            if fd == 'HF':
+                common_nums = sim_nums
+            else:
+                common_nums = np.intersect1d(common_nums, sim_nums)
+        self.logger.info(f'Found {len(common_nums)} common pairs')
         
+        for fd in ['HF','L2']:
+            sim_nums = halo_funcs[fd]._sim_nums()
+            ind = np.where(np.isin(sim_nums, common_nums))[0]
+            # sort based on the sim # for consistency
+            argsort = np.argsort(sim_nums[ind])
+            hmfs[fd] = hmfs[fd][ind][argsort]
+            bins[fd] = bins[fd][ind][argsort]
+            
+            #mbins[fd] = mbins[fd][ind][argsort]
+            smoothed_temp = halo_funcs[fd].get_smoothed(x, ind=ind)
+            smoothed[fd] = []
+            for i in argsort:
+                smoothed[fd].append(smoothed_temp[i])
+        return hmfs, bins, smoothed, x
+
+
+    def compare_fids(self):
+        x= np.arange(11.1, 13.5, 0.1)
+        hmfs, bins, smoothed, x = self.get_pairs(x=x)
+        styles= [{'marker':'o', 'color':'C0', 's':45}, {'marker':'x', 'color':'C1', 's':45}]
+        fig, ax = None, None
+        for i, fd in enumerate(list(hmfs.keys())):
+            fig, ax = self._plot_smoothed(hmfs[fd], bins[fd], smoothed[fd], x, title='HF vs L2', style=styles[i], fig=fig, ax=ax, per_panel=1)
+        #fig, ax =  plt.subplots(1, 1, figsize=(8, 4))
+        #for i in range(hmfs['HF'].shape[0]):
+        #    _, _, smoothed, x = self.get_pairs(x=bins['HF'][i])
+        #    ax.plot(10**x, smoothed['L2'][i]/smoothed['HF'][i], alpha=0.5, lw=2, color='C0', label='HF', ls='--')
+        #    ax.set_xscale('log')
+
+    def _plot_smoothed(self, hmfs, bins, smoothed, x, title=None, per_panel=10, fig=None, ax=None, style=None, *kwargs):
+
+        ## Find the number of rows and columns for the plot
+        sim_nums = hmfs.shape[0]
+        panels = np.ceil(sim_nums /per_panel).astype(int)
+        if panels > 5:
+            columns = 5
+            rows = np.ceil(panels/columns).astype(int)
+        else:
+            columns = panels
+            rows = 2
+        print(f'sim_nums = {sim_nums}, panels = {panels}, rows = {rows}, columns = {columns}')
+        mbins = 0.5 * (bins[0][1:] + bins[0][:-1])
+        if fig is None:
+            fig, ax = plt.subplots(rows, columns, figsize=(columns*3, rows*3))
+        for j in range(hmfs.shape[0]):
+            p = np.floor(j/per_panel).astype(int)
+            ax_indx, ax_indy =  np.floor(p/columns).astype(int), int(p%5)
+            mbins = 0.5 * (bins[j][1:] + bins[j][:-1])
+
+            if style is None:
+                marker = 'o'
+                color = f'C{j}'
+                s=20
+            else:
+                marker = style['marker']
+                color = style['color']
+                s=style['s']
+
+            ax[ax_indx, ax_indy].scatter(10**mbins, hmfs[j], alpha=0.5, lw=2, color=color, label='Interpolated', marker=marker, s=s)
+            ax[ax_indx, ax_indy].plot(10**x, smoothed[j], alpha=0.6, lw=2, color=color, label='fine bin', ls='--')
+            if ax_indy == 0:
+                ax[ax_indx, ax_indy].set_ylabel(r'$\psi \ [dex^{-1} cMph^{-3}]$')
+            ax[ax_indx, ax_indy].set_xscale('log')
+            ax[ax_indx, ax_indy].set_yscale('log')
+            ax[ax_indx, ax_indy].set_xlim(1e11, 1e14)
+            ax[ax_indx, ax_indy].set_ylim(1e-7, 1e-1)
+            
+            if title is not None:
+                fig.suptitle(title)
+        fig.tight_layout()
+        return fig, ax
+            
     
     def smoothed(self, fids=['L2'], narrow=False, per_panel=10, *kwargs):
         fig, ax = None, None
+        x= np.arange(11.1, 13.5, 0.1)
 
         for i, fd in enumerate(fids):        
             # Use summary_stats to load the HMF
             halo_func = summary_stats.HMF(self.data_dir, fid=fd, narrow=narrow)
             hmfs, bins = halo_func.load()
-            x= np.arange(11.1, 13.5, 0.1)
-            sim_nums = hmfs.shape[0]
             smoothed = halo_func.get_smoothed(x, *kwargs)
             assert len(smoothed) == hmfs.shape[0], f'Length of smoothed = {len(smoothed)}, hmfs = {hmfs.shape[0]}'
-
-            if fig is None:
-                panels = np.ceil(sim_nums /per_panel).astype(int)
-                if panels > 5:
-                    columns = 5
-                    rows = np.ceil(panels/columns).astype(int)
-                else:
-                    columns = panels
-                    rows = 2
-                print(f'sim_nums = {sim_nums}, panels = {panels}, rows = {rows}, columns = {columns}')
-                fig, ax = plt.subplots(rows, columns, figsize=(columns*3, rows*3))
-            for j in range(hmfs.shape[0]):
-                p = np.floor(j/per_panel).astype(int)
-                ax_indx, ax_indy =  np.floor(p/columns).astype(int), int(p%5)
-                mbins = 0.5 * (bins[j][1:] + bins[j][:-1])
-                ax[ax_indx, ax_indy].scatter(10**mbins, hmfs[j], alpha=0.5, lw=2, color=f'C{j}', label='Interpolated')
-                ax[ax_indx, ax_indy].plot(10**x, smoothed[j], alpha=0.9, lw=2, color=f'C{j}', ls='dotted', label='fine bin')
-                if ax_indy == 0:
-                    ax[ax_indx, ax_indy].set_ylabel(r'$\psi \ [dex^{-1} cMph^{-3}]$')
-                ax[ax_indx, ax_indy].set_xscale('log')
-                ax[ax_indx, ax_indy].set_yscale('log')
-                ax[ax_indx, ax_indy].set_xlim(1e11, 1e14)
-                ax[ax_indx, ax_indy].set_ylim(1e-7, 1e-1)
-                #ax[ax_indx, ax_indy].set_xlabel('Mass')
-            if not narrow:
-                fig.suptitle(f'Fitting spline, {fd} goku-wide')
+            if narrow:
+                title = f'Fitting spline, {fd} goku-narrow'
             else:
-                fig.suptitle(f'Fitting spline, {fd} goku-narrow')
-            fig.tight_layout()
+                title = f'Fitting spline, {fd} goku-wide'
+            fig, ax = self._plot_smoothed(hmfs =hmfs, bins=bins, smoothed=smoothed, x=x, title=title, per_panel=per_panel, fig=fig, ax=ax, *kwargs)
+
     
     def smoothed_err(self, fids=['L2'], narrow=False, *kwargs):
 

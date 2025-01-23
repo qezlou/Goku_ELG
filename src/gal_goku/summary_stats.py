@@ -280,7 +280,7 @@ class HMF(BaseSummaryStats):
         Get the smoothed halo mass function evaluated at x
         Parameters:
         --------------
-        x: np.ndarray
+        x: np.ndarray or list of np.ndarray
             Array of x values to evaluate the spline at
         ind: np.ndarray, optional, default=None
             Index of the simulations to fit. If None, fit all simulations
@@ -288,15 +288,20 @@ class HMF(BaseSummaryStats):
             Keyword arguments for utils.ConstrainedSplineFitter
         """
         splines = self._do_fits(ind=ind, *kwargs)
+        print(f'len(splines) = {len(splines)}')
         fit = utils.ConstrainedSplineFitter(*kwargs, logging_level=self.logging_level)
-        y = np.zeros((len(splines), len(x)))
+        #y = np.zeros((len(splines), len(x)))
+        y = []
         for i, spl in enumerate(splines):
-            y[i] = fit.evaluate_spline(x, spl)
-        # The Spline fit was done in log space
-        y = 10**y
+            if type(x) == list:
+                eval_points = x[i]
+            else:
+                eval_points = x
+            # The Spline fit was done in log space
+            y.append(10**fit.evaluate_spline(eval_points, spl)) 
         return y
 
-    def _sim_nums(self, sim_tags):
+    def _sim_nums(self):
         """
         Get the simulation id from the simulation tags
         Parameters:
@@ -309,12 +314,12 @@ class HMF(BaseSummaryStats):
             Array of simulation numbers
         """
         sim_nums = []
-        for tag in sim_tags:
+        for tag in self.sim_tags:
             sim_nums.append(int(re.search(r'_\d{4}',tag)[0][1:]))
         sim_nums = np.array(sim_nums)
         return sim_nums
 
-    def get_pairs(self, labels1, tags2, load_coarse=False):
+    def get_pairs(self,fids, load_coarse=False):
         """
         DEPRECATED FOR NOW : the instance is build for individual fidelities
         Get the common pairs between the different cosmologies
@@ -332,7 +337,8 @@ class HMF(BaseSummaryStats):
         
         # Find the common pairs
         for fd in self.fids: 
-            sim_nums = self._sim_nums(sim_tags[fd])
+            self.fid = fd
+            sim_nums = self._sim_nums(fids[fd])
             if fd == self.fids[0]:
                 common_nums = sim_nums
             else:
