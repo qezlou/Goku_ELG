@@ -327,44 +327,41 @@ class HMF(BaseSummaryStats):
         sim_nums = np.array(sim_nums)
         return sim_nums
 
-    def get_pairs(self,fids, load_coarse=False):
-        """
-        DEPRECATED FOR NOW : the instance is build for individual fidelities
-        Get the common pairs between the different cosmologies
-        Parameters:
-        --------------
-        save_dir: str
-            Directory where the hmf files are stored
-        fids: list
-            List of fidelities to compare
-        Returns:
-        --------------
-        first_corrs: list
-            List of files for the first fid
-        """
-        
-        # Find the common pairs
-        for fd in self.fids: 
-            self.fid = fd
-            sim_nums = self._sim_nums(fids[fd])
-            if fd == self.fids[0]:
-                common_nums = sim_nums
-            else:
-                common_nums = np.intersect1d(common_nums, sim_nums)
-        
-        self.logger.info(f'Found {len(common_nums)} common pairs')
-        # Now keeping only the common hmfs
-        for fd in self.fids:
-            sim_nums = self._sim_nums(sim_tags=sim_tags[fd])
-            ind = np.where(np.isin(sim_nums, common_nums))[0]
-            # Sort based on sim # for consistency
-            arg_sort = np.argsort(sim_nums[ind])
-            hmfs[fd] = hmfs[fd][ind][arg_sort]
-            sim_tags[fd] = np.array(sim_tags[fd])[ind][arg_sort]
-            if load_coarse:
-                hmfs_coarse[fd] = hmfs_coarse[fd][ind][arg_sort]
-                hmfs_fine[fd] = hmfs_fine[fd][ind][arg_sort]
-        if load_coarse:
-            return hmfs, mbins, sim_tags, hmfs_coarse, mbins_coarse, hmfs_fine
+def get_pairs(data_dir, eval_mbins, no_merge=False, narrow=False):
+    """
+    """            
+    halo_funcs = {}
+    hmfs = {}
+    bins = {}
+    smoothed = {}
+    labels = {}
+    params = {}
+    #sim_specs = {}
+    for fd in ['HF', 'L2']:
+        halo_funcs[fd] = HMF(data_dir, fid=fd, no_merge=no_merge, narrow=narrow)
+        hmfs[fd], bins[fd] = halo_funcs[fd].load()
+        sim_nums = halo_funcs[fd]._sim_nums()
+        if fd == 'HF':
+            common_nums = sim_nums
         else:
-            return hmfs, mbins,sim_tags
+            common_nums = np.intersect1d(common_nums, sim_nums)
+    halo_funcs['HF'].logger.info(f'Found {len(common_nums)} common pairs')
+    
+    for fd in ['HF','L2']:
+        sim_nums = halo_funcs[fd]._sim_nums()
+        ind = np.where(np.isin(sim_nums, common_nums))[0]
+        # sort based on the sim # for consistency
+        argsort = np.argsort(sim_nums[ind])
+        hmfs[fd] = hmfs[fd][ind][argsort]
+        bins[fd] = bins[fd][ind][argsort]
+        labels[fd] = np.array(halo_funcs[fd].get_labels())[ind][argsort]
+        params[fd] = halo_funcs[fd].get_params_array()[ind][argsort]
+        #sim_specs[fd] = halo_funcs[fd].get_sims_specs()[ind][argsort]
+        
+        #mbins[fd] = mbins[fd][ind][argsort]
+        smoothed_temp = halo_funcs[fd].get_smoothed(eval_mbins, ind=ind)
+        smoothed[fd] = []
+        for i in argsort:
+            smoothed[fd].append(smoothed_temp[i])
+        smoothed[fd] = np.array(smoothed[fd])
+    return hmfs, bins, smoothed, eval_mbins, params, labels
