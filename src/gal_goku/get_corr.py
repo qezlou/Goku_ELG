@@ -18,7 +18,7 @@ from nbodykit.cosmology import Planck15 as cosmo
 import h5py
 import logging
 import warnings
-import mpi_helper
+from . import mpi_helper
 warnings.filterwarnings("ignore")
 
 

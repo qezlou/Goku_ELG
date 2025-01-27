@@ -1,5 +1,5 @@
 """
-To evaluate all the emulators for different summary statistics.
+To evaluate all the emulators for W_p, the projected correlation fucntion.
 This is the interface of `single_fid.py` and `summary_stats.py` to work with the
 generated Projectedcorrelation functions.
 """

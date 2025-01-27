@@ -1,17 +1,20 @@
-import h5py
-import numpy as np
-from matplotlib import pyplot as plt
-from glob import glob
-from os import path as op
 import json
 import re
 import logging
+from glob import glob
+from os import path as op
+import h5py
+import numpy as np
+from matplotlib import pyplot as plt
+from scipy.ndimage import gaussian_filter1d as gf1d
 
 from . import summary_stats
-from . import wp_emus
-from . import single_fid
+#from . import wp_emus
+#from . import single_fid
+import warnings
+warnings.filterwarnings("ignore")
 
-class PlotCorr():
+class BasePlot():
     def __init__(self, logging_level='INFO', show_full_params=False):
         self.logger = self.configure_logging(logging_level)
         if show_full_params:
@@ -34,6 +37,82 @@ class PlotCorr():
         logger.addHandler(console_handler)
         
         return logger
+
+    def pred_truth(self, pred, truth, bins, sub_sample=10, seed=None, title=None, log_y=True):
+        """
+        Plot the leave one out cross validation
+        Parameters:
+        -----------
+        pred: Array
+            Predicted values, SHOULD be in log space, e.g. log(w_p)
+        truth: Array
+            Truth values, SHOULD be in log space, e.g. log(w_p)
+        
+        """
+
+        fig, ax = plt.subplots(1, 3, figsize=(12, 4))
+        if seed is not None:
+            np.random.seed(seed)
+        if sub_sample is not None:
+            np.random.seed(seed)
+            ind = np.random.randint(0, pred.shape[0], sub_sample)
+        else:
+            ind = np.arange(pred.shape[0])
+
+        for c,i in enumerate(ind):
+            ax[0].plot(bins, truth[i], label='Truth', color=f'C{c}', lw=5, alpha=0.5 )
+            ax[0].plot(bins, pred[i], label='Pred', color=f'C{c}', ls='--', alpha=1)
+            if c == 0:
+                ax[0].legend()
+
+        ax[0].set_yscale('log')
+        ax[0].set_xscale('log')
+        if title is not None:
+            ax[0].set_title(title, fontsize=8)
+        
+        # plot histogram of LOO error
+        assert np.all(10**truth > 0), 'Truth has negative values'
+        try:
+             assert np.all(10**pred > 0), f'Pred has negative values, pred nans: = {pred}'
+             percentile_method = np.percentile
+        except AssertionError as e:
+            percentile_method = np.nanpercentile
+
+        err = pred / truth - 1
+        for c, i in enumerate(ind):
+            ax[1].plot(bins, err[i], alpha=0.8, color=f'C{c}')
+        ax[1].set_ylim(-1, 1)
+        ax[1].set_xscale('log')
+        ax[1].grid()
+        ax[1].set_ylabel(r'$\frac{pred - truth}{truth}$')
+        err_percent = percentile_method(np.abs(err), [16, 50, 84], axis=0)
+
+        ax[2].plot(bins, err_percent[1], alpha=0.5, color='k')
+        ax[2].fill_between(bins, err_percent[0], err_percent[2], alpha=0.5, color='k')
+        ax[2].set_ylabel(r'$|\frac{pred - truth}{truth}|$')
+        ax[2].grid()
+        ax[2].set_xscale('log')
+        ax[2].set_ylim(0, 0.5)
+ 
+        return fig, ax    
+
+    def load_saved_loo(self, savefile):
+        """
+        Load the saved leave one out cross validation"""
+        
+        with h5py.File(savefile, 'r') as f:
+            pred = 10**f['pred'][:]
+            var_pred = 10**(2*np.sqrt(f['var_pred'][:])) # Approximate the variance
+            truth = 10**f['truth'][:].squeeze()
+            X = f['X'][:]
+            mbins = 10**f['bins'][:]
+        
+        return pred, var_pred, truth, X, mbins
+
+
+class PlotCorr(BasePlot):
+    def __init__(self, logging_level='INFO', show_full_params=False):
+        super().__init__(logging_level, show_full_params)
 
     def compare_cosmos(self, corr_files, fig=None, ax=None, mode='projected', savefig=None, r_range=(0,100), legend=False, show_cosmo=False, errorbar=False):
         """
@@ -547,3 +626,313 @@ class PlotTestEmus():
         ax.set_ylabel('Latent 2')
         ax.legend()
         plt.show()
+
+
+class PlotHMF(BasePlot):
+    """
+    Class to plot Halo Mass fucntion and the meualtor
+    
+    """
+    def __init__(self, data_dir, logging_level='INFO', show_full_params=False):
+        super().__init__(logging_level, show_full_params)
+        self.data_dir = data_dir
+
+    def _setup_panels(self, sim_nums, per_panel=10):
+        """
+        """
+        panels = np.ceil(sim_nums /per_panel).astype(int)
+        if panels > 5:
+            columns = 5
+            rows = np.ceil(panels/columns).astype(int)
+        else:
+            columns = panels
+            rows = 2
+        #self.logger.debug(f'sim_nums = {sim_nums}, panels = {panels}, rows = {rows}, columns = {columns}')
+        return rows, columns
+
+    def sim_hmf(self, fids=['HF'], fig=None, ax=None):
+        """
+        Plots the  halo mass function for simulations
+        Parameters:
+        --------------
+        save_file: str
+            h5 file storing the halpo mass functions
+        """
+        ws = [7, 2, 2]
+        alphas = [0.5, 0.9, 0.8]
+        if fig is None:
+            fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+
+        hmfs, bins = self.hmf.load(fids=fids)
+        mbins = 0.5*(bins[1:] + bins[:-1])
+        for i, fd in enumerate(fids):
+            for j in range(hmfs[fd].shape[0]):
+                ax.plot(mbins, hmfs[fd][j], alpha=alphas[i], lw=ws[i])
+        ax.set_ylim((1e-8, 1e-1))
+        ax.set_xscale('log')
+        ax.legend()
+        ax.set_yscale('log')
+        ax.set_ylabel(r'$\psi \ [dex^{-1} cMph^{-3}]$')
+        ax.set_xlim(1e11, 1e14)
+        ax.set_xlim(1e11, 1e14)
+        ax.grid()
+        fig.tight_layout()
+
+    def get_pairs(self, no_merge=False, x=None):
+        """
+        """            
+        halo_funcs = {}
+        hmfs = {}
+        bins = {}
+        smoothed = {}
+        for fd in ['HF', 'L2']:
+            halo_funcs[fd] = summary_stats.HMF(self.data_dir, fid=fd, no_merge=no_merge)
+            hmfs[fd], bins[fd] = halo_funcs[fd].load()
+            sim_nums = halo_funcs[fd]._sim_nums()
+            if fd == 'HF':
+                common_nums = sim_nums
+            else:
+                common_nums = np.intersect1d(common_nums, sim_nums)
+        self.logger.info(f'Found {len(common_nums)} common pairs')
+        
+        for fd in ['HF','L2']:
+            sim_nums = halo_funcs[fd]._sim_nums()
+            ind = np.where(np.isin(sim_nums, common_nums))[0]
+            # sort based on the sim # for consistency
+            argsort = np.argsort(sim_nums[ind])
+            hmfs[fd] = hmfs[fd][ind][argsort]
+            bins[fd] = bins[fd][ind][argsort]
+            
+            #mbins[fd] = mbins[fd][ind][argsort]
+            smoothed_temp = halo_funcs[fd].get_smoothed(x, ind=ind)
+            smoothed[fd] = []
+            for i in argsort:
+                smoothed[fd].append(smoothed_temp[i])
+        return hmfs, bins, smoothed, x
+
+
+    def compare_fids(self, no_merge=False):
+        x= np.arange(11.1, 13.5, 0.1)
+        hmfs, bins, smoothed, x = self.get_pairs(x=x, no_merge=no_merge)
+        styles= [{'marker':'o', 'color':'C0', 's':45}, {'marker':'x', 'color':'C1', 's':45}]
+        fig, ax = None, None
+        for i, fd in enumerate(list(hmfs.keys())):
+            fig, ax = self._plot_smoothed(hmfs[fd], bins[fd], smoothed[fd], x, title='HF vs L2', style=styles[i], fig=fig, ax=ax, per_panel=1)
+
+        num_sims = len(hmfs['HF'])
+        per_panel = 1
+        rows, columns = self._setup_panels(num_sims, per_panel)
+        fig, ax = plt.subplots(rows, columns, figsize=(columns*3, rows*3))
+        for i in range(num_sims):
+            p = np.floor(i/per_panel).astype(int)
+            indx, indy = np.floor(p/columns).astype(int), p%columns
+            ax[indx, indy].plot(10**x, smoothed['L2'][i]/smoothed['HF'][i] - 1, 'o-', color=f'C{i}', alpha=0.5, label='Last bins merged')
+            ax[indx, indy].set_title(i)
+            ax[indx, indy].set_ylim(-1, 2)
+            ax[indx, indy].set_xscale('log')
+            ax[indx, indy].grid()
+            if p==0:
+                ax[indx, indy].legend()
+            if indy == 0:
+                ax[indx, indy].set_ylabel('L2/HF - 1')
+        fig.tight_layout()
+
+    def _plot_smoothed(self, hmfs, bins, smoothed, x, title=None, per_panel=10, fig=None, ax=None, style=None, *kwargs):
+
+        ## Find the number of rows and columns for the plot
+        sim_nums = hmfs.shape[0]
+        rows, columns = self._setup_panels(sim_nums, per_panel=per_panel)
+        mbins = 0.5 * (bins[0][1:] + bins[0][:-1])
+        if fig is None:
+            fig, ax = plt.subplots(rows, columns, figsize=(columns*3, rows*3))
+        for j in range(hmfs.shape[0]):
+            p = np.floor(j/per_panel).astype(int)
+            ax_indx, ax_indy =  np.floor(p/columns).astype(int), int(p%columns)
+            mbins = 0.5 * (bins[j][1:] + bins[j][:-1])
+
+            if style is None:
+                marker = 'o'
+                color = f'C{j}'
+                s=20
+            else:
+                marker = style['marker']
+                color = style['color']
+                s=style['s']
+
+            ax[ax_indx, ax_indy].scatter(10**mbins, hmfs[j], alpha=0.5, lw=2, color=color, label='Interpolated', marker=marker, s=s)
+            ax[ax_indx, ax_indy].plot(10**x, smoothed[j], alpha=0.6, lw=2, color=color, label='fine bin', ls='--')
+            if ax_indy == 0:
+                ax[ax_indx, ax_indy].set_ylabel(r'$\psi \ [dex^{-1} cMph^{-3}]$')
+            ax[ax_indx, ax_indy].set_xscale('log')
+            ax[ax_indx, ax_indy].set_yscale('log')
+            ax[ax_indx, ax_indy].set_xlim(1e11, 1e14)
+            ax[ax_indx, ax_indy].set_ylim(1e-7, 1e-1)
+            
+            if title is not None:
+                fig.suptitle(title)
+        fig.tight_layout()
+        return fig, ax
+            
+    
+    def smoothed(self, fids=['L2'], narrow=False, per_panel=10, *kwargs):
+        fig, ax = None, None
+        x= np.arange(11.1, 13.5, 0.1)
+
+        for i, fd in enumerate(fids):        
+            # Use summary_stats to load the HMF
+            halo_func = summary_stats.HMF(self.data_dir, fid=fd, narrow=narrow)
+            hmfs, bins = halo_func.load()
+            smoothed = halo_func.get_smoothed(x, *kwargs)
+            assert len(smoothed) == hmfs.shape[0], f'Length of smoothed = {len(smoothed)}, hmfs = {hmfs.shape[0]}'
+            if narrow:
+                title = f'Fitting spline, {fd} goku-narrow'
+            else:
+                title = f'Fitting spline, {fd} goku-wide'
+            fig, ax = self._plot_smoothed(hmfs =hmfs, bins=bins, smoothed=smoothed, x=x, title=title, per_panel=per_panel, fig=fig, ax=ax, *kwargs)
+
+    
+    def smoothed_err(self, fids=['L2'], narrow=False, no_merge=False, *kwargs):
+
+        for i, fd in enumerate(fids):        
+            # Use summary_stats to load the HMF
+            halo_func = summary_stats.HMF(self.data_dir, fid=fd, narrow=narrow, no_merge=no_merge)
+            hmfs, bins = halo_func.load()
+            sim_nums = hmfs.shape[0]
+            
+            fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+            import matplotlib.cm as cm
+            import matplotlib.colors as mcolors
+
+            norm = mcolors.Normalize(vmin=5, vmax=20)
+            cmap = cm.ScalarMappable(norm=norm, cmap='viridis')
+            cmap.set_array([])
+            self.logger.info(f'num_sims = {sim_nums}')
+            for j in range(sim_nums):
+                mbins = 0.5 * (bins[j][1:] + bins[j][:-1])
+                smoothed = halo_func.get_smoothed(x=mbins, ind=[j])[0]
+                err = np.abs(smoothed/hmfs[j] - 1)
+                color = cmap.to_rgba(mbins.size)
+                ax.plot(10**mbins, err, alpha=0.1, lw=2, color=color)
+                ax.set_xscale('log')
+                ax.set_xlim(1e11, 3e13)
+                ax.set_ylim(0, 0.5)
+                ax.set_yticks(np.arange(0, 0.55, 0.05))
+            ax.grid()
+            ax.set_xlabel('Mass')
+            ax.set_ylabel('| fit / true -1 |')
+            
+            fig.colorbar(cmap, ax=ax, orientation='vertical', label='Number of available bins')
+            if narrow:
+                fig.suptitle(f'Error in the fitting spline, {fd} goku-narrow')
+            else:
+                fig.suptitle(f'Error in the fitting spline, {fd} goku-wide')
+            fig.tight_layout()
+
+
+
+class PlotHmfEmu(BasePlot):
+    def __init__(self, logging_level='INFO'):
+        super().__init__(logging_level, show_full_params=True)
+
+    def pred_truth(self, pred, truth, mbins, model_err=None, seed=None, title=None, log_y=True, sub_sample=10):
+        
+        fig, ax = super().pred_truth(pred, truth, mbins, seed=seed, title=title, log_y=log_y, sub_sample=sub_sample)
+        ax[0].set_yscale('log')
+        ax[0].set_xscale('log')
+        fig.tight_layout()
+        return fig, ax
+
+    def _pred_truth_large(self, pred, truth, mbins, per_panel=5, columns=3):
+        """
+        Fit all the predictions and the truth in one big figure
+        """
+        sim_nums = truth.shape[0]
+        panels = np.ceil(sim_nums/per_panel).astype(int)+1
+        rows = np.ceil(panels/columns).astype(int)
+        self.logger.info(f'sim_nums = {sim_nums}, panels = {panels}, rows = {rows}, columns = {columns}')
+        fig, ax = plt.subplots(rows, columns, figsize=(12, 100))
+        figr, axr = plt.subplots(rows, columns, figsize=(12, 100))
+        for j in range(sim_nums):
+            p = np.floor(j/per_panel).astype(int)
+            ax_indx, ax_indy =  np.floor(p/columns).astype(int), int(p%columns)
+            ax[ax_indx, ax_indy].plot(mbins, truth[j], color=f'C{j%per_panel}', lw=4, alpha=0.5, label='Truth')
+            ax[ax_indx, ax_indy].plot(mbins, pred[j], alpha=0.9, lw=2, color=f'C{j%per_panel}', ls='dotted', label='Pred')
+            axr[ax_indx, ax_indy].plot(mbins, pred[j]/truth[j] - 1, alpha=0.9, lw=2, color=f'C{j%per_panel}', ls='dotted', label='Pred')
+            if ax_indy == 0:
+                ax[ax_indx, ax_indy].set_ylabel(r'$\psi \ [dex^{-1} cMph^{-3}]$')
+            if j==0:
+                ax[ax_indx, ax_indy].legend()
+            ax[ax_indx, ax_indy].set_title(f'Sim {j}')  
+            axr[ax_indx, ax_indy].set_title(f'Sim {j}')
+            ax[ax_indx, ax_indy].set_xscale('log')
+            axr[ax_indx, ax_indy].set_xscale('log')
+            ax[ax_indx, ax_indy].set_yscale('log')
+            ax[ax_indx, ax_indy].set_xlim(1e11, 3e13)
+            axr[ax_indx, ax_indy].set_xlim(1e11, 3e13)
+            ax[ax_indx, ax_indy].set_ylim(1e-7, 1e-1) 
+            axr[ax_indx, ax_indy].set_ylim(-1, 1)
+            ax[ax_indx, ax_indy].grid()  
+        fig.suptitle('Predictions vs Truth For all')
+        fig.tight_layout()
+        figr.tight_layout()
+
+        return fig, ax
+
+    def loo_pred_truth(self, savefile, seed=None, title=None, plot_all=False, sub_sample=10):
+        """
+        """
+
+        pred, var_pred, truth, X, mbins = self.load_saved_loo(savefile)
+        self.logger.info(f'Number of simualtions {pred.shape[0]}')
+        if plot_all:
+            fig, ax = self._pred_truth_large(pred, truth, mbins)
+        else:
+        
+            fig, ax = self.pred_truth(pred, truth, mbins, model_err=np.sqrt(var_pred), seed=seed, title=title, log_y=True, sub_sample=sub_sample)
+            ax[0].set_ylim((1e-7, 1e-1))
+        return fig, ax
+    
+    def err_vs_params(self, savefile, percentiles=np.arange(10, 101, 25)):
+        """
+        Plot LOO error in the HMF vs the cosmological parameters
+        """
+        pred, var_pred, truth, X, mbins = self.load_saved_loo(savefile)
+        X = X.squeeze()
+        err = np.abs(pred / truth - 1)
+
+        fig, ax = plt.subplots(X.shape[1], 1, figsize=(8, 2*X.shape[1]))
+        fig_all, ax_all = plt.subplots(1, 1, figsize=(8, 5))
+        for p in range(X.shape[1]):
+            percentile_bins = np.percentile(X[:, p], percentiles)
+            binned_ind = np.digitize(X[:, p], percentile_bins)
+            data =  [err[np.where(binned_ind == i), p].flatten() for i in range(len(percentile_bins)+1)]
+            b = np.array([np.min(X[:,p]), *percentile_bins, np.max(X[:,p])])
+            m = 0.5*(b[1:] + b[:-1])
+            #ax[p].violinplot(data, positions=m,  showmeans=False, showmedians=True)
+            #ax[p].boxplot(data, positions=m)
+            median_err = []
+            std_err = []   
+            for d in data:
+                median_err.append(np.median(d))
+                std_err.append(np.std(d))
+            ax[p].errorbar(m, median_err, yerr=std_err, fmt='o', capsize=5, ls='dotted', lw=3)
+            ax_all.plot(median_err, label=list(self.latex_labels.values())[p], lw=4, alpha=0.4, marker='o')
+            ax[p].set_xlabel(list(self.latex_labels.values())[p])
+            ax[p].set_ylabel(f'abs relative error')
+            ax[p].set_xlim(np.min(X[:,p]), np.max(X[:,p]))
+            ax[p].set_ylim(0, 0.25)
+            ax[p].set_yticks(np.arange(0, 0.3, 0.05))
+            ax[p].grid()
+        ax_all.set_xlabel('Parameter bin')
+        ax_all.set_ylabel('Median abs relative error')
+        ax_all.set_title('All parameters')
+        ax_all.legend(loc='lower center', bbox_to_anchor=(0.5, -0.05), ncol=3)
+        ax_all.grid()
+        ax_all.set_ylim(0, 0.25)
+        ax_all.set_yticks(np.arange(0, 0.3, 0.05))
+        fig_all.tight_layout()
+
+        fig.suptitle('HMF LOO error vs Cosmological parameters')
+        fig.tight_layout()
+        
+
