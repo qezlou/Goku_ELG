@@ -221,9 +221,10 @@ class HMF(BaseSummaryStats):
     """
     Halo mass function
     """
-    def __init__(self, data_dir, fid, narrow=False, logging_level='INFO'):
+    def __init__(self, data_dir, fid, narrow=False, no_merge=True, logging_level='INFO'):
         super().__init__(data_dir, logging_level)
         self.fid = fid
+        self.no_merge = no_merge
         self.sim_tags = None
         self.narrow = narrow
         self.logging_level = logging_level
@@ -239,10 +240,18 @@ class HMF(BaseSummaryStats):
         Load the Halo Mass Function computed for simulations and saved on `data_dir`
         """
         if self.narrow:
-            save_file = f'{self.fid}_hmfs_narrow.hdf5'
-            self.logger.debug(f'Loading narrow HMFs from {save_file}')
+            if self.no_merge:
+                save_file = f'{self.fid}_hmfs_narrow_no_merge.hdf5'
+            else:
+                save_file = f'{self.fid}_hmfs_narrow.hdf5'
         else:
-            save_file = f'{self.fid}_hmfs.hdf5'
+            if self.no_merge:
+                save_file = f'{self.fid}_hmfs_no_merge.hdf5'
+            else:
+                save_file = f'{self.fid}_hmfs.hdf5'
+        
+        self.logger.info(f'Loading HMFs from {save_file}')
+            
         with h5py.File(op.join(self.data_dir, save_file), 'r') as f:
             bins = f['bins_coarse'][:]
             hmfs = f['hmfs_coarse'][:]
@@ -288,7 +297,6 @@ class HMF(BaseSummaryStats):
             Keyword arguments for utils.ConstrainedSplineFitter
         """
         splines = self._do_fits(ind=ind, *kwargs)
-        print(f'len(splines) = {len(splines)}')
         fit = utils.ConstrainedSplineFitter(*kwargs, logging_level=self.logging_level)
         #y = np.zeros((len(splines), len(x)))
         y = []

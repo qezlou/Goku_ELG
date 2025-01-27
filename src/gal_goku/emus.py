@@ -72,7 +72,7 @@ class BaseStatEmu():
 
 
 class Hmf(BaseStatEmu):
-    def __init__(self, data_dir, y_log=True, fid='L2', multi_bin=False, logging_level='INFO', narrow=False):
+    def __init__(self, data_dir, y_log=True, fid='L2', multi_bin=False, logging_level='INFO', narrow=False, no_merge=True):
         """
         data_dir: Directory where the data is stored
         r_range: Range of r to consider
@@ -85,8 +85,8 @@ class Hmf(BaseStatEmu):
         self.logging_level = logging_level
         self.logger = self.configure_logging(logging_level)
         self.data_dir = data_dir
-
-        halo_func = summary_stats.HMF(data_dir, fid=fid, narrow=narrow)
+        self.no_merge = no_merge
+        halo_func = summary_stats.HMF(data_dir, fid=fid, narrow=narrow, no_merge=no_merge)
         hmfs, _ = halo_func.load()
         num_sims = len(hmfs)
         del hmfs
