@@ -74,14 +74,22 @@ class BaseStatEmu():
             f.create_dataset('bins', data=self.mbins)
             f.create_dataset('labels', data=self.labels)
     
-    def train_pred_all_sims(self):
+    def train_pred_all_sims(self, savefile=None):
         """
         Train the model on all simulations and comapre with the truth
         """
         model = self.emu(self.X, self.Y, n_fidelities=self.n_fidelities, kernel_list=None)
         model.optimize(n_optimization_restarts=10)
-        mean_pred, var_pred = model.predict(self.X[1])
-        return mean_pred, var_pred
+        mean_pred, var_pred = model.predict(self.X[-1])
+        if savefile is not None:
+            with h5py.File(savefile, 'w') as f:
+                f.create_dataset('pred', data=mean_pred)
+                f.create_dataset('var_pred', data=var_pred)
+                f.create_dataset('truth', data=self.Y[-1])
+                f.create_dataset('X', data=self.X[-1])
+                f.create_dataset('bins', data=self.mbins)
+                f.create_dataset('labels', data=self.labels)
+        
     
     def predict(self, X_test):
         """
