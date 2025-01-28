@@ -80,7 +80,7 @@ class BaseStatEmu():
         """
         model = self.emu(self.X, self.Y, n_fidelities=self.n_fidelities, kernel_list=None)
         model.optimize(n_optimization_restarts=10)
-        mean_pred, var_pred = model.predict(self.X)
+        mean_pred, var_pred = model.predict(self.X[1])
         return mean_pred, var_pred
     
     def predict(self, X_test):
