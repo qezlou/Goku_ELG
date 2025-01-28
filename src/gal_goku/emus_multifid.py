@@ -78,8 +78,8 @@ class BaseStatEmu():
         """
         Train the model on all simulations and comapre with the truth
         """
-        model = self.emu(self.X, self.Y, n_fidelities=self.n_fidelities)
-        model.optimize()
+        model = self.emu(self.X, self.Y, n_fidelities=self.n_fidelities, kernel_list=None)
+        model.optimize(n_optimization_restarts=10)
         mean_pred, var_pred = model.predict(self.X)
         return mean_pred, var_pred
     
@@ -88,7 +88,7 @@ class BaseStatEmu():
         Predict the mean and variance of the emulator
         """
         model = self.emu(self.X, self.Y, n_fidelities=self.n_fidelities)
-        model.optimize()
+        model.optimize(n_optimization_restarts=10)
         mean_pred, var_pred = model.predict(X_test)
         return mean_pred, var_pred
 
@@ -117,6 +117,8 @@ class Hmf(BaseStatEmu):
             self.X.append(pairs[4]['HF'])
             self.labels.append(pairs[5]['L2'])
             self.labels.append(pairs[5]['HF'])
+        
+        self.logger.info(f'X: {np.array(self.X).shape}, Y: {np.array(self.Y[0]).shape}')
 
         #self.sim_specs.append(halo_func[-1].get_sims_specs())
 
