@@ -327,7 +327,6 @@ class HMF(BaseSummaryStats):
         sim_nums = np.array(sim_nums)
         return sim_nums
 
-    
 def get_pairs(data_dir, eval_mbins, no_merge=False, narrow=False):
     """
     """            
