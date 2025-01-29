@@ -45,27 +45,35 @@ class SingleBinGP:
     
     :param X_hf: (n_points, n_dims) input parameters
     :param Y_hf: (n_points, k modes) power spectrum
+    :single_bin: whether to build one emulator per bin
     """
-    def __init__(self, X_hf: np.ndarray, Y_hf: np.ndarray):
+    def __init__(self, X_hf: np.ndarray, Y_hf: np.ndarray, single_bin: bool = False, **kwargs):
+        self.single_bin = single_bin
         # a list of GP emulators
         gpy_models: List = []
-
-        # make a GP on each P(k) bin
-        for i in range(Y_hf.shape[1]):
+        self.num_bins = Y_hf.shape[1]
+        if self.single_bin:
+            num_emus = Y_hf.shape[1]
+        else:
+            num_emus = 1
+        for i in range(num_emus):
             # Standard squared-exponential kernel with a different length scale for
             # each parameter, as they may have very different physical properties.
             nparams = np.shape(X_hf)[1]
 
             kernel = GPy.kern.RBF(nparams, ARD=True)            
-
-            gp = GPy.models.GPRegression(X_hf, Y_hf[:, [i]], kernel)
+            if self.single_bin:
+                gp = GPy.models.GPRegression(X_hf, Y_hf[:, [i]], kernel)
+            else:
+                gp = GPy.models.GPRegression(X_hf, Y_hf, kernel)
             gpy_models.append(gp)
+
 
         self.gpy_models = gpy_models
 
-        self.name = "single_fidelity"
+        self.name = f"single_fidelity | single_bin : {self.single_bin} "
 
-    def optimize_restarts(self, n_optimization_restarts: int, parallel: bool = False) -> None:
+    def optimize(self, n_optimization_restarts: int, parallel: bool = False) -> None:
         """
         Optimize GP on each bin of the power spectrum.
         """
@@ -86,14 +94,19 @@ class SingleBinGP:
         :param X: point(s) at which to predict
         :return: predicted P(all k bins) (mean, variance) at X
         """
-        means = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
-        variances = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
+        # If single_bin is True, EAch bin is predicted by a separate GP
+        if self.single_bin:
+            means = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
+            variances = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
+            for i,model in enumerate(self.models):
+                mean, variance = model.predict(X)
+                print(f'mean: {mean.shape}, variance: {variance.shape}')
 
-        for i,model in enumerate(self.models):
-            mean, variance = model.predict(X)
-
-            means[:, i] = mean[:, 0]
-            variances[:, i] = variance[:, 0]
+                means[:, i] = mean[:, 0]
+                variances[:, i] = variance[:, 0]
+        # If single_bin is False, all bins are predicted by a single GP
+        else:
+            means, variances = self.models[0].predict(X)
 
         return means, variances
 
