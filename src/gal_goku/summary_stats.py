@@ -250,7 +250,7 @@ class HMF(BaseSummaryStats):
             else:
                 save_file = f'{self.fid}_hmfs.hdf5'
         
-        self.logger.info(f'Loading HMFs from {save_file}')
+        self.logger.debug(f'Loading HMFs from {save_file}')
             
         with h5py.File(op.join(self.data_dir, save_file), 'r') as f:
             bins = f['bins_coarse'][:]

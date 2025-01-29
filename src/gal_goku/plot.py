@@ -635,6 +635,7 @@ class PlotHMF(BasePlot):
     """
     def __init__(self, data_dir, logging_level='INFO', show_full_params=False):
         super().__init__(logging_level, show_full_params)
+        self.logging_level = logging_level
         self.data_dir = data_dir
 
     def _setup_panels(self, sim_nums, per_panel=10):
@@ -686,7 +687,7 @@ class PlotHMF(BasePlot):
         bins = {}
         smoothed = {}
         for fd in ['HF', 'L2']:
-            halo_funcs[fd] = summary_stats.HMF(self.data_dir, fid=fd, no_merge=no_merge)
+            halo_funcs[fd] = summary_stats.HMF(self.data_dir, fid=fd, no_merge=no_merge, logging_level=self.logging_level)
             hmfs[fd], bins[fd] = halo_funcs[fd].load()
             sim_nums = halo_funcs[fd]._sim_nums()
             if fd == 'HF':
@@ -780,7 +781,7 @@ class PlotHMF(BasePlot):
 
         for i, fd in enumerate(fids):        
             # Use summary_stats to load the HMF
-            halo_func = summary_stats.HMF(self.data_dir, fid=fd, narrow=narrow)
+            halo_func = summary_stats.HMF(self.data_dir, fid=fd, narrow=narrow, logging_level=self.logging_level)
             hmfs, bins = halo_func.load()
             smoothed = halo_func.get_smoothed(x, *kwargs)
             assert len(smoothed) == hmfs.shape[0], f'Length of smoothed = {len(smoothed)}, hmfs = {hmfs.shape[0]}'
@@ -795,7 +796,7 @@ class PlotHMF(BasePlot):
 
         for i, fd in enumerate(fids):        
             # Use summary_stats to load the HMF
-            halo_func = summary_stats.HMF(self.data_dir, fid=fd, narrow=narrow, no_merge=no_merge)
+            halo_func = summary_stats.HMF(self.data_dir, fid=fd, narrow=narrow, no_merge=no_merge, logging_level=self.logging_level)
             hmfs, bins = halo_func.load()
             sim_nums = hmfs.shape[0]
             
