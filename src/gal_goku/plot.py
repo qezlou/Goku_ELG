@@ -829,6 +829,47 @@ class PlotHMF(BasePlot):
                 fig.suptitle(f'Error in the fitting spline, {fd} goku-wide')
             fig.tight_layout()
 
+    def bin_in_param_space(self, data_dir, fid='L2', narrow=False, no_merge=False, per_panel=10):
+        """
+        Compare the halo mass functions for different cosmologies
+        """
+        hmf = summary_stats.HMF(data_dir=data_dir, fid =fid,  narrow=narrow, no_merge=no_merge, logging_level=self.logging_level)
+        mbins = np.arange(11.1, 13.5, 0.1)
+        smoothed = np.array(hmf.get_smoothed(mbins))
+        params = hmf.get_params_array()
+        num_params = params.shape[1]
+        rows, columns = self._setup_panels(params.shape[1], per_panel=1)
+
+        fig, ax = plt.subplots(rows, columns, figsize=(columns*3, rows*3))
+        figr, axr = plt.subplots(rows, columns, figsize=(columns*3, rows*3))
+        for p in range(num_params):
+            indx, indy = np.floor(p/columns).astype(int), p%columns
+            percentile_bins = np.percentile(params[:, p], np.arange(25, 100, 25))
+            print(f"min, max = {np.min(params[:, p]), np.max(params[:, p])}, perentile_bins = {percentile_bins}")
+            binned_ind = np.digitize(params[:, p], percentile_bins)
+            for i in range(len(percentile_bins)+1):
+                ind = np.where(binned_ind == i)[0]
+                median = np.median(smoothed[ind], axis=0)
+                std = np.std(smoothed[ind], axis=0)
+                #ax[indx, indy].errorbar(10**mbins, median, yerr=std, label=f'{hmf.param_names[p]} = {percentile_bins[i]:.2f}', alpha=0.5)
+                ax[indx, indy].plot(10**mbins, median, alpha=0.5, label=f'{i*25}-{(i+1)*25}%' )
+                #if i==0:
+                #    median_ba  se = median
+                axr[indx, indy].plot(10**mbins, np.abs(median/median_base-1), alpha=0.5, label=f'{i*25}-{(i+1)*25}%' )
+                axr[indx, indy].fill_between(10**mbins, 0, 0.2, alpha=0.2, color='gray')
+                axr[indx, indy].fill_between(10**mbins, 0, 0.4, alpha=0.1, color='gray')
+                ax[indx, indy].set_xscale('log')
+                ax[indx, indy].set_yscale('log')
+                axr[indx, indy].set_xscale('log')
+                ax[indx, indy].set_title(self.latex_labels[hmf.param_names[p]])
+                axr[indx, indy].set_title(self.latex_labels[hmf.param_names[p]])
+                ax[indx, indy].legend()
+                axr[indx, indy].legend()
+                axr[indx, indy].set_ylabel('abs change in HMF')
+                if indy == 1:
+                    ax[indx, indy].set_xlabel(r'$M_{\odot}/h$')
+        fig.tight_layout()
+        figr.tight_layout()
 
 
 class PlotHmfEmu(BasePlot):

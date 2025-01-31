@@ -16,7 +16,7 @@ class BaseStatEmu():
     def __init__(self, X, Y, 
                  logging_level='info', 
                  emu_type={'multi-fid':False, 'single-bin':False, 'linear':True},
-                 n_optimization_restarts=1000):
+                 n_optimization_restarts=10):
         """The base emu to be inherited by single fidelity emulators built on any summary statistics
         This is the interface for all classses above.
         :param X_train:  (n_fidelities, n_points, n_dims) list of parameter vectors.
@@ -37,21 +37,21 @@ class BaseStatEmu():
         self.X = X
         self.Y = Y
         # If multi-fid = True, then X and Y are lists of arrays
-        if emu_type['multi-fid']:
-            self.n_fidelities = len(X)
-            self.n_points = []
-            self.n_dims = []
-            self.n_bins = []
-            for n in range(self.n_fidelities):
-                self.n_points.append(X[n].shape[0])
-                self.n_dims.append(X[n].shape[1])
-                self.n_bins.append(Y[n].shape[1])
+        #if emu_type['multi-fid']:
+        self.n_fidelities = len(X)
+        self.n_points = []
+        self.n_dims = []
+        self.n_bins = []
+        for n in range(self.n_fidelities):
+            self.n_points.append(X[n].shape[0])
+            self.n_dims.append(X[n].shape[1])
+            self.n_bins.append(Y[n].shape[1])
         # If multi-fid = False, then X and Y are arrays
-        else:
-            self.n_fidelities = 1
-            self.n_points = X.shape[0]
-            self.n_dims = X.shape[1]
-            self.n_bins = Y.shape[1]
+        #else:
+        #    self.n_fidelities = 1
+        #    self.n_points = X.shape[0]
+        #    self.n_dims = X.shape[1]
+        #    self.n_bins = Y.shape[1]
 
 
         self.logger.info(f'Fidelities: {self.n_fidelities}, Points: {self.n_points}, Dimensions: {self.n_dims}, Bins: {self.n_bins}')
@@ -74,19 +74,29 @@ class BaseStatEmu():
         """
         mean_pred = np.zeros((self.n_points[-1], self.n_dims[-1], self.n_bins[-1]))
         var_pred = np.zeros((self.n_points[-1], self.n_bins[-1]))
-        for i, s in enumerate(self.labels[-1]):
-            self.logger.info(f'Leaving out {s}')
-            X_train = [self.X[0]]
-            X_train.append(np.delete(self.X[-1], i, axis=0))
-            Y_train = [self.Y[0]]
-            Y_train.append(np.delete(self.Y[-1], i, axis=0))
-            X_test = self.X[-1][i][np.newaxis, :]
-            Y_test = self.Y[-1][i]
-            #self.logger.info(X_train[0].shape, X_train[1].shape, Y_train[0].shape, Y_train[1].shape, X_test.shape, Y_test.shape)
-            model = self.emu(X_train, Y_train, n_fidelities=self.n_fidelities, kernel_list=None)
-            model.optimize(n_optimization_restarts=self.n_optimization_restarts)
-            mean_pred[i], var_pred[i] = model.predict(X_test)
-        
+        if self.emu_type['multi-fid']:
+            for i, s in enumerate(self.labels[-1]):
+                self.logger.info(f'Leaving out {s}')
+                X_train = [self.X[0]]
+                X_train.append(np.delete(self.X[-1], i, axis=0))
+                Y_train = [self.Y[0]]
+                Y_train.append(np.delete(self.Y[-1], i, axis=0))
+                X_test = self.X[-1][i][np.newaxis, :]
+                Y_test = self.Y[-1][i]
+                #self.logger.info(X_train[0].shape, X_train[1].shape, Y_train[0].shape, Y_train[1].shape, X_test.shape, Y_test.shape)
+                model = self.emu(X_train, Y_train, n_fidelities=self.n_fidelities, kernel_list=None, single_bin=self.emu_type['single-bin'])
+                model.optimize(n_optimization_restarts=self.n_optimization_restarts)
+                mean_pred[i], var_pred[i] = model.predict(X_test)
+        else:
+            for i, s in enumerate(self.labels[0]):
+                self.logger.info(f'Leaving out {s}')
+                X_train = np.delete(self.X[0], i, axis=0)
+                Y_train = np.delete(self.Y[0], i, axis=0)
+                X_test = self.X[0][i][np.newaxis, :]
+                Y_test = self.Y[0][i]
+                model = self.emu(X_train, Y_train, kernel_list=None, single_bin=self.emu_type['single-bin'])
+                model.optimize(n_optimization_restarts=self.n_optimization_restarts)
+                mean_pred[i], var_pred[i] = model.predict(X_test)
         with h5py.File(savefile, 'w') as f:
             f.create_dataset('pred', data=mean_pred)
             f.create_dataset('var_pred', data=var_pred)
@@ -99,12 +109,16 @@ class BaseStatEmu():
         """
         Train the model on all simulations and comapre with the truth
         """
-        model = self.emu(self.X, self.Y, n_fidelities=self.n_fidelities, kernel_list=None, single_bin=self.emu_type['single-bin'])
-        model.optimize(n_optimization_restarts=self.n_optimization_restarts)
         if self.emu_type['multi-fid']:
-            mean_pred, var_pred = model.predict(self.X[-1])
+            model = self.emu(self.X, self.Y, n_fidelities=self.n_fidelities, kernel_list=None, single_bin=self.emu_type['single-bin'])
+            model.optimize(n_optimization_restarts=self.n_optimization_restarts)
         else:
-            mean_pred, var_pred = model.predict(self.X)
+            model = self.emu(self.X[0], self.Y[0], kernel_list=None, single_bin=self.emu_type['single-bin'])
+            model.optimize(n_optimization_restarts=self.n_optimization_restarts)
+            #if self.emu_type['multi-fid']:
+        mean_pred, var_pred = model.predict(self.X[-1])
+        #else:
+        #    mean_pred, var_pred = model.predict(self.X)
         if savefile is not None:
             with h5py.File(savefile, 'w') as f:
                 f.create_dataset('pred', data=mean_pred)
@@ -146,11 +160,14 @@ class Hmf(BaseStatEmu):
             self.labels.append(pairs[5]['HF'])
             self.logger.info(f'X: {np.array(self.X).shape}, Y: {np.array(self.Y[0]).shape}')
         else:
+            self.X = []
+            self.Y = []
+            self.labels = []
             hmf = summary_stats.HMF(data_dir=data_dir, fid = 'L2',  narrow=narrow, no_merge=no_merge, logging_level=logging_level)
-            self.Y = np.log10(hmf.get_smoothed(x=self.mbins))
-            self.X = hmf.get_params_array()
-            self.labels = hmf.get_labels()
-            self.logger.info(f'X: {np.array(self.X).shape}, Y: {np.array(self.Y).shape}')
+            self.Y.append(np.log10(hmf.get_smoothed(x=self.mbins)))
+            self.X.append(hmf.get_params_array())
+            self.labels.append(hmf.get_labels())
+            self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
             
         
         

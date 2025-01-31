@@ -48,6 +48,9 @@ class SingleBinGP:
     :single_bin: whether to build one emulator per bin
     """
     def __init__(self, X_hf: np.ndarray, Y_hf: np.ndarray, single_bin: bool = False, **kwargs):
+        # Normalize the input and output data
+        (self.X_min,  self.X_max,
+         self.mean_func, X_hf, Y_hf) = self.normalize(X_hf, Y_hf)
         self.single_bin = single_bin
         # a list of GP emulators
         gpy_models: List = []
@@ -73,6 +76,27 @@ class SingleBinGP:
 
         self.name = f"single_fidelity | single_bin : {self.single_bin} "
 
+    def normalize(self, X, Y):
+        """
+        Normalize the input data such it is between 0 and 1
+        We don't normalize the output data as it the median of the stack
+        could be 0.
+        Returns:
+        --------
+        X_normalized: normalized input data between 0 and 1
+        X_min: minimum value of the input data
+        X_max: maximum value of the input data
+        mean_func: the mean of the output to be used as the mean function
+        in the GP model
+        """
+        X_min, X_max = np.min(X, axis=0), np.max(X, axis=0)
+
+        medind = np.argsort(np.mean(Y, axis=1))[np.shape(Y)[0]//2]
+        mean_func = Y[medind,:]
+        Y_normalized = (Y - mean_func)/mean_func
+        X_normalized = (X-X_min)/(X_max-X_min)
+        return X_min, X_max, mean_func, X_normalized, Y_normalized
+    
     def optimize(self, n_optimization_restarts: int, parallel: bool = False) -> None:
         """
         Optimize GP on each bin of the power spectrum.
@@ -95,6 +119,7 @@ class SingleBinGP:
         :return: predicted P(all k bins) (mean, variance) at X
         """
         # If single_bin is True, EAch bin is predicted by a separate GP
+        X = (X - self.X_min)/(self.X_max - self.X_min)
         if self.single_bin:
             means = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
             variances = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
@@ -102,11 +127,13 @@ class SingleBinGP:
                 mean, variance = model.predict(X)
                 print(f'mean: {mean.shape}, variance: {variance.shape}')
 
-                means[:, i] = mean[:, 0]
-                variances[:, i] = variance[:, 0]
+                means[:, i] = (mean[:, 0] + 1)*self.mean_func
+                variances[:, i] = ((np.sqrt(variance[:, 0]) + 1)*self.mean_func)**2
         # If single_bin is False, all bins are predicted by a single GP
         else:
             means, variances = self.models[0].predict(X)
+            means = (means + 1)*self.mean_func
+            variances = ((np.sqrt(variances) + 1)*self.mean_func)**2
 
         return means, variances
 
