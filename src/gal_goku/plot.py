@@ -792,7 +792,7 @@ class PlotHMF(BasePlot):
             fig, ax = self._plot_smoothed(hmfs =hmfs, bins=bins, smoothed=smoothed, x=x, title=title, per_panel=per_panel, fig=fig, ax=ax, *kwargs)
 
     
-    def smoothed_err(self, fids=['L2'], narrow=False, no_merge=False, *kwargs):
+    def smoothed_err(self, fids=['L2'], narrow=False, no_merge=False, *kwargs, save_err_file=None):
 
         for i, fd in enumerate(fids):        
             # Use summary_stats to load the HMF
@@ -808,28 +808,43 @@ class PlotHMF(BasePlot):
             cmap = cm.ScalarMappable(norm=norm, cmap='viridis')
             cmap.set_array([])
             self.logger.info(f'num_sims = {sim_nums}')
+            # Use this bins to get the median and 95th percentile
+            interp_bins = np.arange(11.1, 13.5, 0.1)
+            err_all = np.full((sim_nums, interp_bins.size+1), np.nan)
             for j in range(sim_nums):
                 mbins = 0.5 * (bins[j][1:] + bins[j][:-1])
                 smoothed = halo_func.get_smoothed(x=mbins, ind=[j])[0]
                 err = np.abs(smoothed/hmfs[j] - 1)
                 color = cmap.to_rgba(mbins.size)
                 ax.plot(10**mbins, err, alpha=0.1, lw=2, color=color)
-                ax.set_xscale('log')
-                ax.set_xlim(1e11, 3e13)
-                ax.set_ylim(0, 0.5)
-                ax.set_yticks(np.arange(0, 0.55, 0.05))
+                ind = np.digitize(mbins, interp_bins)
+                err_all[j][ind] = err
+            interp_mbins = 0.5 * (interp_bins[1:] + interp_bins[:-1])
+            err_percent = np.nanpercentile(err_all, [50, 95], axis=0)
+            ax.plot(10**interp_mbins, err_percent[0][1:-1], alpha=1, lw=2, color='k', label='Median', ls='--')
+            ax.plot(10**interp_mbins, err_percent[1][1:-1], alpha=1, lw=2, color='k', label='95th percentile', ls='--')
+            ax.set_xscale('log')
+            ax.set_xlim(1e11, 3e13)
+            ax.set_ylim(0, 0.5)
+            ax.set_yticks(np.arange(0, 0.55, 0.05))    
             ax.grid()
             ax.set_xlabel('Mass')
             ax.set_ylabel('| fit / true -1 |')
             
             fig.colorbar(cmap, ax=ax, orientation='vertical', label='Number of available bins')
-            if narrow:
-                fig.suptitle(f'Error in the fitting spline, {fd} goku-narrow')
-            else:
-                fig.suptitle(f'Error in the fitting spline, {fd} goku-wide')
             fig.tight_layout()
 
-    def bin_in_param_space(self, data_dir, fid='L2', narrow=False, no_merge=False, per_panel=10):
+            if save_err_file is not None:
+                with h5py.File(save_err_file, 'w') as f:
+                    f.create_dataset('err_all', data=err_all)
+                    f.create_dataset('interp_bins', data=interp_bins)
+                    f.create_dataset('interp_mbins', data=interp_mbins)
+                    f.create_group('err_percent')
+                    f['err_percent'].create_dataset('50', data=err_percent[0])
+                    f['err_percent'].create_dataset('95', data=err_percent[1])
+            return fig, ax
+
+    def bin_in_param_space(self, data_dir, fid='L2', narrow=False, no_merge=False, per_panel=10, plot_err=True):
         """
         Compare the halo mass functions for different cosmologies
         """
@@ -839,9 +854,23 @@ class PlotHMF(BasePlot):
         params = hmf.get_params_array()
         num_params = params.shape[1]
         rows, columns = self._setup_panels(params.shape[1], per_panel=1)
-
         fig, ax = plt.subplots(rows, columns, figsize=(columns*3, rows*3))
         figr, axr = plt.subplots(rows, columns, figsize=(columns*3, rows*3))
+
+        if plot_err:
+            if no_merge and narrow:
+                err_file=f'{data_dir}/spline_err_L2_no_merge.hdf5'
+            elif no_merge and not narrow:
+                err_file=f'{data_dir}/spline_err_L2_no_merge.hdf5'
+            else:
+                err_file = None
+                self.logger.info(f'Will not plot the error')
+        if err_file is not None:
+            with h5py.File(err_file, 'r') as f:
+                interp_mbins = f['interp_mbins'][:]
+                err_percent = {}
+                err_percent[50] = f['err_percent']['50'][:]
+                err_percent[95] = f['err_percent']['95'][:]
         for p in range(num_params):
             indx, indy = np.floor(p/columns).astype(int), p%columns
             percentile_bins = np.percentile(params[:, p], np.arange(25, 100, 25))
@@ -853,21 +882,27 @@ class PlotHMF(BasePlot):
                 std = np.std(smoothed[ind], axis=0)
                 #ax[indx, indy].errorbar(10**mbins, median, yerr=std, label=f'{hmf.param_names[p]} = {percentile_bins[i]:.2f}', alpha=0.5)
                 ax[indx, indy].plot(10**mbins, median, alpha=0.5, label=f'{i*25}-{(i+1)*25}%' )
-                #if i==0:
-                #    median_ba  se = median
+                if i==0:
+                    median_base = median
                 axr[indx, indy].plot(10**mbins, np.abs(median/median_base-1), alpha=0.5, label=f'{i*25}-{(i+1)*25}%' )
-                axr[indx, indy].fill_between(10**mbins, 0, 0.2, alpha=0.2, color='gray')
-                axr[indx, indy].fill_between(10**mbins, 0, 0.4, alpha=0.1, color='gray')
-                ax[indx, indy].set_xscale('log')
-                ax[indx, indy].set_yscale('log')
-                axr[indx, indy].set_xscale('log')
-                ax[indx, indy].set_title(self.latex_labels[hmf.param_names[p]])
-                axr[indx, indy].set_title(self.latex_labels[hmf.param_names[p]])
-                ax[indx, indy].legend()
-                axr[indx, indy].legend()
-                axr[indx, indy].set_ylabel('abs change in HMF')
-                if indy == 1:
-                    ax[indx, indy].set_xlabel(r'$M_{\odot}/h$')
+            ax[indx, indy].set_xscale('log')
+            ax[indx, indy].set_yscale('log')
+            axr[indx, indy].set_xscale('log')
+            ax[indx, indy].set_title(self.latex_labels[hmf.param_names[p]])
+            axr[indx, indy].set_title(self.latex_labels[hmf.param_names[p]])
+            ax[indx, indy].legend()
+            axr[indx, indy].legend()
+            axr[indx, indy].set_ylabel('abs change in HMF')
+            if indy == 1:
+                ax[indx, indy].set_xlabel(r'$M_{\odot}/h$')
+            if err_file is not None:
+                axr[indx, indy].fill_between(10**interp_mbins,0, err_percent[50][1:-1], alpha=0.3, color='k', label=f'50% spline error')
+                axr[indx, indy].fill_between(10**interp_mbins,0, err_percent[95][1:-1], alpha=0.1, color='k', label=f'95% spline error')
+        if narrow:
+            fig.suptitle(f'Simulations themselves | HMF {fid} | Goku-narrow')
+        else:
+            fig.suptitle(f'Simulations themselves | HMF {fid} | Goku-wide')
+
         fig.tight_layout()
         figr.tight_layout()
 
