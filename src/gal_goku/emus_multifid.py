@@ -84,7 +84,7 @@ class BaseStatEmu():
                 X_test = self.X[-1][i][np.newaxis, :]
                 Y_test = self.Y[-1][i]
                 #self.logger.info(X_train[0].shape, X_train[1].shape, Y_train[0].shape, Y_train[1].shape, X_test.shape, Y_test.shape)
-                model = self.emu(X_train, Y_train, n_fidelities=self.n_fidelities, kernel_list=None, single_bin=self.emu_type['single-bin'])
+                model = self.emu(X_train, Y_train, n_fidelities=self.n_fidelities, kernel_list=None) #single_bin=self.emu_type['single-bin'])
                 model.optimize(n_optimization_restarts=self.n_optimization_restarts)
                 mean_pred[i], var_pred[i] = model.predict(X_test)
         else:
@@ -146,46 +146,39 @@ class Hmf(BaseStatEmu):
         #self.sim_specs =[]
         self.mbins = np.arange(11.1, 13.5, 0.1)
         # Iterate over the fidelities
+
+        self.X = []
+        self.Y = []
+        self.labels = []
+        # Train on both Goku-wide and goku-narrow sims
         if emu_type['multi-fid']:
-            self.Y = []
-            self.X = []
-            self.labels = []
-            ## FIXME: This fordn't pass all L2 sims
-            pairs = summary_stats.get_pairs(data_dir=data_dir, eval_mbins=self.mbins, narrow=narrow)
-            self.Y.append(np.log10(pairs[2]['L2']))
-            self.Y.append(np.log10(pairs[2]['HF']))
-            self.X.append(pairs[4]['L2'])
-            self.X.append(pairs[4]['HF'])
-            self.labels.append(pairs[5]['L2'])
-            self.labels.append(pairs[5]['HF'])
-            self.logger.info(f'X: {np.array(self.X).shape}, Y: {np.array(self.Y[0]).shape}')
+            fids = ['L2', 'HF']
         else:
-            self.X = []
-            self.Y = []
-            self.labels = []
-            # Train on both Goku-wide and goku-narrow sims
+            fids = ['L2']
+        for fd in fids:
             if prior == 'both':
-                hmf = summary_stats.HMF(data_dir=data_dir, fid = 'L2',  narrow=False, no_merge=no_merge, logging_level=logging_level)
+                hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=False, no_merge=no_merge, logging_level=logging_level)
                 Y = np.log10(hmf.get_smoothed(x=self.mbins))
                 X = hmf.get_params_array()
                 labels = hmf.get_labels()
-                hmf = summary_stats.HMF(data_dir=data_dir, fid = 'L2',  narrow=True, no_merge=no_merge, logging_level=logging_level)
-                Y = np.append(Y, np.log10(hmf.get_smoothed(x=self.mbins)), axis=0)
-                X = np.append(X, hmf.get_params_array(), axis=0)
-                labels = np.append(labels, hmf.get_labels(), axis=0)
+                if fd != 'HF':
+                    # We don't have narrow sims for HF yet
+                    
+                    hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=True, no_merge=no_merge, logging_level=logging_level)
+                    Y = np.append(Y, np.log10(hmf.get_smoothed(x=self.mbins)), axis=0)
+                    X = np.append(X, hmf.get_params_array(), axis=0)
+                    labels = np.append(labels, hmf.get_labels(), axis=0)
                 self.Y.append(Y)
                 self.X.append(X)
                 self.labels.append(labels)
                 self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
             else:
-                hmf = summary_stats.HMF(data_dir=data_dir, fid = 'L2',  narrow=narrow, no_merge=no_merge, logging_level=logging_level)
+                hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=narrow, no_merge=no_merge, logging_level=logging_level)
                 self.Y.append(np.log10(hmf.get_smoothed(x=self.mbins)))
                 self.X.append(hmf.get_params_array())
                 self.labels.append(hmf.get_labels())
                 self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
             
-        
-        
 
         #self.sim_specs.append(halo_func[-1].get_sims_specs())
 

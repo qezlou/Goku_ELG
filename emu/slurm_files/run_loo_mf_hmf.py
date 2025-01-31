@@ -4,11 +4,11 @@ data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/HMF/'
 
 
 
-emu_type = {'multi-fid':False, 'single-bin':False, 'linear':True }
+emu_type = {'multi-fid':True, 'single-bin':True, 'linear':True }
 narrow = 0 # Test on Goku-narrow sims or not
 no_merge = True # If `no_merge` is True, the emulator won't merge the bins
-if no_merge:
-    savefile = '/home/qezlou/HD2/HETDEX/cosmo/data/HMF/train/loo_L2_GPy_no_merge.hdf5'
+
+savefile = '/home/qezlou/HD2/HETDEX/cosmo/data/HMF/train/loo_L2_mf_no_merge.hdf5'
 
 emu = emus.Hmf(data_dir=data_dir,
                fid =['L2', 'HF'], 
