@@ -134,7 +134,7 @@ class BaseStatEmu():
 
 
 class Hmf(BaseStatEmu):
-    def __init__(self, data_dir, fid=['L2'], logging_level='INFO', narrow=False, no_merge=True, emu_type={'multi-fid':False, 'single-bin':False, 'linear':True}):
+    def __init__(self, data_dir, fid=['L2'], logging_level='INFO', prior='both', narrow=False, no_merge=True, emu_type={'multi-fid':False, 'single-bin':False, 'linear':True}):
         """
         """
         self.logging_level = logging_level
@@ -163,11 +163,26 @@ class Hmf(BaseStatEmu):
             self.X = []
             self.Y = []
             self.labels = []
-            hmf = summary_stats.HMF(data_dir=data_dir, fid = 'L2',  narrow=narrow, no_merge=no_merge, logging_level=logging_level)
-            self.Y.append(np.log10(hmf.get_smoothed(x=self.mbins)))
-            self.X.append(hmf.get_params_array())
-            self.labels.append(hmf.get_labels())
-            self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
+            # Train on both Goku-wide and goku-narrow sims
+            if prior == 'both':
+                hmf = summary_stats.HMF(data_dir=data_dir, fid = 'L2',  narrow=False, no_merge=no_merge, logging_level=logging_level)
+                Y = np.log10(hmf.get_smoothed(x=self.mbins))
+                X = hmf.get_params_array()
+                labels = hmf.get_labels()
+                hmf = summary_stats.HMF(data_dir=data_dir, fid = 'L2',  narrow=True, no_merge=no_merge, logging_level=logging_level)
+                Y = np.append(Y, np.log10(hmf.get_smoothed(x=self.mbins)), axis=0)
+                X = np.append(X, hmf.get_params_array(), axis=0)
+                labels = np.append(labels, hmf.get_labels(), axis=0)
+                self.Y.append(Y)
+                self.X.append(X)
+                self.labels.append(labels)
+                self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
+            else:
+                hmf = summary_stats.HMF(data_dir=data_dir, fid = 'L2',  narrow=narrow, no_merge=no_merge, logging_level=logging_level)
+                self.Y.append(np.log10(hmf.get_smoothed(x=self.mbins)))
+                self.X.append(hmf.get_params_array())
+                self.labels.append(hmf.get_labels())
+                self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
             
         
         
