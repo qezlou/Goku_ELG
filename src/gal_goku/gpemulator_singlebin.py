@@ -36,6 +36,19 @@ from .non_linear_multi_fidelity_models.non_linear_multi_fidelity_model import No
 # from emukit.multi_fidelity.models.non_linear_multi_fidelity_model import NonLinearMultiFidelityModel, make_non_linear_kernels
 
 from .latin_hypercube import map_to_unit_cube_list
+from .mpi_helper import into_chunks
+# Each MPI rank build GP for one bin
+try :
+    import mpi4py
+    from mpi4py import MPI
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    mpi_size = comm.Get_size()
+except ImportError:
+    MPI = None
+    comm = None
+    rank = 0
+    mpi_size = 1
 
 _log = logging.getLogger(__name__)
 
@@ -233,8 +246,11 @@ class SingleBinLinearGP:
         models = []
 
         _log.info("\n--- Optimization ---\n".format(self.name))
-
-        for i,gp in enumerate(self.gpy_models):
+        if MPI is not None:
+            s_rank, e_rank = into_chunks(comm, len(self.gpy_models))
+        else:
+            s_rank, e_rank = 0, len(self.gpy_models)
+        for i,gp in enumerate(self.gpy_models[s_rank:e_rank]):
             # fix noise and optimize
             getattr(gp.mixed_noise, "Gaussian_noise").fix(1e-6)
             for j in range(1, self.n_fidelities):
@@ -270,7 +286,9 @@ class SingleBinLinearGP:
             )
 
             models.append(model)
-
+        if MPI is not None:
+            comm.Barrier()
+            models = comm.gather(models, root=0)
         self.models = models
 
     def predict(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
