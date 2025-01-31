@@ -10,6 +10,17 @@ from . import summary_stats
 #from . import single_fid
 from . import gpemulator_singlebin as gpemu
 
+try :
+    import mpi4py
+    from mpi4py import MPI
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    mpi_size = comm.Get_size()
+except ImportError:
+    MPI = None
+    comm = None
+    rank = 0
+    mpi_size = 1
 
 class BaseStatEmu():
 
@@ -120,18 +131,20 @@ class BaseStatEmu():
         #else:
         #    mean_pred, var_pred = model.predict(self.X)
         if savefile is not None:
-            with h5py.File(savefile, 'w') as f:
-                f.create_dataset('pred', data=mean_pred)
-                f.create_dataset('var_pred', data=var_pred)
-                if self.emu_type['multi-fid']:
-                    f.create_dataset('truth', data=self.Y[-1])
-                    f.create_dataset('X', data=self.X[-1])
-                else:
-                    f.create_dataset('truth', data=self.Y)
-                    f.create_dataset('X', data=self.X)
-                f.create_dataset('bins', data=self.mbins)
-                f.create_dataset('labels', data=self.labels)
-
+            if rank == 0:
+                with h5py.File(savefile, 'w') as f:
+                    f.create_dataset('pred', data=mean_pred)
+                    f.create_dataset('var_pred', data=var_pred)
+                    if self.emu_type['multi-fid']:
+                        f.create_dataset('truth', data=self.Y[-1])
+                        f.create_dataset('X', data=self.X[-1])
+                    else:
+                        f.create_dataset('truth', data=self.Y)
+                        f.create_dataset('X', data=self.X)
+                    f.create_dataset('bins', data=self.mbins)
+                    f.create_dataset('labels', data=self.labels)
+            if MPI is not None:
+                comm.barrier()
 
 class Hmf(BaseStatEmu):
     def __init__(self, data_dir, fid=['L2'], logging_level='INFO', prior='both', narrow=False, no_merge=True, emu_type={'multi-fid':False, 'single-bin':False, 'linear':True}):

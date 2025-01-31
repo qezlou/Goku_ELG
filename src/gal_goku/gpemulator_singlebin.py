@@ -288,7 +288,6 @@ class SingleBinLinearGP:
             models.append(model)
         if MPI is not None:
             comm.Barrier()
-            models = comm.gather(models, root=0)
         self.models = models
 
     def predict(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -307,7 +306,13 @@ class SingleBinLinearGP:
 
             means[:, i] = mean[:, 0]
             variances[:, i] = variance[:, 0]
-
+        if MPI is not None:
+            means = np.astype(np.float32)
+            variances = np.astype(np.float32)
+            comm.Barrier()
+            comm.Allreduce(MPI.IN_PLACE, means, op=MPI.SUM)
+            comm.Allreduce(MPI.IN_PLACE, variances, op=MPI.SUM)
+            comm.Barrier()
         return means, variances
 
     def to_dict(self) -> Dict:
