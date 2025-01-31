@@ -249,8 +249,8 @@ class SingleBinLinearGP:
         if MPI is not None:
             s_rank, e_rank = into_chunks(comm, len(self.gpy_models))
         else:
-            s_rank, e_rank = 0, len(self.gpy_models)
-        for i,gp in enumerate(self.gpy_models[s_rank:e_rank]):
+            s_rank, e_rank = [0], [len(self.gpy_models)]
+        for i,gp in enumerate(self.gpy_models[s_rank[rank]:e_rank[rank]]):
             # fix noise and optimize
             getattr(gp.mixed_noise, "Gaussian_noise").fix(1e-6)
             for j in range(1, self.n_fidelities):
@@ -260,7 +260,7 @@ class SingleBinLinearGP:
 
             model = GPyMultiOutputWrapper(gp, n_outputs=self.n_fidelities, n_optimization_restarts=n_optimization_restarts)
 
-            _log.info("\n[Info] Optimizing {} bin ...\n".format(i))
+            print(f'optimizing bin {i} on rank {rank}', flush=True)
 
             # first step optimization with fixed noise
             model.gpy_model.optimize_restarts(
