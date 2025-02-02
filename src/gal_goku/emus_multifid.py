@@ -9,6 +9,7 @@ import numpy as np
 from . import summary_stats
 #from . import single_fid
 from . import gpemulator_singlebin as gpemu
+import sys
 
 try :
     import mpi4py
@@ -67,17 +68,29 @@ class BaseStatEmu():
 
         self.logger.info(f'Fidelities: {self.n_fidelities}, Points: {self.n_points}, Dimensions: {self.n_dims}, Bins: {self.n_bins}')
 
-
     def configure_logging(self, logging_level):
-        """Sets up logging based on the provided logging level."""
+        """Sets up logging based on the provided logging level in an MPI environment."""
         logger = logging.getLogger('BaseStatEmu')
         logger.setLevel(logging_level)
-        console_handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+
+        # Create a console handler with flushing
+        console_handler = logging.StreamHandler(sys.stdout)
+
+        # Include Rank, Logger Name, Timestamp, and Message in format
+        formatter = logging.Formatter(
+            f'%(name)s | %(asctime)s | Rank {rank} | %(levelname)s  |  %(message)s',
+            datefmt='%m/%d/%Y %I:%M:%S %p'
+        )
         console_handler.setFormatter(formatter)
+
+        # Ensure logs flush immediately
+        console_handler.flush = sys.stdout.flush  
+
+        # Add handler to logger
         logger.addHandler(console_handler)
         
         return logger
+
         
     def loo_train_pred(self, savefile):
         """

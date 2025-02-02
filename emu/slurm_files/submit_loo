@@ -3,7 +3,7 @@
 #SBATCH -p skx
 #SBATCH -N 1
 #SBATCH --ntasks-per-node 4
-#SBATCH --job-name=L2Nr
+#SBATCH --job-name=LooMF
 #SBATCH --time=10:00:00
 #SBATCH --output=%x-%j.out
 

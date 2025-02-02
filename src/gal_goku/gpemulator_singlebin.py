@@ -20,6 +20,7 @@ from typing import Tuple, List, Optional, Dict
 
 import logging
 import numpy as np
+import sys
 
 import GPy
 from emukit.model_wrappers import GPyModelWrapper, GPyMultiOutputWrapper
@@ -50,7 +51,30 @@ except ImportError:
     rank = 0
     mpi_size = 1
 
-_log = logging.getLogger(__name__)
+def configure_logging(logging_level='INFO'):
+    """Sets up logging based on the provided logging level in an MPI environment."""
+    logger = logging.getLogger('BaseStatEmu')
+    logger.setLevel(logging_level)
+
+    # Create a console handler with flushing
+    console_handler = logging.StreamHandler(sys.stdout)
+
+    # Include Rank, Logger Name, Timestamp, and Message in format
+    formatter = logging.Formatter(
+        f'%(name)s | %(asctime)s | Rank {rank} | %(levelname)s  |  %(message)s',
+        datefmt='%m/%d/%Y %I:%M:%S %p'
+    )
+    console_handler.setFormatter(formatter)
+
+    # Ensure logs flush immediately
+    console_handler.flush = sys.stdout.flush  
+
+    # Add handler to logger
+    logger.addHandler(console_handler)
+    
+    return logger
+
+logger = configure_logging()
 
 class SingleBinGP:
     """
@@ -116,7 +140,7 @@ class SingleBinGP:
         """
         models = []
 
-        _log.info("\n --- Optimization: ---\n".format(self.name))
+        logger.info("\n --- Optimization: ---\n".format(self.name))
         for i,gp in enumerate(self.gpy_models):
             gp.optimize_restarts(n_optimization_restarts, parallel=parallel)
             models.append(gp)
@@ -244,13 +268,12 @@ class SingleBinLinearGP:
         Optimize GP on each bin of the power spectrum.
         """
         models = []
-
-        _log.info("\n--- Optimization ---\n".format(self.name))
         if MPI is not None:
             s_rank, e_rank = into_chunks(comm, len(self.gpy_models))
         else:
             s_rank, e_rank = [0], [len(self.gpy_models)]
         for i in range(s_rank[rank],e_rank[rank]):
+            logger.info(f"Optimizing bin {i} on rank {rank} .. ")
             # fix noise and optimize
             gp = self.gpy_models[i]
             getattr(gp.mixed_noise, "Gaussian_noise").fix(1e-6)
@@ -260,8 +283,6 @@ class SingleBinLinearGP:
                 ).fix(1e-6)
 
             model = GPyMultiOutputWrapper(gp, n_outputs=self.n_fidelities, n_optimization_restarts=n_optimization_restarts)
-
-            print(f'optimizing bin {i} on rank {rank}', flush=True)
 
             # first step optimization with fixed noise
             model.gpy_model.optimize_restarts(
@@ -604,10 +625,10 @@ class SingleBinNonLinearGP:
         Optimize GP on each bin of the power spectrum.
         """
 
-        _log.info("\n--- Optimization: ---\n".format(self.name))
+        logger.info("\n--- Optimization: ---\n".format(self.name))
 
         for i,gp in enumerate(self.models):
-            _log.info("\n [Info] Optimizing {} bin ... \n".format(i))
+            logger.info(f"Optimizing bin {i} on rank {rank} ")
 
             for m in gp.models:
                 m.Gaussian_noise.variance.fix(1e-6)
@@ -703,10 +724,10 @@ class SingleBinDeepGP:
         Optimize GP on each bin of the power spectrum.
         """
 
-        _log.info("\n--- Optimization ---\n".format(self.name))
+        logger.info("\n--- Optimization ---\n".format(self.name))
 
         for i,gp in enumerate(self.models):
-            _log.info("\n [Info] Optimizing {} bin ... \n".format(i))
+            logger.info("\n [Info] Optimizing {} bin ... \n".format(i))
             gp.optimize()
 
     def predict(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
