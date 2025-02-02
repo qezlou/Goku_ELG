@@ -187,7 +187,7 @@ class Hmf(BaseStatEmu):
                 Y = np.log10(hmf.get_smoothed(x=self.mbins))
                 X = hmf.get_params_array()
                 labels = hmf.get_labels()
-                if fd != 'HF':
+                if False: #fd != 'HF':
                     # We don't have narrow sims for HF yet
                     
                     hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=True, no_merge=no_merge, logging_level=logging_level)
