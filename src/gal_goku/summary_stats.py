@@ -10,6 +10,7 @@ import json
 import re
 from matplotlib import pyplot as plt
 from . import utils
+import sys
 
 # Each MPI rank build GP for one bin
 try :
@@ -43,13 +44,25 @@ class BaseSummaryStats:
             self.pref = 'Box250_Part750'
         self.narrow = narrow
     
-    def configure_logging(self, logging_level):
-        """Sets up logging based on the provided logging level."""
-        logger = logging.getLogger('get ProjCorr')
+    def configure_logging(self, logging_level='INFO'):
+        """Sets up logging based on the provided logging level in an MPI environment."""
+        logger = logging.getLogger('BaseStatEmu')
         logger.setLevel(logging_level)
-        console_handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+
+        # Create a console handler with flushing
+        console_handler = logging.StreamHandler(sys.stdout)
+
+        # Include Rank, Logger Name, Timestamp, and Message in format
+        formatter = logging.Formatter(
+            f'%(name)s | %(asctime)s | Rank {rank} | %(levelname)s  |  %(message)s',
+            datefmt='%m/%d/%Y %I:%M:%S %p'
+        )
         console_handler.setFormatter(formatter)
+
+        # Ensure logs flush immediately
+        console_handler.flush = sys.stdout.flush  
+
+        # Add handler to logger
         logger.addHandler(console_handler)
         
         return logger
@@ -264,10 +277,8 @@ class HMF(BaseSummaryStats):
                 save_file = f'{self.fid}_hmfs.hdf5'
         if rank==0:   
             with h5py.File(op.join(self.data_dir, save_file), 'r') as f:
-                bins = f['bins_coarse'][:].astype(np.float32)
-                hmfs = f['hmfs_coarse'][:].astype(np.float32)
-                bins = np.ascontiguousarray(bins, dtype=np.float32)
-                hmfs = np.ascontiguousarray(hmfs, dtype=np.float32)
+                bins = f['bins_coarse'][:]
+                hmfs = f['hmfs_coarse'][:]
                 sim_tags = []
                 bad_sims = []
                 # We need to convert from binary to str
@@ -275,26 +286,17 @@ class HMF(BaseSummaryStats):
                     sim_tags.append(tag.decode('utf-8'))
                 for bd in f['bad_sims']:
                     bad_sims.append(bd.decode('utf-8'))
-                bin_shape = bins.shape
-                hmf_shape = hmfs.shape
         else:
             sim_tags = None
             bad_sims = None
-            bin_shape = None
-            hmf_shape = None
+            bins = None
+            hmfs = None
         if comm is not None:
-            bin_shape = comm.bcast(bin_shape, root=0)
             comm.barrier()
-            hmf_shape = comm.bcast(hmf_shape, root=0)
-            comm.barrier()
-            sim_tags = comm.bcast(sim_tags, root=0)
-            comm.barrier()
-            bad_sims = comm.bcast(bad_sims, root=0)
-            comm.barrier()
-            comm.Allreduce(MPI.IN_PLACE, bins, op=MPI.SUM)
-            comm.barrier()
-            comm.Allreduce(MPI.IN_PLACE, hmfs, op=MPI.SUM)
-            comm.barrier()
+            sim_tags = comm.bcast(sim_tags)
+            bad_sims = comm.bcast(bad_sims)
+            bins = comm.bcast(bins)
+            hmfs = comm.bcast(hmfs)
         self.sim_tags = sim_tags
         self.bad_sims = bad_sims
         self.logger.debug(f'Loadded HMFs from {save_file}') 

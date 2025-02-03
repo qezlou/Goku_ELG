@@ -334,6 +334,7 @@ class SingleBinLinearGP:
         if MPI is not None:
             means = means.astype(np.float32)
             variances = variances.astype(np.float32)
+            self.logger.info(f'Starting Allreduce, rank {rank}')
             comm.Barrier()
             comm.Allreduce(MPI.IN_PLACE, means, op=MPI.SUM)
             self.logger.info(f'Allreduce means, rank {rank}')
