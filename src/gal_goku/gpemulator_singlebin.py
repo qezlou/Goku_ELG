@@ -210,9 +210,9 @@ class SingleBinLinearGP:
         # Normalize the input and outputs for all fidelities
         # With the one for the lfirst (lower) fidelity
         (self.X_min,  self.X_max,
-         self.mean_func, X[0], Y[0]) = normalize(X[0], Y[0])
-        X[1] = (X[1] - self.X_min)/(self.X_max - self.X_min)
-        Y[1] = (Y[1] - self.mean_func)/self.mean_func
+         self.mean_func, X_train[0], Y_train[0]) = normalize(X_train[0], Y_train[0])
+        X_train[1] = (X_train[1] - self.X_min)/(self.X_max - self.X_min)
+        Y_train[1] = (Y_train[1] - self.mean_func)/self.mean_func
 
         # a list of GP emulators
         gpy_models: List = []
