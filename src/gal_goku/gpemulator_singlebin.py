@@ -336,9 +336,9 @@ class SingleBinLinearGP:
             variances = variances.astype(np.float32)
             comm.Barrier()
             comm.Allreduce(MPI.IN_PLACE, means, op=MPI.SUM)
-            comm.Barrier()
+            self.logger.info(f'Allreduce means, rank {rank}')
             comm.Allreduce(MPI.IN_PLACE, variances, op=MPI.SUM)
-            comm.Barrier()
+            self.logger.info(f'Allreduce variances, rank {rank}')
         return means, variances
 
     def to_dict(self) -> Dict:

@@ -262,21 +262,42 @@ class HMF(BaseSummaryStats):
                 save_file = f'{self.fid}_hmfs_no_merge.hdf5'
             else:
                 save_file = f'{self.fid}_hmfs.hdf5'
-        
-        self.logger.debug(f'Loading HMFs from {save_file}')
-            
-        with h5py.File(op.join(self.data_dir, save_file), 'r') as f:
-            bins = f['bins_coarse'][:]
-            hmfs = f['hmfs_coarse'][:]
-            sim_tags = []
-            bad_sims = []
-            # We need to convert from binary to str
-            for tag in f['sim_tags']:
-                sim_tags.append(tag.decode('utf-8'))
-            for bd in f['bad_sims']:
-                bad_sims.append(bd.decode('utf-8'))
+        if rank==0:   
+            with h5py.File(op.join(self.data_dir, save_file), 'r') as f:
+                bins = f['bins_coarse'][:].astype(np.float32)
+                hmfs = f['hmfs_coarse'][:].astype(np.float32)
+                bins = np.ascontiguousarray(bins, dtype=np.float32)
+                hmfs = np.ascontiguousarray(hmfs, dtype=np.float32)
+                sim_tags = []
+                bad_sims = []
+                # We need to convert from binary to str
+                for tag in f['sim_tags']:
+                    sim_tags.append(tag.decode('utf-8'))
+                for bd in f['bad_sims']:
+                    bad_sims.append(bd.decode('utf-8'))
+                bin_shape = bins.shape
+                hmf_shape = hmfs.shape
+        else:
+            sim_tags = None
+            bad_sims = None
+            bin_shape = None
+            hmf_shape = None
+        if comm is not None:
+            bin_shape = comm.bcast(bin_shape, root=0)
+            comm.barrier()
+            hmf_shape = comm.bcast(hmf_shape, root=0)
+            comm.barrier()
+            sim_tags = comm.bcast(sim_tags, root=0)
+            comm.barrier()
+            bad_sims = comm.bcast(bad_sims, root=0)
+            comm.barrier()
+            comm.Allreduce(MPI.IN_PLACE, bins, op=MPI.SUM)
+            comm.barrier()
+            comm.Allreduce(MPI.IN_PLACE, hmfs, op=MPI.SUM)
+            comm.barrier()
         self.sim_tags = sim_tags
         self.bad_sims = bad_sims
+        self.logger.debug(f'Loadded HMFs from {save_file}') 
         return hmfs, bins
 
     def _do_fits(self, ind=None, *kwargs):
