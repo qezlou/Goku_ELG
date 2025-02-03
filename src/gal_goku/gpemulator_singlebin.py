@@ -76,6 +76,27 @@ def configure_logging(logging_level='INFO'):
 
 logger = configure_logging()
 
+def normalize(X, Y):
+    """
+    Normalize the input data such it is between 0 and 1
+    We don't normalize the output data as it the median of the stack
+    could be 0.
+    Returns:
+    --------
+    X_normalized: normalized input data between 0 and 1
+    X_min: minimum value of the input data
+    X_max: maximum value of the input data
+    mean_func: the mean of the output to be used as the mean function
+    in the GP model
+    """
+    X_min, X_max = np.min(X, axis=0), np.max(X, axis=0)
+
+    medind = np.argsort(np.mean(Y, axis=1))[np.shape(Y)[0]//2]
+    mean_func = Y[medind,:]
+    Y_normalized = (Y - mean_func)/mean_func
+    X_normalized = (X-X_min)/(X_max-X_min)
+    return X_min, X_max, mean_func, X_normalized, Y_normalized
+
 class SingleBinGP:
     """
     A GPRegression models GP on each k bin of powerspecs
@@ -87,7 +108,7 @@ class SingleBinGP:
     def __init__(self, X_hf: np.ndarray, Y_hf: np.ndarray, single_bin: bool = False, **kwargs):
         # Normalize the input and output data
         (self.X_min,  self.X_max,
-         self.mean_func, X_hf, Y_hf) = self.normalize(X_hf, Y_hf)
+         self.mean_func, X_hf, Y_hf) = normalize(X_hf, Y_hf)
         self.single_bin = single_bin
         # a list of GP emulators
         gpy_models: List = []
@@ -112,27 +133,6 @@ class SingleBinGP:
         self.gpy_models = gpy_models
 
         self.name = f"single_fidelity | single_bin : {self.single_bin} "
-
-    def normalize(self, X, Y):
-        """
-        Normalize the input data such it is between 0 and 1
-        We don't normalize the output data as it the median of the stack
-        could be 0.
-        Returns:
-        --------
-        X_normalized: normalized input data between 0 and 1
-        X_min: minimum value of the input data
-        X_max: maximum value of the input data
-        mean_func: the mean of the output to be used as the mean function
-        in the GP model
-        """
-        X_min, X_max = np.min(X, axis=0), np.max(X, axis=0)
-
-        medind = np.argsort(np.mean(Y, axis=1))[np.shape(Y)[0]//2]
-        mean_func = Y[medind,:]
-        Y_normalized = (Y - mean_func)/mean_func
-        X_normalized = (X-X_min)/(X_max-X_min)
-        return X_min, X_max, mean_func, X_normalized, Y_normalized
     
     def optimize(self, n_optimization_restarts: int, parallel: bool = False) -> None:
         """
@@ -207,6 +207,13 @@ class SingleBinLinearGP:
         likelihood: GPy.likelihoods.Likelihood = None,
         ARD_last_fidelity: bool = False,
     ):
+        # Normalize the input and outputs for all fidelities
+        # With the one for the lfirst (lower) fidelity
+        (self.X_min,  self.X_max,
+         self.mean_func, X[0], Y[0]) = normalize(X[0], Y[0])
+        X[1] = (X[1] - self.X_min)/(self.X_max - self.X_min)
+        Y[1] = (Y[1] - self.mean_func)/self.mean_func
+
         # a list of GP emulators
         gpy_models: List = []
 
@@ -321,6 +328,8 @@ class SingleBinLinearGP:
         :param X: point(s) at which to predict
         :return: predicted P(all k bins) (mean, variance) at X
         """
+        # Normalize the input X, as the emulator is trained on normalized data
+        X = (X - self.X_min)/(self.X_max - self.X_min)
         means = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
         variances = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
 
