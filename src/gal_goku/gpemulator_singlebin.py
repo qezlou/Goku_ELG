@@ -209,7 +209,7 @@ class SingleBinLinearGP:
         ARD_last_fidelity: bool = False,
     ):
         # Normalize the input and outputs for all fidelities
-        # With the one for the lfirst (lower) fidelity
+        # With the one for the first (lower) fidelity
         (self.X_min,  self.X_max,
          self.mean_func, X_train[0], Y_train[0]) = normalize(X_train[0], Y_train[0])
         X_train[1] = (X_train[1] - self.X_min)/(self.X_max - self.X_min)

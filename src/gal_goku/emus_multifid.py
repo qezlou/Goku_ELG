@@ -10,6 +10,7 @@ from . import summary_stats
 #from . import single_fid
 from . import gpemulator_singlebin as gpemu
 import sys
+import copy
 
 try :
     raise ImportError
@@ -135,7 +136,7 @@ class BaseStatEmu():
         Train the model on all simulations and comapre with the truth
         """
         if self.emu_type['multi-fid']:
-            model = self.emu(self.X, self.Y, n_fidelities=self.n_fidelities, kernel_list=None)
+            model = self.emu(copy.deepcopy(self.X), copy.deepcopy(self.Y), n_fidelities=self.n_fidelities, kernel_list=None)
             model.optimize(n_optimization_restarts=self.n_optimization_restarts)
         else:
             model = self.emu(self.X[0], self.Y[0], kernel_list=None, single_bin=self.emu_type['single-bin'])
