@@ -272,6 +272,7 @@ class SingleBinLinearGP:
             s_rank, e_rank = into_chunks(comm, len(self.gpy_models))
         else:
             s_rank, e_rank = [0], [len(self.gpy_models)]
+        logger.info(f'start bin {s_rank}, end bin {e_rank}')
         for i in range(s_rank[rank],e_rank[rank]):
             logger.info(f"Optimizing bin {i} on rank {rank} .. ")
             # fix noise and optimize
