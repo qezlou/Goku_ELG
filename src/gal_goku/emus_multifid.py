@@ -12,6 +12,7 @@ from . import gpemulator_singlebin as gpemu
 import sys
 
 try :
+    raise ImportError
     import mpi4py
     from mpi4py import MPI
     comm = MPI.COMM_WORLD
@@ -145,18 +146,23 @@ class BaseStatEmu():
         #    mean_pred, var_pred = model.predict(self.X)
         if savefile is not None:
             if rank == 0:
-                self.logger(f'Writing on {savefile}')
+                self.logger.info(f'Writing on {savefile}')
                 with h5py.File(savefile, 'w') as f:
                     f.create_dataset('pred', data=mean_pred)
                     f.create_dataset('var_pred', data=var_pred)
                     if self.emu_type['multi-fid']:
                         f.create_dataset('truth', data=self.Y[-1])
                         f.create_dataset('X', data=self.X[-1])
+                        labels = np.array(self.labels[-1], dtype='S')
+                        # Define an HDF5-compatible string data type
+                        string_dtype = h5py.string_dtype(encoding='utf-8')
+                        f.create_dataset('labels', data=labels.astype(string_dtype), dtype=string_dtype)
                     else:
                         f.create_dataset('truth', data=self.Y)
                         f.create_dataset('X', data=self.X)
                     f.create_dataset('bins', data=self.mbins)
-                    f.create_dataset('labels', data=self.labels)
+
+                    
             if MPI is not None:
                 comm.barrier()
 
@@ -185,7 +191,7 @@ class Hmf(BaseStatEmu):
         for fd in fids:
             if prior == 'both':
                 hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=False, no_merge=no_merge, logging_level=logging_level)
-                Y = np.log10(hmf.get_smoothed(x=self.mbins))
+                Y = np.log10(hmf.get_smoothed(x=self.mbins))[:,0:1]
                 X = hmf.get_params_array()
                 labels = hmf.get_labels()
                 if False: #fd != 'HF':

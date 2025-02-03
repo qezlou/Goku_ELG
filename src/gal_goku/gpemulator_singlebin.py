@@ -40,6 +40,7 @@ from .latin_hypercube import map_to_unit_cube_list
 from .mpi_helper import into_chunks
 # Each MPI rank build GP for one bin
 try :
+    raise ImportError
     import mpi4py
     from mpi4py import MPI
     comm = MPI.COMM_WORLD
@@ -276,6 +277,7 @@ class SingleBinLinearGP:
         """
         models = []
         if MPI is not None:
+            comm.Barrier()
             s_rank, e_rank = into_chunks(comm, len(self.gpy_models))
         else:
             s_rank, e_rank = [0], [len(self.gpy_models)]
@@ -338,8 +340,8 @@ class SingleBinLinearGP:
             logger.info(f'Predicting model {i}')
             m, v = model.predict(X)
 
-            means[:, i] = m[:, 0]
-            variances[:, i] = v[:, 0]
+            means[:, i] = (m[:, 0] + 1)*self.mean_func
+            variances[:, i] = ((np.sqrt(v[:, 0]) + 1)*self.mean_func)**2
         logger.info(f'Prediction done!')
         if MPI is not None:
             means = means.astype(np.float32)

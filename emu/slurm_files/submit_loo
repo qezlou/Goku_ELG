@@ -1,16 +1,16 @@
 #!/bin/bash
 #SBATCH -J loo
-#SBATCH -p skx-dev
-#SBATCH -N 2
-#SBATCH --ntasks-per-node 8
+#SBATCH -p skx
+#SBATCH -N 1
+#SBATCH --ntasks-per-node 1
 #SBATCH --job-name=LooMF
-#SBATCH --time=2:00:00
+#SBATCH --time=10:00:00
 #SBATCH --output=%x-%j.out
 
 hostname; pwd; date
 
 # Set OMP_NUM_THREADS to the number of allocated CPUs per task
 #export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export OMP_NUM_THREADS=6
+export OMP_NUM_THREADS=48
 
-ibrun python run_loo_mf_hmf.py
+python run_loo_mf_hmf.py
