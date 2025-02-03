@@ -11,6 +11,19 @@ import re
 from matplotlib import pyplot as plt
 from . import utils
 
+# Each MPI rank build GP for one bin
+try :
+    import mpi4py
+    from mpi4py import MPI
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    mpi_size = comm.Get_size()
+except ImportError:
+    MPI = None
+    comm = None
+    rank = 0
+    mpi_size = 1
+
 class BaseSummaryStats:
     """Base class for summary statistics"""
     def __init__(self, data_dir, fid, narrow=False, logging_level='INFO'):

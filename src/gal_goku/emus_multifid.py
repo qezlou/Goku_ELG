@@ -145,6 +145,7 @@ class BaseStatEmu():
         #    mean_pred, var_pred = model.predict(self.X)
         if savefile is not None:
             if rank == 0:
+                self.logger(f'Writing on {savefile}')
                 with h5py.File(savefile, 'w') as f:
                     f.create_dataset('pred', data=mean_pred)
                     f.create_dataset('var_pred', data=var_pred)
