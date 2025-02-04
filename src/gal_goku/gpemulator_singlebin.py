@@ -335,13 +335,14 @@ class SingleBinLinearGP:
         X = (X - self.X_min)/(self.X_max - self.X_min)
         means = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
         variances = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
-
+        # We only predict at the high-fidelity level
+        X = convert_x_list_to_array([X,X])[len(X):]
         for i,model in enumerate(self.models):
             logger.info(f'Predicting model {i}')
             m, v = model.predict(X)
 
-            means[:, i] = (m[:, 0] + 1)*self.mean_func
-            variances[:, i] = ((np.sqrt(v[:, 0]) + 1)*self.mean_func)**2
+            means[:, i] = ((m + 1)*self.mean_func[i]).squeeze()
+            variances[:, i] = (((np.sqrt(v) + 1)*self.mean_func[i])**2).squeeze()
         logger.info(f'Prediction done!')
         if MPI is not None:
             means = means.astype(np.float32)

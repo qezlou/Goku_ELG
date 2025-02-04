@@ -142,7 +142,7 @@ class BaseStatEmu():
             model = self.emu(self.X[0], self.Y[0], kernel_list=None, single_bin=self.emu_type['single-bin'])
             model.optimize(n_optimization_restarts=self.n_optimization_restarts)
             #if self.emu_type['multi-fid']:
-        mean_pred, var_pred = model.predict(self.X[-1])
+        mean_pred, var_pred = model.predict(copy.deepcopy(self.X[-1]))
         #else:
         #    mean_pred, var_pred = model.predict(self.X)
         if savefile is not None:
@@ -192,7 +192,7 @@ class Hmf(BaseStatEmu):
         for fd in fids:
             if prior == 'both':
                 hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=False, no_merge=no_merge, logging_level=logging_level)
-                Y = np.log10(hmf.get_smoothed(x=self.mbins))[:,0:1]
+                Y = np.log10(hmf.get_smoothed(x=self.mbins))
                 X = hmf.get_params_array()
                 labels = hmf.get_labels()
                 if False: #fd != 'HF':
@@ -219,4 +219,4 @@ class Hmf(BaseStatEmu):
         #assert np.all(np.isfinite(self.X)), "Some parameters are not finite"
         #assert np.all(np.isfinite(self.Y)), f"Some Y values are not finite"   
 
-        super().__init__(X=self.X, Y=self.Y, logging_level=logging_level, emu_type=emu_type)
+        super().__init__(X=self.X, Y=self.Y, logging_level=logging_level, emu_type=emu_type, n_optimization_restarts=10)
