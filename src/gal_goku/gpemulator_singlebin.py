@@ -338,11 +338,11 @@ class SingleBinLinearGP:
         # We only predict at the high-fidelity level
         X = convert_x_list_to_array([X,X])[len(X):]
 
-        for i in range(self.s_rank[rank], self.e_rank[rank]):
+        for i, j in enumerate(range(self.s_rank[rank], self.e_rank[rank])):
             logger.info(f'Predicting model {i}')
             m, v = self.models[i].predict(X)
-            means[:, i] = ((m + 1)*self.mean_func[i]).squeeze()
-            variances[:, i] = (((np.sqrt(v) + 1)*self.mean_func[i])**2).squeeze()
+            means[:, j] = ((m + 1)*self.mean_func[i]).squeeze()
+            variances[:, j] = (((np.sqrt(v) + 1)*self.mean_func[i])**2).squeeze()
         logger.info(f'Prediction done!')
         if MPI is not None:
             means = means.astype(np.float32)
