@@ -341,8 +341,8 @@ class SingleBinLinearGP:
         for i, j in enumerate(range(self.s_rank[rank], self.e_rank[rank])):
             logger.info(f'Predicting model {i}')
             m, v = self.models[i].predict(X)
-            means[:, j] = ((m + 1)*self.mean_func[i]).squeeze()
-            variances[:, j] = (((np.sqrt(v) + 1)*self.mean_func[i])**2).squeeze()
+            means[:, j] = ((m + 1)*self.mean_func[j]).squeeze()
+            variances[:, j] = (((np.sqrt(v) + 1)*self.mean_func[j])**2).squeeze()
         logger.info(f'Prediction done!')
         if MPI is not None:
             means = means.astype(np.float32)

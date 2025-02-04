@@ -15,5 +15,5 @@ emu = emus.Hmf(data_dir=data_dir,
                emu_type=emu_type, 
                narrow=narrow, 
                no_merge=no_merge)
-#emu.loo_train_pred(savefile=savefile)
-emu.train_pred_all_sims(savefile=savefile)
+emu.loo_train_pred(savefile=savefile)
+#emu.train_pred_all_sims(savefile=savefile)
