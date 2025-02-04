@@ -14,7 +14,7 @@ import sys
 
 # Each MPI rank build GP for one bin
 try :
-    raise ImportError
+    #raise ImportError
     import mpi4py
     from mpi4py import MPI
     comm = MPI.COMM_WORLD

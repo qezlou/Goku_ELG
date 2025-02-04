@@ -40,7 +40,7 @@ from .latin_hypercube import map_to_unit_cube_list
 from .mpi_helper import into_chunks
 # Each MPI rank build GP for one bin
 try :
-    raise ImportError
+    #raise ImportError
     import mpi4py
     from mpi4py import MPI
     comm = MPI.COMM_WORLD
@@ -235,9 +235,9 @@ class SingleBinLinearGP:
             raise ValueError(
                 "One or more points has a higher fidelity index than number of fidelities"
             )
-
-        # make a GP on each P(k) bin
-        for i in range(Y.shape[1]):
+        # Train one GP per bin
+        self.num_bins = Y.shape[1]
+        for i in range(self.num_bins):
             y_metadata = {"output_index": X[:, -1].astype(int)}
 
             # Make default likelihood as different noise for each fidelity
@@ -278,11 +278,11 @@ class SingleBinLinearGP:
         models = []
         if MPI is not None:
             comm.Barrier()
-            s_rank, e_rank = into_chunks(comm, len(self.gpy_models))
+            self.s_rank, self.e_rank = into_chunks(comm, len(self.gpy_models))
         else:
-            s_rank, e_rank = [0], [len(self.gpy_models)]
-        logger.info(f'start bin {s_rank}, end bin {e_rank}')
-        for i in range(s_rank[rank],e_rank[rank]):
+            self.s_rank, self.e_rank = [0], [len(self.gpy_models)]
+        logger.info(f'start bin {self.s_rank[rank]}, end bin {self.e_rank[rank]}')
+        for i in range(self.s_rank[rank], self.e_rank[rank]):
             logger.info(f"Optimizing bin {i} on rank {rank} .. ")
             # fix noise and optimize
             gp = self.gpy_models[i]
@@ -333,26 +333,28 @@ class SingleBinLinearGP:
         """
         # Normalize the input X, as the emulator is trained on normalized data
         X = (X - self.X_min)/(self.X_max - self.X_min)
-        means = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
-        variances = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
+        means = np.zeros((X.shape[0], len(self.gpy_models)))
+        variances = np.zeros((X.shape[0], len(self.gpy_models)))
         # We only predict at the high-fidelity level
         X = convert_x_list_to_array([X,X])[len(X):]
-        for i,model in enumerate(self.models):
-            logger.info(f'Predicting model {i}')
-            m, v = model.predict(X)
 
+        for i in range(self.s_rank[rank], self.e_rank[rank]):
+            logger.info(f'Predicting model {i}')
+            m, v = self.models[i].predict(X)
             means[:, i] = ((m + 1)*self.mean_func[i]).squeeze()
             variances[:, i] = (((np.sqrt(v) + 1)*self.mean_func[i])**2).squeeze()
         logger.info(f'Prediction done!')
         if MPI is not None:
             means = means.astype(np.float32)
+            means = np.ascontiguousarray(means, dtype=np.float32)
             variances = variances.astype(np.float32)
-            self.logger.info(f'Starting Allreduce, rank {rank}')
+            variances = np.ascontiguousarray(variances, dtype=np.float32)
             comm.Barrier()
+            logger.info(f'Starting Allreduce, rank {rank}')
             comm.Allreduce(MPI.IN_PLACE, means, op=MPI.SUM)
-            self.logger.info(f'Allreduce means, rank {rank}')
+            logger.info(f'Allreduce means, rank {rank}')
             comm.Allreduce(MPI.IN_PLACE, variances, op=MPI.SUM)
-            self.logger.info(f'Allreduce variances, rank {rank}')
+            logger.info(f'Allreduce variances, rank {rank}')
         return means, variances
 
     def to_dict(self) -> Dict:

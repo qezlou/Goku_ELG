@@ -13,7 +13,7 @@ import sys
 import copy
 
 try :
-    raise ImportError
+    #raise ImportError
     import mpi4py
     from mpi4py import MPI
     comm = MPI.COMM_WORLD
@@ -110,7 +110,7 @@ class BaseStatEmu():
                 X_test = self.X[-1][i][np.newaxis, :]
                 Y_test = self.Y[-1][i]
                 #self.logger.info(X_train[0].shape, X_train[1].shape, Y_train[0].shape, Y_train[1].shape, X_test.shape, Y_test.shape)
-                model = self.emu(X_train, Y_train, n_fidelities=self.n_fidelities, kernel_list=None) #single_bin=self.emu_type['single-bin'])
+                model = self.emu(copy.deepcopy(X_train), copy.deepcopy(Y_train), n_fidelities=self.n_fidelities, kernel_list=None)
                 model.optimize(n_optimization_restarts=self.n_optimization_restarts)
                 mean_pred[i], var_pred[i] = model.predict(X_test)
         else:
@@ -123,13 +123,27 @@ class BaseStatEmu():
                 model = self.emu(X_train, Y_train, kernel_list=None, single_bin=self.emu_type['single-bin'])
                 model.optimize(n_optimization_restarts=self.n_optimization_restarts)
                 mean_pred[i], var_pred[i] = model.predict(X_test)
-        with h5py.File(savefile, 'w') as f:
-            f.create_dataset('pred', data=mean_pred)
-            f.create_dataset('var_pred', data=var_pred)
-            f.create_dataset('truth', data=self.Y)
-            f.create_dataset('X', data=self.X)
-            f.create_dataset('bins', data=self.mbins)
-            f.create_dataset('labels', data=self.labels)
+        if MPI is not None:
+            comm.Barrier()
+        if rank==0:
+            with h5py.File(savefile, 'w') as f:
+                self.logger.info(f'Writing on {savefile}')
+                f.create_dataset('pred', data=mean_pred)
+                f.create_dataset('var_pred', data=var_pred)
+                f.create_dataset('bins', data=self.mbins)
+                if self.emu_type['multi-fid']:
+                    f.create_dataset('truth', data=self.Y[-1])
+                    f.create_dataset('X', data=self.X[-1])
+                    # Writing a string dataset on h5py is a bit tricky
+                    labels = np.array(self.labels[-1], dtype='S')
+                    # Define an HDF5-compatible string data type
+                    string_dtype = h5py.string_dtype(encoding='utf-8')
+                    f.create_dataset('labels', data=labels.astype(string_dtype), dtype=string_dtype)
+                else:
+                    f.create_dataset('truth', data=self.Y)
+                    f.create_dataset('X', data=self.X)
+        if MPI is not None:
+            comm.Barrier()
     
     def train_pred_all_sims(self, savefile=None):
         """
@@ -145,6 +159,8 @@ class BaseStatEmu():
         mean_pred, var_pred = model.predict(copy.deepcopy(self.X[-1]))
         #else:
         #    mean_pred, var_pred = model.predict(self.X)
+        if MPI is not None:
+            comm.Barrier()
         if savefile is not None:
             if rank == 0:
                 self.logger.info(f'Writing on {savefile}')
@@ -165,7 +181,7 @@ class BaseStatEmu():
 
                     
             if MPI is not None:
-                comm.barrier()
+                comm.Barrier()
 
 class Hmf(BaseStatEmu):
     def __init__(self, data_dir, fid=['L2'], logging_level='INFO', prior='both', narrow=False, no_merge=True, emu_type={'multi-fid':False, 'single-bin':False, 'linear':True}):
