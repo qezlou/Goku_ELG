@@ -670,7 +670,7 @@ class SingleBinNonLinearGP:
                 m.Gaussian_noise.variance.unfix()
             
             gp.optimize(parallel=parallel)
-            logger.info(f'Optimization done!')
+            logger.debug(f'Optimization done!')
 
     def predict(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
