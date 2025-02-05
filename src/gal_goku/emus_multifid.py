@@ -109,7 +109,7 @@ class BaseStatEmu():
         if self.emu_type['multi-fid']:
             for i, s in enumerate(self.labels[-1]):
                 if  rank ==0:
-                    self.logger.info(f'Leaving out {s}')
+                    self.logger.info(f'Leaving out {s}, progress {i}/{len(self.labels[-1])}')
                 X_train = [self.X[0]]
                 X_train.append(np.delete(self.X[-1], i, axis=0))
                 Y_train = [self.Y[0]]
