@@ -67,8 +67,8 @@ class BaseStatEmu():
         #    self.n_dims = X.shape[1]
         #    self.n_bins = Y.shape[1]
 
-
-        self.logger.info(f'Fidelities: {self.n_fidelities}, Points: {self.n_points}, Dimensions: {self.n_dims}, Bins: {self.n_bins}')
+        if rank == 0:
+            self.logger.info(f'Fidelities: {self.n_fidelities}, Points: {self.n_points}, Dimensions: {self.n_dims}, Bins: {self.n_bins}')
 
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level in an MPI environment."""
@@ -98,11 +98,12 @@ class BaseStatEmu():
         """
         Get the leave one out predictions
         """
-        mean_pred = np.zeros((self.n_points[-1], self.n_dims[-1], self.n_bins[-1]))
+        mean_pred = np.zeros((self.n_points[-1], self.n_bins[-1]))
         var_pred = np.zeros((self.n_points[-1], self.n_bins[-1]))
         if self.emu_type['multi-fid']:
             for i, s in enumerate(self.labels[-1]):
-                self.logger.info(f'Leaving out {s}')
+                if  rank ==0:
+                    self.logger.info(f'Leaving out {s}')
                 X_train = [self.X[0]]
                 X_train.append(np.delete(self.X[-1], i, axis=0))
                 Y_train = [self.Y[0]]
@@ -221,13 +222,15 @@ class Hmf(BaseStatEmu):
                 self.Y.append(Y)
                 self.X.append(X)
                 self.labels.append(labels)
-                self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
+                if rank==0:
+                    self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
             else:
                 hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=narrow, no_merge=no_merge, logging_level=logging_level)
                 self.Y.append(np.log10(hmf.get_smoothed(x=self.mbins)))
                 self.X.append(hmf.get_params_array())
                 self.labels.append(hmf.get_labels())
-                self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
+                if rank ==0:
+                    self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
             
 
         #self.sim_specs.append(halo_func[-1].get_sims_specs())

@@ -281,9 +281,9 @@ class SingleBinLinearGP:
             self.s_rank, self.e_rank = into_chunks(comm, len(self.gpy_models))
         else:
             self.s_rank, self.e_rank = [0], [len(self.gpy_models)]
-        logger.info(f'start bin {self.s_rank[rank]}, end bin {self.e_rank[rank]}')
+        logger.debug(f'start bin {self.s_rank[rank]}, end bin {self.e_rank[rank]}')
         for i in range(self.s_rank[rank], self.e_rank[rank]):
-            logger.info(f"Optimizing bin {i} on rank {rank} .. ")
+            logger.debug(f"Optimizing bin {i} on rank {rank} .. ")
             # fix noise and optimize
             gp = self.gpy_models[i]
             getattr(gp.mixed_noise, "Gaussian_noise").fix(1e-6)
@@ -339,22 +339,19 @@ class SingleBinLinearGP:
         X = convert_x_list_to_array([X,X])[len(X):]
 
         for i, j in enumerate(range(self.s_rank[rank], self.e_rank[rank])):
-            logger.info(f'Predicting model {i}')
+            logger.debug(f'Predicting model {j')
             m, v = self.models[i].predict(X)
             means[:, j] = ((m + 1)*self.mean_func[j]).squeeze()
             variances[:, j] = (((np.sqrt(v) + 1)*self.mean_func[j])**2).squeeze()
-        logger.info(f'Prediction done!')
+        logger.debug(f'Prediction done!')
         if MPI is not None:
             means = means.astype(np.float32)
             means = np.ascontiguousarray(means, dtype=np.float32)
             variances = variances.astype(np.float32)
             variances = np.ascontiguousarray(variances, dtype=np.float32)
             comm.Barrier()
-            logger.info(f'Starting Allreduce, rank {rank}')
             comm.Allreduce(MPI.IN_PLACE, means, op=MPI.SUM)
-            logger.info(f'Allreduce means, rank {rank}')
             comm.Allreduce(MPI.IN_PLACE, variances, op=MPI.SUM)
-            logger.info(f'Allreduce variances, rank {rank}')
         return means, variances
 
     def to_dict(self) -> Dict:
@@ -648,7 +645,7 @@ class SingleBinNonLinearGP:
         logger.info("\n--- Optimization: ---\n".format(self.name))
 
         for i,gp in enumerate(self.models):
-            logger.info(f"Optimizing bin {i} on rank {rank} ")
+            logger.debug(f"Optimizing bin {i} on rank {rank} ")
 
             for m in gp.models:
                 m.Gaussian_noise.variance.fix(1e-6)
