@@ -641,7 +641,7 @@ class SingleBinNonLinearGP:
             )
 
             models.append(model)
-
+        # this holds all the gp models (one per bin)
         self.models = models
 
         self.name = "nargp"
@@ -686,9 +686,9 @@ class SingleBinNonLinearGP:
         variances = np.zeros((X.shape[0], len(self.models)))
         # We only predict at the high-fidelity level
         X = convert_x_list_to_array([X,X])[len(X):]
-        for i, j in enumerate(range(self.s_rank[rank], self.e_rank[rank])):
+        for j in range(self.s_rank[rank], self.e_rank[rank]):
             logger.debug(f'Predicting model {j}')
-            m, v = self.models[i].predict(X)
+            m, v = self.models[j].predict(X)
 
             means[:, j] = ((m + 1)*self.mean_func[j]).squeeze()
             variances[:, j] = (((np.sqrt(v) + 1)*self.mean_func[j])**2).squeeze()

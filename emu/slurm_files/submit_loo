@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH -J loo-mpi
-#SBATCH -p skx
+#SBATCH -p skx-dev
 #SBATCH -N 1
 #SBATCH --ntasks-per-node 25
 #SBATCH --job-name=LooMF
-#SBATCH --time=10:00:00
+#SBATCH --time=2:00:00
 #SBATCH --output=%x-%j.out
 
 hostname; pwd; date
