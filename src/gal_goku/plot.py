@@ -38,7 +38,7 @@ class BasePlot():
         
         return logger
 
-    def pred_truth(self, pred, truth, bins, sub_sample=10, seed=None, title=None, log_y=True):
+    def pred_truth(self, pred, truth, bins, sub_sample=10, seed=None, title=None, log_y=True, plot_everything=False):
         """
         Plot the leave one out cross validation
         Parameters:
@@ -86,9 +86,12 @@ class BasePlot():
         ax[1].grid()
         ax[1].set_ylabel(r'$\frac{pred - truth}{truth}$')
         err_percent = percentile_method(np.abs(err), [16, 50, 84], axis=0)
-
-        ax[2].plot(bins, err_percent[1], alpha=0.5, color='k')
-        ax[2].fill_between(bins, err_percent[0], err_percent[2], alpha=0.5, color='k')
+        ax[2].plot(bins, err_percent[1], alpha=0.9, color='k')
+        if not plot_everything:
+            ax[2].fill_between(bins, err_percent[0], err_percent[2], alpha=0.5, color='k')
+        else:
+            for i in range(err.shape[0]):
+                ax[2].plot(bins, np.abs(err[i,:]) , alpha=0.5)
         ax[2].set_ylabel(r'$|\frac{pred - truth}{truth}|$')
         ax[2].grid()
         ax[2].set_xscale('log')
@@ -911,9 +914,9 @@ class PlotHmfEmu(BasePlot):
     def __init__(self, logging_level='INFO'):
         super().__init__(logging_level, show_full_params=True)
 
-    def pred_truth(self, pred, truth, mbins, model_err=None, seed=None, title=None, log_y=True, sub_sample=10):
+    def pred_truth(self, pred, truth, mbins, model_err=None, seed=None, title=None, log_y=True, sub_sample=10, plot_everything=False):
         
-        fig, ax = super().pred_truth(pred, truth, mbins, seed=seed, title=title, log_y=log_y, sub_sample=sub_sample)
+        fig, ax = super().pred_truth(pred, truth, mbins, seed=seed, title=title, log_y=log_y, sub_sample=sub_sample, plot_everything=plot_everything)
         ax[0].set_yscale('log')
         ax[0].set_xscale('log')
         fig.tight_layout()
@@ -927,8 +930,8 @@ class PlotHmfEmu(BasePlot):
         panels = np.ceil(sim_nums/per_panel).astype(int)+1
         rows = np.ceil(panels/columns).astype(int)
         self.logger.info(f'sim_nums = {sim_nums}, panels = {panels}, rows = {rows}, columns = {columns}')
-        fig, ax = plt.subplots(rows, columns, figsize=(12, 100))
-        figr, axr = plt.subplots(rows, columns, figsize=(12, 100))
+        fig, ax = plt.subplots(rows, columns, figsize=(columns*3, rows*3))
+        figr, axr = plt.subplots(rows, columns, figsize=(columns*3, rows*3))
         for j in range(sim_nums):
             p = np.floor(j/per_panel).astype(int)
             ax_indx, ax_indy =  np.floor(p/columns).astype(int), int(p%columns)
@@ -948,7 +951,8 @@ class PlotHmfEmu(BasePlot):
             axr[ax_indx, ax_indy].set_xlim(1e11, 3e13)
             ax[ax_indx, ax_indy].set_ylim(1e-7, 1e-1) 
             axr[ax_indx, ax_indy].set_ylim(-1, 1)
-            ax[ax_indx, ax_indy].grid()  
+            ax[ax_indx, ax_indy].grid()
+            axr[ax_indx, ax_indy].grid()
         fig.suptitle('Predictions vs Truth For all')
         fig.tight_layout()
         figr.tight_layout()
@@ -965,7 +969,11 @@ class PlotHmfEmu(BasePlot):
             fig, ax = self._pred_truth_large(pred, truth, mbins)
         else:
         
-            fig, ax = self.pred_truth(pred, truth, mbins, model_err=np.sqrt(var_pred), seed=seed, title=title, log_y=True, sub_sample=sub_sample)
+            fig, ax = self.pred_truth(pred, truth, mbins, 
+                                      model_err=np.sqrt(var_pred), 
+                                      seed=seed, title=title, log_y=True, 
+                                      sub_sample=sub_sample,
+                                      plot_everything=True)
             ax[0].set_ylim((1e-7, 1e-1))
         return fig, ax
     
