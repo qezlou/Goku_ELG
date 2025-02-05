@@ -189,6 +189,25 @@ class BaseStatEmu():
                     
             if MPI is not None:
                 comm.Barrier()
+    
+    def train(self, save_dir=None):
+        """
+        Train the model and save this in `save_dir`, furthur instruction in 
+        `save` routines of `gal_goku.gpemulator_singlebin`
+        """
+        if self.emu_type['multi-fid']:
+            model = self.emu(copy.deepcopy(self.X), copy.deepcopy(self.Y), n_fidelities=self.n_fidelities, kernel_list=None)
+            model.optimize(n_optimization_restarts=self.n_optimization_restarts)
+        else:
+            raise NotImplementedError
+        if save_dir is not None:
+            if rank ==0:
+                model.save(save_dir=save_dir)
+            if MPI is not None:
+                comm.Barrier()
+        else:
+            return model
+
 
 class Hmf(BaseStatEmu):
     def __init__(self, data_dir, fid=['L2'], logging_level='INFO', prior='both', narrow=False, no_merge=True, emu_type={'multi-fid':False, 'single-bin':False, 'linear':True}):

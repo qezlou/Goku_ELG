@@ -21,6 +21,7 @@ from typing import Tuple, List, Optional, Dict
 import logging
 import numpy as np
 import sys
+import os
 
 import GPy
 from emukit.model_wrappers import GPyModelWrapper, GPyMultiOutputWrapper
@@ -322,6 +323,16 @@ class SingleBinLinearGP:
             comm.Barrier()
         self.models = models
         logger.info(f'Optimization done!')
+
+    def save(self, save_dir: str) -> None:
+        """
+        Save the models to individual files
+        """
+        # Loop through bins
+        # Each rank writes the files independently
+        for i in range(self.s_rank[rank], self.e_rank[rank]):  
+            self.models[i].save_model(os.path.join(save_dir,f"bin{i:03d}_lin"), compress=False)
+        comm.Barrier()
 
     def predict(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -671,6 +682,16 @@ class SingleBinNonLinearGP:
             
             gp.optimize(parallel=parallel)
             logger.debug(f'Optimization done!')
+
+    def save(self, save_dir: str) -> None:
+        """
+        Save the models to individual files
+        """
+        # Loop through bins
+        # Each rank writes the files independently
+        for i in range(self.s_rank[rank], self.e_rank[rank]):  
+            self.models[i].save_model(os.path.join(save_dir,f"bin{i:03d}_non_lin"), compress=False)
+        comm.Barrier()
 
     def predict(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
