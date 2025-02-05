@@ -72,10 +72,15 @@ class BaseSummaryStats:
         """
         Load the IC json file
         """
-        self.logger.info(f'Load IC file from {self.ic_file}')
-        # Load JSON file as a dictionary
-        with open(self.ic_file, 'r') as file:
-            data = json.load(file)
+        if rank ==0:
+            self.logger.info(f'Load IC file from {self.ic_file}')
+            # Load JSON file as a dictionary
+            with open(self.ic_file, 'r') as file:
+                data = json.load(file)
+        else:
+            data = None
+        if MPI is not None:
+            data = comm.bcast(data)
         return data
     
     def get_ics(self, keys):

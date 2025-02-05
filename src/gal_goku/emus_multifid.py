@@ -40,11 +40,17 @@ class BaseStatEmu():
         self.emu_type = emu_type
         self.n_optimization_restarts = n_optimization_restarts
         if emu_type['multi-fid'] and emu_type['linear'] and emu_type['single-bin']:
-            # Class for multi-fidelity emulators
+            # Class for Linear multi-fidelity emulators
             self.emu = gpemu.SingleBinLinearGP
+        
+        elif emu_type['multi-fid'] and not emu_type['linear'] and emu_type['single-bin']:
+            # Class for Non-linear multi-fidelity emulators
+            self.emu = gpemu.SingleBinNonLinearGP
+
         elif not emu_type['multi-fid'] and not emu_type['single-bin']:
             # Class for single-fidelity emulators for all bins
             self.emu = gpemu.SingleBinGP
+
         else:
             raise NotImplementedError("This type of emulator is not implemented")
 

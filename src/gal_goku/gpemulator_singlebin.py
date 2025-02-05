@@ -339,7 +339,7 @@ class SingleBinLinearGP:
         X = convert_x_list_to_array([X,X])[len(X):]
 
         for i, j in enumerate(range(self.s_rank[rank], self.e_rank[rank])):
-            logger.debug(f'Predicting model {j')
+            logger.debug(f'Predicting model {j}')
             m, v = self.models[i].predict(X)
             means[:, j] = ((m + 1)*self.mean_func[j]).squeeze()
             variances[:, j] = (((np.sqrt(v) + 1)*self.mean_func[j])**2).squeeze()
@@ -589,8 +589,16 @@ class SingleBinNonLinearGP:
         n_samples: int = 500,
         optimization_restarts: int = 30,
         turn_off_bias: bool = False,
-        ARD_last_fidelity: bool = False
+        ARD_last_fidelity: bool = False,
+        **kwargs
     ):
+        # Normalize the input and outputs for all fidelities
+        # With the one for the first (lower) fidelity
+        (self.X_min,  self.X_max,
+         self.mean_func, X_train[0], Y_train[0]) = normalize(X_train[0], Y_train[0])
+        X_train[1] = (X_train[1] - self.X_min)/(self.X_max - self.X_min)
+        Y_train[1] = (Y_train[1] - self.mean_func)/self.mean_func
+        
         # a list of GP emulators
         models: List = []
 
@@ -612,8 +620,9 @@ class SingleBinNonLinearGP:
                 "One or more points has a higher fidelity index than number of fidelities"
             )
 
-        # make a GP on each P(k) bin
-        for i in range(Y.shape[1]):
+        # Train one GP per bin
+        self.num_bins = Y.shape[1]
+        for i in range(self.num_bins):
             # make GP non linear kernel
             base_kernel_1 = GPy.kern.RBF
             kernels = make_non_linear_kernels(
@@ -637,26 +646,31 @@ class SingleBinNonLinearGP:
 
         self.name = "nargp"
 
-    def optimize(self, parallel: bool = False) -> None:
+    def optimize(self, n_optimization_restarts: int, parallel: bool = False) -> None:
         """
         Optimize GP on each bin of the power spectrum.
         """
 
-        logger.info("\n--- Optimization: ---\n".format(self.name))
-
-        for i,gp in enumerate(self.models):
-            logger.debug(f"Optimizing bin {i} on rank {rank} ")
-
+        if MPI is not None:
+            comm.Barrier()
+            self.s_rank, self.e_rank = into_chunks(comm, len(self.models))
+        else:
+            self.s_rank, self.e_rank = [0], [len(self.gpy_models)]
+        logger.debug(f'start bin {self.s_rank[rank]}, end bin {self.e_rank[rank]}')   
+        for i in range(self.s_rank[rank], self.e_rank[rank]):
+            logger.debug(f"Optimizing bin {i} on rank {rank} .. ")         
+            gp = self.models[i]
+            # First fix noise and optimize
             for m in gp.models:
                 m.Gaussian_noise.variance.fix(1e-6)
             
             gp.optimize(parallel=parallel)
-
+            # Second unfix noise and optimize
             for m in gp.models:
                 m.Gaussian_noise.variance.unfix()
             
             gp.optimize(parallel=parallel)
-
+            logger.info(f'Optimization done!')
 
     def predict(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -666,15 +680,27 @@ class SingleBinNonLinearGP:
         :param X: point(s) at which to predict
         :return: predicted P(all k bins) (mean, variance) at X
         """
-        means = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
-        variances = np.full((X.shape[0], len(self.models)), fill_value=np.nan)
+        # Normalize the input X, as the emulator is trained on normalized data
+        X = (X - self.X_min)/(self.X_max - self.X_min)
+        means = np.zeros((X.shape[0], len(self.models)))
+        variances = np.zeros((X.shape[0], len(self.models)))
+        # We only predict at the high-fidelity level
+        X = convert_x_list_to_array([X,X])[len(X):]
+        for i, j in enumerate(range(self.s_rank[rank], self.e_rank[rank])):
+            logger.debug(f'Predicting model {j}')
+            m, v = self.models[i].predict(X)
 
-        for i,model in enumerate(self.models):
-            mean, variance = model.predict(X)
-
-            means[:, i] = mean[:, 0]
-            variances[:, i] = variance[:, 0]
-
+            means[:, j] = ((m + 1)*self.mean_func[j]).squeeze()
+            variances[:, j] = (((np.sqrt(v) + 1)*self.mean_func[j])**2).squeeze()
+        logger.debug(f'Prediction done!')
+        if MPI is not None:
+            means = means.astype(np.float32)
+            means = np.ascontiguousarray(means, dtype=np.float32)
+            variances = variances.astype(np.float32)
+            variances = np.ascontiguousarray(variances, dtype=np.float32)
+            comm.Barrier()
+            comm.Allreduce(MPI.IN_PLACE, means, op=MPI.SUM)
+            comm.Allreduce(MPI.IN_PLACE, variances, op=MPI.SUM)     
         return means, variances
 
     def to_dict(self) -> Dict:
