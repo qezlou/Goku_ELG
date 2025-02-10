@@ -234,6 +234,9 @@ class Hmf(BaseStatEmu):
         for fd in fids:
             if prior == 'both':
                 hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=False, no_merge=no_merge, logging_level=logging_level)
+                # We train on the coeficients of the splines
+                splines = hmf._do_fits()
+                ...
                 Y = np.log10(hmf.get_smoothed(x=self.mbins))
                 X = hmf.get_params_array()
                 labels = hmf.get_labels()
