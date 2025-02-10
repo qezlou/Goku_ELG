@@ -716,7 +716,7 @@ class PlotHMF(BasePlot):
 
 
     def compare_fids(self, no_merge=False):
-        x= np.arange(11.1, 13.5, 0.1)
+        x= np.arange(11.1, 13.25, 0.1)
         hmfs, bins, smoothed, x = self.get_pairs(x=x, no_merge=no_merge)
         styles= [{'marker':'o', 'color':'C0', 's':45}, {'marker':'x', 'color':'C1', 's':45}]
         fig, ax = None, None

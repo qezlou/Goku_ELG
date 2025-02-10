@@ -118,7 +118,14 @@ class ConstrainedSplineFitter:
             if s < 5:
                 s = 0
         self.logger.debug(f'Fit for x.shape={x.shape}, y.shape={y.shape}, s={s}')
-        t = list(generate_knots(x, y, k=self.degree, s=s))[-1]
+        #t = list(generate_knots(x, y, k=self.degree, s=s))[-1]
+        # Uniform knots with 0.25 dex spacing
+        t = [x[0]] *2
+        t = np.append(t, np.arange(np.min(x), np.max(x)-0.01, 0.25))
+        t = np.append(t, [x[-1]] *3)
+        #print('-------------------')
+        #print(x)
+        #print(t)
 
         # Objective function: Sum of squared errors
         def objective(c):
