@@ -732,7 +732,7 @@ class PlotHMF(BasePlot):
             indx, indy = np.floor(p/columns).astype(int), p%columns
             ax[indx, indy].plot(10**x, smoothed['L2'][i]/smoothed['HF'][i] - 1, 'o-', color=f'C{i}', alpha=0.5, label='Last bins merged')
             ax[indx, indy].set_title(i)
-            ax[indx, indy].set_ylim(-1, 2)
+            ax[indx, indy].set_ylim(-0.5, 0.5)
             ax[indx, indy].set_xscale('log')
             ax[indx, indy].grid()
             if p==0:
