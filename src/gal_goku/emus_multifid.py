@@ -234,7 +234,9 @@ class Hmf(BaseStatEmu):
         for fd in fids:
             if prior == 'both':
                 hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=False, no_merge=no_merge, logging_level=logging_level)
-                Y = np.log10(hmf.get_smoothed(x=self.mbins))
+                # Learn the spline coefficients
+                Y, self.knots = hmf.get_coeffs()
+                #Y = np.log10(hmf.get_smoothed(x=self.mbins))
                 X = hmf.get_params_array()
                 labels = hmf.get_labels()
                 if False: #fd != 'HF':
@@ -251,7 +253,9 @@ class Hmf(BaseStatEmu):
                     self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
             else:
                 hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=narrow, no_merge=no_merge, logging_level=logging_level)
-                self.Y.append(np.log10(hmf.get_smoothed(x=self.mbins)))
+                # Learn the spline coefficients
+                self.Y, self.knots = hmf.get_coeffs()
+                #self.Y.append(np.log10(hmf.get_smoothed(x=self.mbins)))
                 self.X.append(hmf.get_params_array())
                 self.labels.append(hmf.get_labels())
                 if rank ==0:

@@ -100,7 +100,7 @@ class ConstrainedSplineFitter:
         logger.addHandler(console_handler)
         return logger
 
-    def fit_spline(self, x, y):
+    def fit_spline(self, x, y, knots):
         """
         Fit a spline with constraints on the coefficients of the quadratic term.
 
@@ -118,29 +118,21 @@ class ConstrainedSplineFitter:
             if s < 5:
                 s = 0
         self.logger.debug(f'Fit for x.shape={x.shape}, y.shape={y.shape}, s={s}')
-        #t = list(generate_knots(x, y, k=self.degree, s=s))[-1]
-        # Uniform knots with 0.25 dex spacing
-        t = [x[0]] *2
-        t = np.append(t, np.arange(np.min(x), np.max(x)-0.01, 0.25))
-        t = np.append(t, [x[-1]] *3)
-        #print('-------------------')
-        #print(x)
-        #print(t)
 
         # Objective function: Sum of squared errors
         def objective(c):
-            return np.sum((BSpline(t, c, self.degree)(x) - y)**2)
+            return np.sum((BSpline(knots, c, self.degree)(x) - y)**2)
 
         # Constraint: For degree=2, all quadratic term coefficients (x^2) must be negative
         if self.degree ==2 and self.constraints:
-            constraints = [{'type': 'ineq', 'fun': lambda c: -BSpline(t, c, self.degree).derivative(2).c}]  # Ensure all coefficients are negative
+            constraints = [{'type': 'ineq', 'fun': lambda c: -BSpline(knots, c, self.degree).derivative(2).c}]  # Ensure all coefficients are negative
         else:
             constraints = []
         
         # Optimize the objective function
         result = minimize(
             objective,
-            x0=np.zeros(len(t)),
+            x0=np.zeros(len(knots)),
             constraints=constraints,
             #method='L-BFGS-B',
             options={'disp': False,
@@ -151,7 +143,7 @@ class ConstrainedSplineFitter:
             raise RuntimeError("Optimization failed: " + result.message)
 
         # Return the constrained spline
-        return BSpline(t, result.x, self.degree)
+        return BSpline(knots, result.x, self.degree)
     
     def evaluate_spline(self, x, spline):
         """

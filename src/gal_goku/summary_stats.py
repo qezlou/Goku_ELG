@@ -260,6 +260,7 @@ class HMF(BaseSummaryStats):
         self.sim_tags = None
         self.narrow = narrow
         self.logging_level = logging_level
+        self.knots = None
     
     def get_labels(self):
         """It is just the simulation tags"""
@@ -317,15 +318,41 @@ class HMF(BaseSummaryStats):
             Keyword arguments for utils.ConstrainedSplineFitter
         """
         hmfs, bins = self.load()
+        # We fix the knots for the spline fit
+        self.knots = np.array([11.1 , 11.1, 11.1,
+                          11.35, 11.6 , 11.85, 
+                          12.1 , 12.35, 12.6 , 
+                          12.85, 13.1 , 13.35,
+                          13.35, 13.35])
         if ind is None:
             ind = np.arange(len(hmfs))
         fit = utils.ConstrainedSplineFitter(*kwargs, logging_level=self.logging_level)
         splines = []
         for i in ind:
             mbins = 0.5*(bins[i][1:] + bins[i][:-1])
-            splines.append(fit.fit_spline(mbins, np.log10(hmfs[i])))
+            splines.append(fit.fit_spline(mbins, np.log10(hmfs[i]), self.knots))
         return splines
-
+    
+    def get_coeffs(self, ind=None, *kwargs):
+        """
+        Retrun the spline fits in an array
+        Parameters:
+        --------------
+        ind: np.ndarray, optional, default=None
+            Index of the simulations to fit. If None, fit all simulations
+        kwargs: dict
+            Keyword arguments for utils.ConstrainedSplineFitter
+        Returns:
+        --------------
+        2D array of the spline coefficients and the knots
+        (coeffs, knots)
+        """
+        splines = self._do_fits(ind=ind, *kwargs)
+        coeffs = np.zeros((len(splines), len(splines[0].c)))
+        for i, spl in enumerate(splines):
+            coeffs[i] = spl.c
+        return coeffs, splines[0].t
+    
     def get_smoothed(self, x, ind=None, *kwargs):
         """
         Get the smoothed halo mass function evaluated at x
