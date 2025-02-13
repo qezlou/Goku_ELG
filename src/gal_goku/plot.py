@@ -5,6 +5,7 @@ from glob import glob
 from os import path as op
 import h5py
 import numpy as np
+from scipy.interpolate import BSpline, splev
 from matplotlib import pyplot as plt
 from scipy.ndimage import gaussian_filter1d as gf1d
 
@@ -102,16 +103,7 @@ class BasePlot():
     def load_saved_loo(self, savefile):
         """
         Load the saved leave one out cross validation"""
-        
-        with h5py.File(savefile, 'r') as f:
-            pred = 10**f['pred'][:]
-            var_pred = 10**(2*np.sqrt(f['var_pred'][:])) # Approximate the variance
-            truth = 10**f['truth'][:].squeeze()
-            X = f['X'][:]
-            mbins = 10**f['bins'][:]
-        
-        return pred, var_pred, truth, X, mbins
-
+        raise NotImplementedError('This method should be implemented in the child class')
 
 class PlotCorr(BasePlot):
     def __init__(self, logging_level='INFO', show_full_params=False):
@@ -922,6 +914,27 @@ class PlotHmfEmu(BasePlot):
         fig.tight_layout()
         return fig, ax
 
+    def load_saved_loo(self, savefile):
+        """
+        Load the saved leave one out cross validation"""
+        with h5py.File(savefile, 'r') as f:
+            coeffs = f['pred'][:]
+            # We might have mistakenly trained a 
+            # GP for the missing coefficients
+            pred_coeffs = np.nan_to_num(coeffs, nan=0.0)
+            knots = f['bins'][:]
+            true_coeffs = f['truth'][:].squeeze()
+            X = f['X'][:]
+            eval_points = np.arange(knots[0], knots[-1], 0.1)
+            pred = np.zeros((pred_coeffs.shape[0], eval_points.size))
+            truth = np.zeros((true_coeffs.shape[0], eval_points.size))
+            for i in range(pred_coeffs.shape[0]):
+                pred[i] = 10**BSpline(knots, pred_coeffs[i], 2)(eval_points)
+                truth[i] = 10**BSpline(knots, true_coeffs[i], 2)(eval_points)
+            # Not sure yet how to turn the var in coeefs into the hmf var
+            var_pred = None
+        return pred, var_pred, truth, X, 10**eval_points
+    
     def _pred_truth_large(self, pred, truth, mbins, per_panel=5, columns=3):
         """
         Fit all the predictions and the truth in one big figure
@@ -959,12 +972,13 @@ class PlotHmfEmu(BasePlot):
 
         return fig, ax
 
-    def loo_pred_truth(self, savefile, seed=None, title=None, plot_all=False, sub_sample=10):
+    def loo_pred_truth(self, savefile, seed=None, title=None, plot_all=True, sub_sample=10):
         """
         """
 
         pred, var_pred, truth, X, mbins = self.load_saved_loo(savefile)
         self.logger.info(f'Number of simualtions {pred.shape[0]}')
+        print(plot_all)
         if plot_all:
             fig, ax = self._pred_truth_large(pred, truth, mbins)
         else:

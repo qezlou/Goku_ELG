@@ -137,7 +137,7 @@ class BaseStatEmu():
                 self.logger.info(f'Writing on {savefile}')
                 f.create_dataset('pred', data=mean_pred)
                 f.create_dataset('var_pred', data=var_pred)
-                f.create_dataset('bins', data=self.mbins)
+                f.create_dataset('knots', data=self.knots)
                 if self.emu_type['multi-fid']:
                     f.create_dataset('truth', data=self.Y[-1])
                     f.create_dataset('X', data=self.X[-1])
@@ -218,11 +218,6 @@ class Hmf(BaseStatEmu):
         self.data_dir = data_dir
         self.no_merge = no_merge
         self.emu_type = emu_type
-
-        #self.sim_specs =[]
-        self.mbins = np.arange(11.1, 13.5, 0.1)
-        # Iterate over the fidelities
-
         self.X = []
         self.Y = []
         self.labels = []
@@ -235,7 +230,8 @@ class Hmf(BaseStatEmu):
             if prior == 'both':
                 hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=False, no_merge=no_merge, logging_level=logging_level)
                 # Learn the spline coefficients
-                Y, self.knots = hmf.get_coeffs()
+
+                Y, self.mbins = hmf.get_coeffs()
                 #Y = np.log10(hmf.get_smoothed(x=self.mbins))
                 X = hmf.get_params_array()
                 labels = hmf.get_labels()
