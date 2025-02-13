@@ -137,7 +137,7 @@ class BaseStatEmu():
                 self.logger.info(f'Writing on {savefile}')
                 f.create_dataset('pred', data=mean_pred)
                 f.create_dataset('var_pred', data=var_pred)
-                f.create_dataset('bins', data=self.mbnins)
+                f.create_dataset('bins', data=self.mbins)
                 if self.emu_type['multi-fid']:
                     f.create_dataset('truth', data=self.Y[-1])
                     f.create_dataset('X', data=self.X[-1])
