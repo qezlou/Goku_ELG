@@ -144,16 +144,4 @@ class ConstrainedSplineFitter:
 
         # Return the constrained spline
         return BSpline(knots, result.x, self.degree)
-    
-    def evaluate_spline(self, x, spline):
-        """
-        Evaluate the spline at the given x-coordinates.
 
-        Parameters:
-        x (array): 1D array of x-coordinates.
-        spline (BSpline): A spline object.
-
-        Returns:
-        array: 1D array of y-coordinates.
-        """
-        return splev(x, spline)

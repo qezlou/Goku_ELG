@@ -232,7 +232,8 @@ class Hmf(BaseStatEmu):
                 # Learn the spline coefficients
 
                 Y, self.mbins = hmf.get_coeffs()
-                #Y = np.log10(hmf.get_smoothed(x=self.mbins))
+                # For now, get rid of the last 0 bins:
+                Y = Y[:,0:-3]
                 X = hmf.get_params_array()
                 labels = hmf.get_labels()
                 if False: #fd != 'HF':

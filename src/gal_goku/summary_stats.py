@@ -8,6 +8,7 @@ import os.path as op
 import logging
 import json
 import re
+from scipy.interpolate import BSpline
 from matplotlib import pyplot as plt
 from . import utils
 import sys
@@ -366,8 +367,6 @@ class HMF(BaseSummaryStats):
             Keyword arguments for utils.ConstrainedSplineFitter
         """
         splines = self._do_fits(ind=ind, *kwargs)
-        fit = utils.ConstrainedSplineFitter(*kwargs, logging_level=self.logging_level)
-        #y = np.zeros((len(splines), len(x)))
         y = []
         for i, spl in enumerate(splines):
             if type(x) == list:
@@ -375,8 +374,11 @@ class HMF(BaseSummaryStats):
             else:
                 eval_points = x
             # The Spline fit was done in log space
-            y.append(10**fit.evaluate_spline(eval_points, spl)) 
+            y.append(10**BSpline(spl.t, spl.c, spl.k)(eval_points)) 
         return y
+    
+    def get_pca(self,n_components=4):
+        return 0
 
     def _sim_nums(self):
         """

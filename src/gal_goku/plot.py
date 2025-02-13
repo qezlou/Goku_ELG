@@ -5,7 +5,7 @@ from glob import glob
 from os import path as op
 import h5py
 import numpy as np
-from scipy.interpolate import BSpline, splev
+from scipy.interpolate import BSpline
 from matplotlib import pyplot as plt
 from scipy.ndimage import gaussian_filter1d as gf1d
 
