@@ -12,6 +12,8 @@ from scipy.interpolate import BSpline
 from matplotlib import pyplot as plt
 from . import utils
 import sys
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
 # Each MPI rank build GP for one bin
 try :
@@ -377,8 +379,19 @@ class HMF(BaseSummaryStats):
             y.append(10**BSpline(spl.t, spl.c, spl.k)(eval_points)) 
         return y
     
-    def get_pca(self,n_components=4):
-        return 0
+    def get_pca(self, x, n_components=4):
+        y = np.array(self.get_smoothed(x))
+        # Standardize the data
+        scaler = StandardScaler()
+        y_scaled = scaler.fit_transform(np.log10(y))
+
+        # Apply PCA
+        pca = PCA(n_components=n_components)
+        pca.fit(y_scaled)
+        eigenvectors = pca.components_
+        eigenvalues = pca.explained_variance_
+
+        return eigenvalues, eigenvectors, y
 
     def _sim_nums(self):
         """
