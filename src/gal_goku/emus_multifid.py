@@ -210,7 +210,7 @@ class BaseStatEmu():
 
 
 class Hmf(BaseStatEmu):
-    def __init__(self, data_dir, fid=['L2'], logging_level='INFO', prior='both', narrow=False, no_merge=True, emu_type={'multi-fid':False, 'single-bin':False, 'linear':True}):
+    def __init__(self, data_dir, fid=['L2'], logging_level='INFO', prior='both', no_merge=True, emu_type={'multi-fid':False, 'single-bin':False, 'linear':True}):
         """
         """
         self.logging_level = logging_level
@@ -227,41 +227,19 @@ class Hmf(BaseStatEmu):
         else:
             fids = ['L2']
         for fd in fids:
-            if prior == 'both':
-                hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=False, no_merge=no_merge, logging_level=logging_level)
+            for narrow in [False, True]:
+                hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=narrow, no_merge=no_merge, logging_level=logging_level)
                 # Learn the spline coefficients
-
                 Y, self.mbins = hmf.get_coeffs()
-                # For now, get rid of the last 0 bins:
-                Y = Y[:,0:-3]
+                # For now, get rid of the lastbins with 0 value
+                ind = np.where(np.all(Y[0,:] !=0))[0]
+                Y = Y[:,ind]
                 X = hmf.get_params_array()
-                labels = hmf.get_labels()
-                if False: #fd != 'HF':
-                    # We don't have narrow sims for HF yet
-                    
-                    hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=True, no_merge=no_merge, logging_level=logging_level)
-                    Y = np.append(Y, np.log10(hmf.get_smoothed(x=self.mbins)), axis=0)
-                    X = np.append(X, hmf.get_params_array(), axis=0)
-                    labels = np.append(labels, hmf.get_labels(), axis=0)
+                labels = hmf.get_labels()                    
                 self.Y.append(Y)
                 self.X.append(X)
                 self.labels.append(labels)
-                if rank==0:
-                    self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
-            else:
-                hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=narrow, no_merge=no_merge, logging_level=logging_level)
-                # Learn the spline coefficients
-                self.Y, self.knots = hmf.get_coeffs()
-                #self.Y.append(np.log10(hmf.get_smoothed(x=self.mbins)))
-                self.X.append(hmf.get_params_array())
-                self.labels.append(hmf.get_labels())
-                if rank ==0:
-                    self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
-            
-
-        #self.sim_specs.append(halo_func[-1].get_sims_specs())
-
-        #assert np.all(np.isfinite(self.X)), "Some parameters are not finite"
-        #assert np.all(np.isfinite(self.Y)), f"Some Y values are not finite"   
+            if rank==0:
+                self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
 
         super().__init__(X=self.X, Y=self.Y, logging_level=logging_level, emu_type=emu_type, n_optimization_restarts=10)
