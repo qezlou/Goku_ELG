@@ -256,7 +256,7 @@ class HMF(BaseSummaryStats):
     """
     Halo mass function
     """
-    def __init__(self, data_dir, fid, narrow=False, no_merge=True, logging_level='INFO'):
+    def __init__(self, data_dir, fid, narrow=False, no_merge=True, chi2=False, logging_level='INFO'):
         super().__init__(data_dir, logging_level)
         self.fid = fid
         self.no_merge = no_merge
@@ -264,6 +264,8 @@ class HMF(BaseSummaryStats):
         self.narrow = narrow
         self.logging_level = logging_level
         self.knots = None
+        self.chi2 = chi2
+
     
     def get_labels(self):
         """It is just the simulation tags"""
@@ -322,18 +324,25 @@ class HMF(BaseSummaryStats):
         """
         hmfs, bins = self.load()
         # We fix the knots for the spline fit
-        self.knots = np.array([11.1 , 11.1, 11.1,
-                          11.35, 11.6 , 11.85, 
-                          12.1 , 12.35, 12.6 , 
-                          12.85, 13.1 , 13.35,
-                          13.35, 13.35])
+        #self.knots = np.array([11.1 , 11.1, 11.1,
+        #                  11.35, 11.6 , 11.85, 
+        #                  12.1 , 12.35, 12.6 , 
+        #                  12.85, 13.1 , 13.35,
+        #                  13.35, 13.35])
+        self.knots = np.array([11.1 , 11.1])
+        self.knots = np.append(self.knots, np.arange(11.1, 13.5, 0.1))
+        self.knots = np.append(self.knots, [13.5, 13.5])
         if ind is None:
             ind = np.arange(len(hmfs))
         fit = utils.ConstrainedSplineFitter(*kwargs, logging_level=self.logging_level)
         splines = []
         for i in ind:
             mbins = 0.5*(bins[i][1:] + bins[i][:-1])
-            splines.append(fit.fit_spline(mbins, np.log10(hmfs[i]), self.knots))
+            if self.chi2:
+                sigma = np.log10(hmfs[i][0]/hmfs[i][:])
+            else:
+                sigma = np.ones_like(hmfs[i])
+            splines.append(fit.fit_spline(mbins, np.log10(hmfs[i]), self.knots, sigma=sigma))
         return splines
     
     def get_coeffs(self, ind=None, *kwargs):

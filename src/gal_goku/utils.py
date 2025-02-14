@@ -100,7 +100,7 @@ class ConstrainedSplineFitter:
         logger.addHandler(console_handler)
         return logger
 
-    def fit_spline(self, x, y, knots):
+    def fit_spline(self, x, y, knots, sigma):
         """
         Fit a spline with constraints on the coefficients of the quadratic term.
 
@@ -119,9 +119,10 @@ class ConstrainedSplineFitter:
                 s = 0
         self.logger.debug(f'Fit for x.shape={x.shape}, y.shape={y.shape}, s={s}')
 
+
         # Objective function: Sum of squared errors
         def objective(c):
-            return np.sum((BSpline(knots, c, self.degree)(x) - y)**2)
+            return np.sum(( (BSpline(knots, c, self.degree)(x) - y)/sigma )**2)
 
         # Constraint: For degree=2, all quadratic term coefficients (x^2) must be negative
         if self.degree ==2 and self.constraints:

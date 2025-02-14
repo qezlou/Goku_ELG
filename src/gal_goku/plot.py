@@ -674,7 +674,7 @@ class PlotHMF(BasePlot):
         ax.grid()
         fig.tight_layout()
 
-    def get_pairs(self, no_merge=False, x=None):
+    def get_pairs(self, no_merge=False, x=None, chi2=False, narrow=False):
         """
         """            
         halo_funcs = {}
@@ -682,7 +682,7 @@ class PlotHMF(BasePlot):
         bins = {}
         smoothed = {}
         for fd in ['HF', 'L2']:
-            halo_funcs[fd] = summary_stats.HMF(self.data_dir, fid=fd, no_merge=no_merge, logging_level=self.logging_level)
+            halo_funcs[fd] = summary_stats.HMF(self.data_dir, fid=fd, no_merge=no_merge, chi2=chi2, narrow=narrow, logging_level=self.logging_level)
             hmfs[fd], bins[fd] = halo_funcs[fd].load()
             sim_nums = halo_funcs[fd]._sim_nums()
             if fd == 'HF':
@@ -707,9 +707,9 @@ class PlotHMF(BasePlot):
         return hmfs, bins, smoothed, x
 
 
-    def compare_fids(self, no_merge=False):
-        x= np.arange(11.1, 13.25, 0.1)
-        hmfs, bins, smoothed, x = self.get_pairs(x=x, no_merge=no_merge)
+    def compare_fids(self, no_merge=False, chi2=False, narrow=False):
+        x= np.arange(11.1, 13.5, 0.1)
+        hmfs, bins, smoothed, x = self.get_pairs(x=x, no_merge=no_merge, chi2=chi2, narrow=narrow)
         styles= [{'marker':'o', 'color':'C0', 's':45}, {'marker':'x', 'color':'C1', 's':45}]
         fig, ax = None, None
         for i, fd in enumerate(list(hmfs.keys())):
@@ -718,6 +718,7 @@ class PlotHMF(BasePlot):
         num_sims = len(hmfs['HF'])
         per_panel = 1
         rows, columns = self._setup_panels(num_sims, per_panel)
+        # Plot the ratio of the two Fidelities
         fig, ax = plt.subplots(rows, columns, figsize=(columns*3, rows*3))
         for i in range(num_sims):
             p = np.floor(i/per_panel).astype(int)
@@ -770,13 +771,13 @@ class PlotHMF(BasePlot):
         return fig, ax
             
     
-    def smoothed(self, fids=['L2'], narrow=False, per_panel=10, *kwargs):
+    def smoothed(self, fids=['L2'], narrow=False, per_panel=10, chi2=False, *kwargs):
         fig, ax = None, None
         x= np.arange(11.1, 13.5, 0.1)
 
         for i, fd in enumerate(fids):        
             # Use summary_stats to load the HMF
-            halo_func = summary_stats.HMF(self.data_dir, fid=fd, narrow=narrow, logging_level=self.logging_level)
+            halo_func = summary_stats.HMF(self.data_dir, fid=fd, narrow=narrow, chi2=chi2, logging_level=self.logging_level)
             hmfs, bins = halo_func.load()
             smoothed = halo_func.get_smoothed(x, *kwargs)
             assert len(smoothed) == hmfs.shape[0], f'Length of smoothed = {len(smoothed)}, hmfs = {hmfs.shape[0]}'
@@ -787,11 +788,13 @@ class PlotHMF(BasePlot):
             fig, ax = self._plot_smoothed(hmfs =hmfs, bins=bins, smoothed=smoothed, x=x, title=title, per_panel=per_panel, fig=fig, ax=ax, *kwargs)
 
     
-    def smoothed_err(self, fids=['L2'], narrow=False, no_merge=False, *kwargs, save_err_file=None):
+    def smoothed_err(self, fids=['L2'], narrow=False, no_merge=False,chi2=False, save_err_file=None):
 
         for i, fd in enumerate(fids):        
             # Use summary_stats to load the HMF
-            halo_func = summary_stats.HMF(self.data_dir, fid=fd, narrow=narrow, no_merge=no_merge, logging_level=self.logging_level)
+            halo_func = summary_stats.HMF(self.data_dir, fid=fd,narrow=narrow, 
+                                          no_merge=no_merge, chi2=chi2,
+                                          logging_level=self.logging_level)
             hmfs, bins = halo_func.load()
             sim_nums = hmfs.shape[0]
             
