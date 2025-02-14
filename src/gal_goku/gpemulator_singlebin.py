@@ -666,7 +666,7 @@ class SingleBinNonLinearGP:
             comm.Barrier()
             self.s_rank, self.e_rank = into_chunks(comm, len(self.models))
         else:
-            self.s_rank, self.e_rank = [0], [len(self.gpy_models)]
+            self.s_rank, self.e_rank = [0], [len(self.models)]
         logger.debug(f'start bin {self.s_rank[rank]}, end bin {self.e_rank[rank]}')   
         for i in range(self.s_rank[rank], self.e_rank[rank]):
             logger.debug(f"Optimizing bin {i} on rank {rank} .. ")         

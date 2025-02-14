@@ -312,7 +312,7 @@ class HMF(BaseSummaryStats):
     def get_labels(self):
         """It is just the simulation tags"""
         if self.sim_tags is None:
-            raise ValueError('The simulation tags are not loaded yet, call `load_hmf_sims` first')
+            raise ValueError('The simulation tags are not loaded yet, call `load()` first')
         return self.sim_tags
 
     def load(self):
@@ -329,7 +329,8 @@ class HMF(BaseSummaryStats):
                 save_file = f'{self.fid}_hmfs_no_merge.hdf5'
             else:
                 save_file = f'{self.fid}_hmfs.hdf5'
-        if rank==0:   
+        if rank==0:
+            self.logger.info(f'Loading HMFs from {save_file}')   
             with h5py.File(op.join(self.data_dir, save_file), 'r') as f:
                 bins = f['bins_coarse'][:]
                 hmfs = f['hmfs_coarse'][:]

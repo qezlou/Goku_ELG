@@ -227,19 +227,24 @@ class Hmf(BaseStatEmu):
         else:
             fids = ['L2']
         for fd in fids:
-            for narrow in [False, True]:
-                hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=narrow, no_merge=no_merge, logging_level=logging_level)
-                # Learn the spline coefficients
-                Y, self.mbins = hmf.get_coeffs()
-                # For now, get rid of the lastbins with 0 value
-                ind = np.where(np.all(Y[0,:] !=0))[0]
-                Y = Y[:,ind]
-                X = hmf.get_params_array()
-                labels = hmf.get_labels()                    
-                self.Y.append(Y)
-                self.X.append(X)
-                self.labels.append(labels)
-            if rank==0:
-                self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
+            # Goku-wide sims
+            hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=False, no_merge=no_merge, logging_level=logging_level)
+            # Trainthe spline coefficients
+            Y, self.mbins = hmf.get_coeffs()
+            # For now, get rid of the lastbins with 0 value
+            Y_wide_narrow = Y[:, :-3]
+            X_wide_narrow = hmf.get_params_array()
+            labels_wide_narrow = hmf.get_labels()
+
+            # Goku-narrow sims
+            hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=True, no_merge=no_merge, logging_level=logging_level)
+            # Trainthe spline coefficients
+            Y, self.mbins = hmf.get_coeffs()
+            # For now, get rid of the lastbins with 0 value
+            self.Y.append(np.concatenate((Y_wide_narrow, Y[:, :-3]), axis=0))
+            self.X.append(np.concatenate((X_wide_narrow, hmf.get_params_array()), axis=0))
+            self.labels.append(np.concatenate((labels_wide_narrow, hmf.get_labels()), axis=0))
+        if rank==0:
+            self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
 
         super().__init__(X=self.X, Y=self.Y, logging_level=logging_level, emu_type=emu_type, n_optimization_restarts=10)
