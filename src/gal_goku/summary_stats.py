@@ -4,6 +4,7 @@ Loading the computed summary statistics from the data files.
 import numpy as np
 import h5py
 import os
+from glob import glob
 import os.path as op
 import logging
 import json
@@ -70,7 +71,48 @@ class BaseSummaryStats:
         logger.addHandler(console_handler)
         
         return logger
-    
+
+    def make_big_ic_file(self, base_dirs = ['/scratch/06536/qezlou/Goku/FOF/HF/',
+                                            '/scratch/06536/qezlou/Goku/FOF/L1/',
+                                            '/scratch/06536/qezlou/Goku/FOF/L2/',
+                                            '/scratch/06536/qezlou/Goku/FOF/L2/narrow/',
+                                            '/scratch/06536/qezlou/Goku/FOF/HF/narrow/']):
+        
+        
+        # Load JSON file as a dictionary
+        def load_json_as_dict(file_path):
+            with open(file_path, 'r') as file:
+                data = json.load(file)
+            return data
+
+        all_ICs = []
+        for bsd in base_dirs:
+            # Example usage
+            path = glob(op.join(bsd,f'*_10p_Box*'))
+            dir_names = [p for p in path if op.isdir(p)]
+            self.logger.info(f'number of files in {bsd} is {len(dir_names)}')
+            for dir_n in dir_names:
+                data_dict = load_json_as_dict(op.join(dir_n, 'SimulationICs.json'))
+                # Get sim number, Box, Part from the directory name
+                # "box" and "naprt" are not properly recorded on the SimulcationICs.json files
+                snap_num = dir_n.split('_')[-1].split('.')[0] 
+                box = re.search(r'Box(\d+)', dir_n).group(1)
+                part = re.search(r'Part(\d+)', dir_n).group(1)
+                data_dict['box'] = int(box)
+                data_dict['npart']= int(part)
+                data_dict['label'] = f'10p_Box{box}_Part{part}_{snap_num}'
+                if 'narrow' in bsd:
+                    data_dict['label'] += '_narrow'
+                all_ICs.append(data_dict)
+        save_file = 'all_ICs.json'
+        self.logger.info(f'writing on {save_file}')
+        with open(save_file, 'w') as json_file:
+            json.dump(all_ICs, json_file, indent=4)
+
+        with open(save_file, 'r') as json_file:
+            data = json.load(json_file)
+            self.logger.info(f'totla files = {len(data)}')
+
     def load_ics(self):
         """
         Load the IC json file
