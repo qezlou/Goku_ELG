@@ -22,5 +22,10 @@ setuptools.setup(
     ],
     package_dir={"": "src"},
     packages=setuptools.find_packages(where="src"),
-    python_requires=">=3.12",
+    python_requires=">=3.12.8",
+    install_requires=[
+    "scipy==1.15.1",
+    "numpy",
+    "h5py",
+    ],
 )
