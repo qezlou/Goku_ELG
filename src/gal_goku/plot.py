@@ -707,7 +707,7 @@ class PlotHMF(BasePlot):
         return hmfs, bins, smoothed, x
 
 
-    def compare_fids(self, no_merge=False, chi2=False, narrow=False, delta_r=None):
+    def compare_fids(self, no_merge=True, chi2=False, narrow=False, delta_r=None):
         x= np.arange(11.1, 13.5, 0.1)
         hmfs, bins, smoothed, x = self.get_pairs(x=x, no_merge=no_merge, chi2=chi2, narrow=narrow, delta_r=delta_r)
         styles= [{'marker':'o', 'color':'C0', 's':45}, {'marker':'x', 'color':'C1', 's':45}]
