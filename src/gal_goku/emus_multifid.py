@@ -30,7 +30,7 @@ class BaseStatEmu():
     def __init__(self, X, Y, 
                  logging_level='info', 
                  emu_type={'multi-fid':False, 'single-bin':False, 'linear':True},
-                 n_optimization_restarts=10):
+                 n_optimization_restarts=5):
         """The base emu to be inherited by single fidelity emulators built on any summary statistics
         This is the interface for all classses above.
         :param X_train:  (n_fidelities, n_points, n_dims) list of parameter vectors.
@@ -210,7 +210,7 @@ class BaseStatEmu():
 
 
 class Hmf(BaseStatEmu):
-    def __init__(self, data_dir, fid=['L2'], logging_level='INFO', prior='both', no_merge=True, emu_type={'multi-fid':False, 'single-bin':False, 'linear':True}):
+    def __init__(self, data_dir, fid=['L2'], logging_level='INFO', no_merge=True, emu_type={'multi-fid':False, 'single-bin':False, 'linear':True, 'wide_and_narrow':True}):
         """
         """
         self.logging_level = logging_level
@@ -232,19 +232,25 @@ class Hmf(BaseStatEmu):
             # Trainthe spline coefficients
             Y, self.mbins = hmf.get_coeffs()
             # For now, get rid of the lastbins with 0 value
-            Y_wide_narrow = Y[:, :-3]
-            X_wide_narrow = hmf.get_params_array()
-            labels_wide_narrow = hmf.get_labels()
-
-            # Goku-narrow sims
-            hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=True, no_merge=no_merge, logging_level=logging_level)
-            # Trainthe spline coefficients
-            Y, self.mbins = hmf.get_coeffs()
-            # For now, get rid of the lastbins with 0 value
-            self.Y.append(np.concatenate((Y_wide_narrow, Y[:, :-3]), axis=0))
-            self.X.append(np.concatenate((X_wide_narrow, hmf.get_params_array()), axis=0))
-            self.labels.append(np.concatenate((labels_wide_narrow, hmf.get_labels()), axis=0))
+            Y_wide = Y[:, :-3]
+            X_wide = hmf.get_params_array()
+            labels_wide = hmf.get_labels()
+            # Only use Goku-wide
+            if not emu_type['wide_and_narrow']:
+                self.Y.append(Y_wide)
+                self.X.append(X_wide)
+                self.labels.append(labels_wide)
+            # Use both Goku-wide and narrow
+            else:
+                # Goku-narrow sims
+                hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=True, no_merge=no_merge, logging_level=logging_level)
+                # Trainthe spline coefficients
+                Y, self.mbins = hmf.get_coeffs()
+                # For now, get rid of the lastbins with 0 value
+                self.Y.append(np.concatenate((Y_wide, Y[:, :-3]), axis=0))
+                self.X.append(np.concatenate((X_wide, hmf.get_params_array()), axis=0))
+                self.labels.append(np.concatenate((labels_wide, hmf.get_labels()), axis=0))
         if rank==0:
             self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
 
-        super().__init__(X=self.X, Y=self.Y, logging_level=logging_level, emu_type=emu_type, n_optimization_restarts=10)
+        super().__init__(X=self.X, Y=self.Y, logging_level=logging_level, emu_type=emu_type, n_optimization_restarts=5)

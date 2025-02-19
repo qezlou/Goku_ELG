@@ -414,7 +414,7 @@ class SingleBindGMGP:
         Y_train: List[np.ndarray],
         n_fidelities: int,
         n_samples: int = 500,
-        optimization_restarts: int = 30,
+        optimization_restarts: int = 5,
         # turn_off_bias: bool = False,
         ARD_last_fidelity: bool = False,
         parallel: bool = False,
@@ -598,7 +598,7 @@ class SingleBinNonLinearGP:
         Y_train: List[np.ndarray],
         n_fidelities: int,
         n_samples: int = 500,
-        optimization_restarts: int = 30,
+        optimization_restarts: int = 5,
         turn_off_bias: bool = False,
         ARD_last_fidelity: bool = False,
         **kwargs
