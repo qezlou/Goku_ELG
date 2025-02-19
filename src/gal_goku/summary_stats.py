@@ -330,7 +330,7 @@ class HMF(BaseSummaryStats):
             else:
                 save_file = f'{self.fid}_hmfs.hdf5'
         if rank==0:
-            self.logger.info(f'Loading HMFs from {save_file}')   
+            self.logger.debug(f'Loading HMFs from {save_file}')   
             with h5py.File(op.join(self.data_dir, save_file), 'r') as f:
                 bins = f['bins_coarse'][:]
                 hmfs = f['hmfs_coarse'][:]
@@ -357,7 +357,7 @@ class HMF(BaseSummaryStats):
         self.logger.debug(f'Loadded HMFs from {save_file}') 
         return hmfs, bins
 
-    def _do_fits(self, ind=None, *kwargs):
+    def _do_fits(self, ind=None, delta_r=None, *kwargs):
         """
         Fit the halo mass function with a splie.
         Parameters:
@@ -372,8 +372,10 @@ class HMF(BaseSummaryStats):
         #                  12.1 , 12.35, 12.6 , 
         #                  12.85, 13.1 , 13.35,
         #                  13.35, 13.35])
+        if delta_r is None:
+            delta_r = 0.1
         self.knots = np.array([11.1 , 11.1])
-        self.knots = np.append(self.knots, np.arange(11.1, 13.5, 0.1))
+        self.knots = np.append(self.knots, np.arange(11.1, 13.5, delta_r))
         self.knots = np.append(self.knots, [13.5, 13.5])
         if ind is None:
             ind = np.arange(len(hmfs))
@@ -388,7 +390,7 @@ class HMF(BaseSummaryStats):
             splines.append(fit.fit_spline(mbins, np.log10(hmfs[i]), self.knots, sigma=sigma))
         return splines
     
-    def get_coeffs(self, ind=None, *kwargs):
+    def get_coeffs(self, ind=None, delta_r=None, *kwargs):
         """
         Retrun the spline fits in an array
         Parameters:
@@ -402,13 +404,13 @@ class HMF(BaseSummaryStats):
         2D array of the spline coefficients and the knots
         (coeffs, knots)
         """
-        splines = self._do_fits(ind=ind, *kwargs)
+        splines = self._do_fits(ind=ind, delta_r=delta_r, *kwargs)
         coeffs = np.zeros((len(splines), len(splines[0].c)))
         for i, spl in enumerate(splines):
             coeffs[i] = spl.c
         return coeffs, splines[0].t
     
-    def get_smoothed(self, x, ind=None, *kwargs):
+    def get_smoothed(self, x, delta_r=None, ind=None, *kwargs):
         """
         Get the smoothed halo mass function evaluated at x
         Parameters:
@@ -420,7 +422,7 @@ class HMF(BaseSummaryStats):
         kwargs: dict
             Keyword arguments for utils.ConstrainedSplineFitter
         """
-        splines = self._do_fits(ind=ind, *kwargs)
+        splines = self._do_fits(ind=ind, delta_r=delta_r, *kwargs)
         y = []
         for i, spl in enumerate(splines):
             if type(x) == list:

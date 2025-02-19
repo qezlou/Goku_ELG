@@ -674,7 +674,7 @@ class PlotHMF(BasePlot):
         ax.grid()
         fig.tight_layout()
 
-    def get_pairs(self, no_merge=False, x=None, chi2=False, narrow=False):
+    def get_pairs(self, no_merge=False, x=None, chi2=False, narrow=False, delta_r=None):
         """
         """            
         halo_funcs = {}
@@ -700,16 +700,16 @@ class PlotHMF(BasePlot):
             bins[fd] = bins[fd][ind][argsort]
             
             #mbins[fd] = mbins[fd][ind][argsort]
-            smoothed_temp = halo_funcs[fd].get_smoothed(x, ind=ind)
+            smoothed_temp = halo_funcs[fd].get_smoothed(x, ind=ind, delta_r=delta_r)
             smoothed[fd] = []
             for i in argsort:
                 smoothed[fd].append(smoothed_temp[i])
         return hmfs, bins, smoothed, x
 
 
-    def compare_fids(self, no_merge=False, chi2=False, narrow=False):
+    def compare_fids(self, no_merge=False, chi2=False, narrow=False, delta_r=None):
         x= np.arange(11.1, 13.5, 0.1)
-        hmfs, bins, smoothed, x = self.get_pairs(x=x, no_merge=no_merge, chi2=chi2, narrow=narrow)
+        hmfs, bins, smoothed, x = self.get_pairs(x=x, no_merge=no_merge, chi2=chi2, narrow=narrow, delta_r=delta_r)
         styles= [{'marker':'o', 'color':'C0', 's':45}, {'marker':'x', 'color':'C1', 's':45}]
         fig, ax = None, None
         for i, fd in enumerate(list(hmfs.keys())):
@@ -733,6 +733,7 @@ class PlotHMF(BasePlot):
             if indy == 0:
                 ax[indx, indy].set_ylabel('L2/HF - 1')
         fig.tight_layout()
+
 
     def _plot_smoothed(self, hmfs, bins, smoothed, x, title=None, per_panel=10, fig=None, ax=None, style=None, *kwargs):
 
@@ -788,7 +789,7 @@ class PlotHMF(BasePlot):
             fig, ax = self._plot_smoothed(hmfs =hmfs, bins=bins, smoothed=smoothed, x=x, title=title, per_panel=per_panel, fig=fig, ax=ax, *kwargs)
 
     
-    def smoothed_err(self, fids=['L2'], narrow=False, no_merge=False,chi2=False, save_err_file=None):
+    def smoothed_err(self, fids=['L2'], narrow=False, no_merge=False,chi2=False, save_err_file=None, delta_r=None):
 
         for i, fd in enumerate(fids):        
             # Use summary_stats to load the HMF
@@ -811,9 +812,10 @@ class PlotHMF(BasePlot):
             err_all = np.full((sim_nums, interp_bins.size+1), np.nan)
             for j in range(sim_nums):
                 mbins = 0.5 * (bins[j][1:] + bins[j][:-1])
-                smoothed = halo_func.get_smoothed(x=mbins, ind=[j])[0]
+                smoothed = halo_func.get_smoothed(x=mbins, ind=[j], delta_r=delta_r)[0]
                 err = np.abs(smoothed/hmfs[j] - 1)
-                color = cmap.to_rgba(mbins.size)
+                #color = cmap.to_rgba(mbins.size)
+                color = 'C0'
                 ax.plot(10**mbins, err, alpha=0.1, lw=2, color=color)
                 ind = np.digitize(mbins, interp_bins)
                 err_all[j][ind] = err
@@ -921,14 +923,23 @@ class PlotHmfEmu(BasePlot):
         """
         Load the saved leave one out cross validation"""
         with h5py.File(savefile, 'r') as f:
-            coeffs = f['pred'][:]
+            labels = []
+            for lb in f['labels']:
+                lb_new = lb.decode('utf-8')
+                if 'narrow' in lb_new:
+                    labels.append(lb_new[-11:])
+                else:
+                    labels.append(lb_new[-4:])
+
+            #coeffs = f['pred'][:]
+            pred_coeffs = np.hstack([f['pred'], np.zeros((f['pred'].shape[0], 3))])
             # We might have mistakenly trained a 
             # GP for the missing coefficients
-            pred_coeffs = np.nan_to_num(coeffs, nan=0.0)
+            #pred_coeffs = np.nan_to_num(coeffs, nan=0.0)
             knots = f['bins'][:]
-            true_coeffs = f['truth'][:].squeeze()
+            true_coeffs = np.hstack([f['truth'], np.zeros((f['truth'].shape[0], 3))])
             X = f['X'][:]
-            eval_points = np.arange(knots[0], knots[-1], 0.1)
+            eval_points = np.arange(knots[0], knots[-1]+0.1, 0.1)
             pred = np.zeros((pred_coeffs.shape[0], eval_points.size))
             truth = np.zeros((true_coeffs.shape[0], eval_points.size))
             for i in range(pred_coeffs.shape[0]):
@@ -936,9 +947,9 @@ class PlotHmfEmu(BasePlot):
                 truth[i] = 10**BSpline(knots, true_coeffs[i], 2)(eval_points)
             # Not sure yet how to turn the var in coeefs into the hmf var
             var_pred = None
-        return pred, var_pred, truth, X, 10**eval_points
+        return pred, var_pred, truth, X, 10**eval_points, labels
     
-    def _pred_truth_large(self, pred, truth, mbins, per_panel=5, columns=3):
+    def _pred_truth_large(self, pred, truth, mbins, labels, per_panel=2, columns=3, title='Loo'):
         """
         Fit all the predictions and the truth in one big figure
         """
@@ -951,15 +962,11 @@ class PlotHmfEmu(BasePlot):
         for j in range(sim_nums):
             p = np.floor(j/per_panel).astype(int)
             ax_indx, ax_indy =  np.floor(p/columns).astype(int), int(p%columns)
-            ax[ax_indx, ax_indy].plot(mbins, truth[j], color=f'C{j%per_panel}', lw=4, alpha=0.5, label='Truth')
+            ax[ax_indx, ax_indy].plot(mbins, truth[j], color=f'C{j%per_panel}', lw=4, alpha=0.5, label=f'Truth {labels[j]}')
             ax[ax_indx, ax_indy].plot(mbins, pred[j], alpha=0.9, lw=2, color=f'C{j%per_panel}', ls='dotted', label='Pred')
-            axr[ax_indx, ax_indy].plot(mbins, pred[j]/truth[j] - 1, alpha=0.9, lw=2, color=f'C{j%per_panel}', ls='dotted', label='Pred')
+            axr[ax_indx, ax_indy].plot(mbins, pred[j]/truth[j] - 1, alpha=0.9, lw=2, color=f'C{j%per_panel}', ls='dotted', label=f'{labels[j]}')
             if ax_indy == 0:
                 ax[ax_indx, ax_indy].set_ylabel(r'$\psi \ [dex^{-1} cMph^{-3}]$')
-            if j==0:
-                ax[ax_indx, ax_indy].legend()
-            ax[ax_indx, ax_indy].set_title(f'Sim {j}')  
-            axr[ax_indx, ax_indy].set_title(f'Sim {j}')
             ax[ax_indx, ax_indy].set_xscale('log')
             axr[ax_indx, ax_indy].set_xscale('log')
             ax[ax_indx, ax_indy].set_yscale('log')
@@ -967,8 +974,11 @@ class PlotHmfEmu(BasePlot):
             axr[ax_indx, ax_indy].set_xlim(1e11, 3e13)
             ax[ax_indx, ax_indy].set_ylim(1e-7, 1e-1) 
             axr[ax_indx, ax_indy].set_ylim(-1, 1)
-            ax[ax_indx, ax_indy].grid()
-            axr[ax_indx, ax_indy].grid()
+            ax[ax_indx, ax_indy].legend(framealpha=0)
+            axr[ax_indx, ax_indy].legend(framealpha=0)
+            ax[ax_indx, ax_indy].grid(True)
+            axr[ax_indx, ax_indy].grid(True)
+            
         fig.suptitle('Predictions vs Truth For all')
         fig.tight_layout()
         figr.tight_layout()
@@ -979,11 +989,11 @@ class PlotHmfEmu(BasePlot):
         """
         """
 
-        pred, var_pred, truth, X, mbins = self.load_saved_loo(savefile)
+        pred, var_pred, truth, X, mbins, labels = self.load_saved_loo(savefile)
         self.logger.info(f'Number of simualtions {pred.shape[0]}')
         print(plot_all)
         if plot_all:
-            fig, ax = self._pred_truth_large(pred, truth, mbins)
+            fig, ax = self._pred_truth_large(pred, truth, mbins, labels=labels, title=title)
         else:
         
             fig, ax = self.pred_truth(pred, truth, mbins, 
