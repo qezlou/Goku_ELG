@@ -985,7 +985,18 @@ class PlotHmfEmu(BasePlot):
 
         return fig, ax
 
-    def loo_pred_truth(self, savefile, seed=None, title=None, plot_all=True, sub_sample=10):
+    def filter_narrow_on_label(self, labels, narrow=True):
+        """
+        Find the indices to narrow or wide sims"""
+        ind = []
+        for i, lb in enumerate(labels):
+            if 'narrow' in lb and narrow:
+                ind.append(i)
+            elif 'narrow' not in lb and not narrow:
+                ind.append(i)
+        return ind
+
+    def loo_pred_truth(self, savefile, seed=None, title=None, plot_all=True, sub_sample=10, narrow='both'):
         """
         """
 
@@ -995,9 +1006,14 @@ class PlotHmfEmu(BasePlot):
         if plot_all:
             fig, ax = self._pred_truth_large(pred, truth, mbins, labels=labels, title=title)
         else:
-        
+            if narrow != 'both':
+                ind = self.filter_narrow_on_label(labels, narrow)
+                pred = pred[ind]
+                truth = truth[ind]
+                labels = [labels[i] for i in ind]
+            
             fig, ax = self.pred_truth(pred, truth, mbins, 
-                                      model_err=np.sqrt(var_pred), 
+                                      #model_err=np.sqrt(var_pred), 
                                       seed=seed, title=title, log_y=True, 
                                       sub_sample=sub_sample,
                                       plot_everything=True)
