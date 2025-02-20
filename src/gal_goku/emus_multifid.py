@@ -110,6 +110,7 @@ class BaseStatEmu():
             for i, s in enumerate(self.labels[-1]):
                 if  rank ==0:
                     self.logger.info(f'Leaving out {s}, progress {i}/{len(self.labels[-1])}')
+                # Find the non-nan bins the leave-out sim has
                 X_train = [self.X[0]]
                 X_train.append(np.delete(self.X[-1], i, axis=0))
                 Y_train = [self.Y[0]]
@@ -229,7 +230,7 @@ class Hmf(BaseStatEmu):
         for fd in fids:
             # Goku-wide sims
             hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=False, no_merge=no_merge, logging_level=logging_level)
-            # Trainthe spline coefficients
+            # Train on the binned hmf
             Y, self.mbins = hmf.get_coeffs()
             # For now, get rid of the lastbins with 0 value
             Y_wide = Y[:, :-3]

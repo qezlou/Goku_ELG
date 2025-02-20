@@ -264,8 +264,14 @@ class SingleBinLinearGP:
 
             # make multi-fidelity kernels
             kernel = LinearMultiFidelityKernel(kernel_list)
-
-            gp = GPy.core.GP(X, Y[:, [i]], kernel, likelihood, Y_metadata=y_metadata)
+            # If there is any nan bin, remove that data point
+            ind = np.where(np.isnan(Y[:, i]))[0]
+            if len(ind) > 0:
+                X_reduced = np.delete(X, ind, axis=0)
+                Y_reduced = np.delete(Y[:, i], ind, axis=0)
+                gp = GPy.core.GP(X_reduced, Y_reduced, kernel, likelihood, Y_metadata=y_metadata)
+            else:
+                gp = GPy.core.GP(X, Y[:, [i]], kernel, likelihood, Y_metadata=y_metadata)
             gpy_models.append(gp)
 
         self.gpy_models = gpy_models
