@@ -707,7 +707,7 @@ class PlotHMF(BasePlot):
         return hmfs, bins, smoothed, x
 
 
-    def compare_fids(self, no_merge=False, chi2=False, narrow=False, delta_r=None):
+    def compare_fids(self, no_merge=True, chi2=False, narrow=False, delta_r=None):
         x= np.arange(11.1, 13.5, 0.1)
         hmfs, bins, smoothed, x = self.get_pairs(x=x, no_merge=no_merge, chi2=chi2, narrow=narrow, delta_r=delta_r)
         styles= [{'marker':'o', 'color':'C0', 's':45}, {'marker':'x', 'color':'C1', 's':45}]
@@ -985,7 +985,18 @@ class PlotHmfEmu(BasePlot):
 
         return fig, ax
 
-    def loo_pred_truth(self, savefile, seed=None, title=None, plot_all=True, sub_sample=10):
+    def filter_narrow_on_label(self, labels, narrow=True):
+        """
+        Find the indices to narrow or wide sims"""
+        ind = []
+        for i, lb in enumerate(labels):
+            if 'narrow' in lb and narrow:
+                ind.append(i)
+            elif 'narrow' not in lb and not narrow:
+                ind.append(i)
+        return ind
+
+    def loo_pred_truth(self, savefile, seed=None, title=None, plot_all=True, sub_sample=10, narrow='both'):
         """
         """
 
@@ -995,9 +1006,14 @@ class PlotHmfEmu(BasePlot):
         if plot_all:
             fig, ax = self._pred_truth_large(pred, truth, mbins, labels=labels, title=title)
         else:
-        
+            if narrow != 'both':
+                ind = self.filter_narrow_on_label(labels, narrow)
+                pred = pred[ind]
+                truth = truth[ind]
+                labels = [labels[i] for i in ind]
+            
             fig, ax = self.pred_truth(pred, truth, mbins, 
-                                      model_err=np.sqrt(var_pred), 
+                                      #model_err=np.sqrt(var_pred), 
                                       seed=seed, title=title, log_y=True, 
                                       sub_sample=sub_sample,
                                       plot_everything=True)
