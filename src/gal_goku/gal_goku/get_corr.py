@@ -306,7 +306,7 @@ class Corr():
         k = pk_gal_zspace['k'][:]
         return all_pks, k
     
-    def get_corr_fof(self, pig_dir, r_edges=None, mesh_res=0.05, z=2.5,  stat='corr', mode='1d', pimax=40, false_positive_ratio = 0):
+    def get_corr_fof(self, pig_dir, r_edges=None, mass_thresh=0, mesh_res=0.05, z=2.5,  stat='corr', mode='1d', pimax=40, false_positive_ratio = 0):
         """Get the correlation function for a FOF halo catalog, with no HOD.
         Parameters
         ----------
@@ -326,6 +326,7 @@ class Corr():
         # in z-space
         los = [0, 0, 1]
         halos = self.load_halo_cat(pig_dir)
+        ind = halos['']
 
         # Apply RSD to the galaxies
         rsd_factor = (1+z) / (100 * cosmo.efunc(z))
@@ -344,7 +345,7 @@ class Corr():
             corr.run()
             self.nbkit_comm.Barrier()
             result = corr.corr['corr'][:]
-            mbins =  np.array([r_edges[i]+r_edges[i+1] for i in range(r_edges.size-1)])
+            mbins =  np.array([(r_edges[i]+r_edges[i+1])/2 for i in range(r_edges.size-1)])
         elif stat == 'power':
             if self.rank == 0:
                 self.logger.info(f'Getting power for FOF, mesh_res = {mesh_res} cMpc/h')

@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH -J loo-mpi
+#SBATCH -J wide
 #SBATCH -p skx
 #SBATCH -N 1
-#SBATCH --ntasks-per-node 14
-#SBATCH --job-name=LooMF
+#SBATCH --ntasks-per-node 13
+#SBATCH --cpus-per-task 1
 #SBATCH --time=10:00:00
 #SBATCH --output=%x-%j.out
 
@@ -13,4 +13,4 @@ hostname; pwd; date
 #export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export OMP_NUM_THREADS=1
 
-ibrun -n 14 python run_loo_mf_hmf.py
+ibrun -n 26 python run_loo_mf_hmf.py

@@ -1,8 +1,9 @@
 from  mpi4py import MPI
 from gal_goku import emus_multifid as emus
 
-data_dir = '/rhome/mqezl001/bigdata/HETDEX/data/HMF/'
+#data_dir = '/rhome/mqezl001/bigdata/HETDEX/data/HMF/'
 #data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/HMF/'
+data_dir = '/scratch/06536/qezlou/Goku/processed_data/HMF/'
 
 
 emu_type = {'multi-fid':True, 'single-bin':True, 'linear':True, 'wide_and_narrow':False }

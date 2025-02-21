@@ -100,7 +100,7 @@ class ConstrainedSplineFitter:
         logger.addHandler(console_handler)
         return logger
 
-    def fit_spline(self, x, y, knots, sigma):
+    def fit_spline(self, x, y, knots, sigma=1):
         """
         Fit a spline with constraints on the coefficients of the quadratic term.
 

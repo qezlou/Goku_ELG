@@ -7,14 +7,18 @@ box = {'HF':'1000', 'L1':'1000', 'L2':'250'}
 part = {'HF':'3000', 'L1':'750', 'L2':'750'}
 
 
-def run_globus(fidelity, start, end):
+def run_globus(fidelity, start, end, narrow):
     #Ranch
     source_end_point = 'e6d7586e-c815-4f11-9a90-37d1747989c1'
     # Stampede3
     destination_end_point = '1e9ddd41-fe4b-406f-95ff-f3d79f9cb523'
 
-    source_path = '/stornext/ranch_01/ranch/projects/AST21005/Goku_emulator_sims/Goku_narrow_sims/'
-    destination_path = f'/scratch/06536/qezlou/Goku/FOF/{fidelity}/narrow/'
+    if narrow:
+        source_path = '/stornext/ranch_01/ranch/projects/AST21005/Goku_emulator_sims/Goku_narrow_sims/'
+        destination_path = f'/scratch/06536/qezlou/Goku/FOF/{fidelity}/narrow/'
+    else:
+        source_path = '/stornext/ranch_01/ranch/projects/AST21005/Goku_emulator_sims/Goku_sims/'
+        destination_path = f'/scratch/06536/qezlou/Goku/FOF/{fidelity}/'
 
     pattern = f'Box{box[fidelity]}_Part{part[fidelity]}'
     print(f'pattern is {pattern}')
@@ -37,7 +41,8 @@ def run_globus(fidelity, start, end):
         with open(f'{file_list}.temp', 'r') as fr:
             all_lines =fr.readlines()
         
-
+        existing_counts = 0
+        transferring_Counts = 0
         for j in range(3):
             with open(f'{file_list}_{j}.txt', 'w') as fw:
                 files = distribute_files(all_lines, j)
@@ -45,12 +50,16 @@ def run_globus(fidelity, start, end):
                     line = line.strip('\n')
                     s = op.join(source_path, line)
                     d = op.join(destination_path, line)
-                    fw.write(f'{s} {d} \n')
+                    if os.path.exists(d):
+                        existing_counts +=1
+                    else:
+                        transferring_Counts+=1
+                        fw.write(f'{s} {d} \n')
 
-            os.system(f'globus transfer {source_end_point} {destination_end_point} --batch {file_list}_{j}.txt')
+            #os.system(f'globus transfer {source_end_point} {destination_end_point} --batch {file_list}_{j}.txt')
 
 def distribute_files(fnames, job, size=int(3)):
-    """Distribute a list of files among available ranks
+    """Distribute a list of files among available screen sessions
     fnames : a list of file names
     Returns : A list of files for each job
     """
@@ -67,9 +76,10 @@ def distribute_files(fnames, job, size=int(3)):
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
-    parser.add_argument('--fidelity', type=str, help='e.g HF')
+    parser.add_argument('--fid', type=str, help='e.g HF')
     parser.add_argument('--start', default=-1, type=int, help='e.g. 200')
     parser.add_argument('--end', default=-1, type=int, help='e.g 300')
+    parser.add_argument('--narrow', default=0, type=bool, help='e.g 300')
     args = parser.parse_args()
-    run_globus(args.fidelity, args.start, args.end)
+    run_globus(args.fidelity, args.start, args.end, narrow=args.narrow)
 
