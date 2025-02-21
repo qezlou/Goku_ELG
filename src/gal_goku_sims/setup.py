@@ -4,7 +4,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="gal_goku_train",
+    name="gal_goku_sims",
     version="0.0.0",
     author="Mahdi Qezlou, Yanhui Yang, Simeon Bird",
     author_email="mahdi.qezlou@email.ucr.edu",

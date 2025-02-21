@@ -1,6 +1,6 @@
 import numpy as np
 import h5py
-from gal_goku import xi_train
+from gal_goku_sims import xi_train
 from mpi4py import MPI
 import os.path as op
 import argparse
