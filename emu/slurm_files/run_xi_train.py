@@ -1,37 +1,34 @@
 import numpy as np
 import h5py
-from gal_goku_sims import xi_train
+from gal_goku_sims import xi
 from mpi4py import MPI
+import os
 import os.path as op
 import argparse
 
-def run_it(save_file='test.hdf5'):
+def run_it(fid, narrow, num_chunks, chunk):
     
     comm_size = MPI.COMM_WORLD.Get_size()
-    corr = xi_train.Corr(ranks_for_nbkit=comm_size)
+    corr = xi.Corr(ranks_for_nbkit=comm_size)
 
 
-    sim_tag = 'cosmo_10p_Box250_Part750_0000'
+    basedir = f'/scratch/06536/qezlou/Goku/FOF/{fid}'
+    save_dir = f'/scratch/06536/qezlou/Goku/processed_data/corrs_bins/{fid}'
+    if not op.exists(save_dir):
+        os.mkdir(save_dir)
 
-    basedir = '/scratch/06536/qezlou/Goku/FOF/L2'
-    pig_dir = f'{basedir}/{sim_tag}/output/PIG_003/'
-    save_dir = '/scratch/06536/qezlou/Goku/processed_data/corrs_bins'
-    assert op.exists(save_dir)
-    save_file = op.join(save_dir,save_file)
-    mass_thresh = (1e11, 3e11)
 
-    corr_fof, mbins = corr._get_corr(pig_dir,mass_thresh)
-
-    if corr.rank ==0:
-        corr.logger.info(f'save_file = {save_file}')
-        with h5py.File(save_file, 'w') as f:
-            f['mbins'] = mbins
-            f['corr'] = corr_fof
+    corr.get_corr_on_grid(base_dir=basedir, save_dir=save_dir, narrow=narrow, chunk=chunk, num_chunks=num_chunks)
     
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Get the correlation function of the galaxies in the PIGs')
+    parser.add_argument('--fid', required=False, default='L2', type=str, help='')
+    parser.add_argument('--narrow', required=False, default=0, type=int, help='')
+    parser.add_argument('--numchunks', required=False, default=20, type=int, help='')
+    parser.add_argument('--chunk', required=True, type=int, help='')
+    
 
     args = parser.parse_args()
-    run_it()
+    run_it(args.fid, args.narrow, args.numchunks, args.chunk)
