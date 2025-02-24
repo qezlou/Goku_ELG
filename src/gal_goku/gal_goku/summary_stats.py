@@ -293,7 +293,50 @@ class ProjCorr(BaseSummaryStats):
         nan_bins = np.where(np.isnan(log10_wp))
         self.logger.info(f'Found {100*nan_bins[0].size/wp.size:.1f} % of W_p is nan')
 
+class Xi(BaseSummaryStats):
+    """
+    Speherically Averaged correlation function
+    """
+    def __init__(self, data_dir, fid, narrow=False, logging_level='INFO'):
+        super().__init__(data_dir, fid, logging_level)
+        self.data_dir = data_dir
+        self.fid = fid
+        self.narrow = narrow
 
+    def load_individual(self, corr_file):
+        """
+        Load the correlation function for a single simulation
+        """
+        with h5py.File(corr_file, 'r') as f:
+            sim_tag = f['sim_tag'][()]
+            rbins = f['mbins'][:]
+            xi = f['corr'][:]
+            mass_pairs = f['pairs'][:]
+        return sim_tag, rbins, xi, mass_pairs
+    
+    def corr_2d(self, corr_file, r_ind):
+        """
+        Put individual correlation functions on a cube
+        """
+        sim_tag, rbins, xi, mass_pairs = self.load_individual(corr_file)
+        mass_bins = np.unique(mass_pairs)[::-1]
+        indx_pairs = np.digitize(mass_pairs, mass_bins).astype(int)
+        corr_2d = np.full((mass_bins.size, mass_bins.size), np.nan)
+        for (i,j), val in zip(indx_pairs, xi):
+            corr_2d[i,j] = val[r_ind]
+        return corr_2d, mass_bins
+        
+    def load(self):
+        """
+        Load all computed correlation functions (xi(r))
+        """
+        if self.narrow:
+            raise NotImplementedError('Narrow not implemented yet')
+        else:
+            # Each sim is an indivudal hdf5 file in op.join(data_dir, fid)
+            self.data_files = [f for f in os.listdir(op.join(self.data_dir, self.fid)) if self.pref in f and f.endswith('.hdf5')]
+            self.logger.info(f'Total sims files: {len(self.data_files)} in {op.join(self.data_dir, self.fid)}')
+            
 class HMF(BaseSummaryStats):
     """
     Halo mass function

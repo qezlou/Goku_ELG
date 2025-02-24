@@ -16,6 +16,13 @@ import warnings
 warnings.filterwarnings("ignore")
 
 class BasePlot():
+    """
+    BasePlot for plotting the statistics computed from the sims
+    """
+    def __init__():
+        pass
+
+class BasePlotEmu():
     def __init__(self, logging_level='INFO', show_full_params=False):
         self.logger = self.configure_logging(logging_level)
         if show_full_params:
@@ -105,7 +112,7 @@ class BasePlot():
         Load the saved leave one out cross validation"""
         raise NotImplementedError('This method should be implemented in the child class')
 
-class PlotCorr(BasePlot):
+class PlotCorr(BasePlotEmu):
     def __init__(self, logging_level='INFO', show_full_params=False):
         super().__init__(logging_level, show_full_params)
 
@@ -339,6 +346,45 @@ class PlotCorr(BasePlot):
         params_array = proj.get_params_array()
         self.param_distribution(bad_sims, params_array, proj.param_names)
 
+class PlotXiSims(BasePlot):
+    """
+    Plot routines for the 3D correlation function xi(r) computed on the sims
+    """
+    def __init__(self):
+        pass
+
+    def load_individual(self, corr_file):
+        """
+        Load the correlation function for a single simulation
+        """
+        with h5py.File(corr_file, 'r') as f:
+            sim_tag = f['sim_tag'][()]
+            rbins = f['mbins'][:]
+            xi = f['corr'][:]
+            mass_pairs = f['pairs'][:]
+        return sim_tag, rbins, xi, mass_pairs
+    
+    def plot_2d_mth1_mth2(self, r_ind, corr_file):
+        """
+        Plot a 2D colormap for the xi(r) with different threshold mass values
+        Parameters:
+        -----------
+        r: array
+            The r values
+        corr_file: str
+            The correlation function file
+        """
+        data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
+        xi = summary_stats.Xi(data_dir, fid='L2')
+        corr_2d, mass_bins = xi.corr_2d(corr_file, r_ind=10)
+
+        fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+        im = ax.imshow(corr_2d, origin='lower', extent=[mass_bins.min(), mass_bins.max(), mass_bins.min(), mass_bins.max()])
+        ax.set_ylabel(r'$M_{th1}$')
+        ax.set_ylabel(r'$M_{th2}$')
+        #ax.set_title(sim_tag)
+        fig.colorbar(im)
+        
 
 
 
@@ -623,7 +669,7 @@ class PlotTestEmus():
         plt.show()
 
 
-class PlotHMF(BasePlot):
+class PlotHMF(BasePlotEmu):
     """
     Class to plot Halo Mass fucntion and the meualtor
     
@@ -907,7 +953,7 @@ class PlotHMF(BasePlot):
         figr.tight_layout()
 
 
-class PlotHmfEmu(BasePlot):
+class PlotHmfEmu(BasePlotEmu):
     def __init__(self, logging_level='INFO'):
         super().__init__(logging_level, show_full_params=True)
 
