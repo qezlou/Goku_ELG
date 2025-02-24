@@ -302,11 +302,19 @@ class Xi(BaseSummaryStats):
         self.data_dir = data_dir
         self.fid = fid
         self.narrow = narrow
+        # Get the file counts
+        if self.narrow:
+            raise NotImplementedError('Narrow not implemented yet')
+        else:
+            # Each sim is an indivudal hdf5 file in op.join(data_dir, fid)
+            self.sim_tags = [f[:-5] for f in os.listdir(op.join(self.data_dir, self.fid)) if self.pref in f and f.endswith('.hdf5')]
+            self.logger.info(f'Total sims files: {len(self.sim_tags)} in {op.join(self.data_dir, self.fid)}')
 
-    def load_individual(self, corr_file):
+    def load_individual(self, sim_tag):
         """
         Load the correlation function for a single simulation
         """
+        corr_file = op.join(self.data_dir, self.fid, f'{sim_tag}.hdf5')
         with h5py.File(corr_file, 'r') as f:
             sim_tag = f['sim_tag'][()]
             rbins = f['mbins'][:]
@@ -314,11 +322,11 @@ class Xi(BaseSummaryStats):
             mass_pairs = f['pairs'][:]
         return sim_tag, rbins, xi, mass_pairs
     
-    def corr_2d(self, corr_file, r_ind):
+    def corr_2d(self, sim_tag, r_ind):
         """
         Put individual correlation functions on a cube
         """
-        sim_tag, rbins, xi, mass_pairs = self.load_individual(corr_file)
+        sim_tag, rbins, xi, mass_pairs = self.load_individual(sim_tag)
         mass_bins = np.unique(mass_pairs)[::-1]
         indx_pairs = np.digitize(mass_pairs, mass_bins).astype(int)
         corr_2d = np.full((mass_bins.size, mass_bins.size), np.nan)
@@ -330,12 +338,8 @@ class Xi(BaseSummaryStats):
         """
         Load all computed correlation functions (xi(r))
         """
-        if self.narrow:
-            raise NotImplementedError('Narrow not implemented yet')
-        else:
-            # Each sim is an indivudal hdf5 file in op.join(data_dir, fid)
-            self.data_files = [f for f in os.listdir(op.join(self.data_dir, self.fid)) if self.pref in f and f.endswith('.hdf5')]
-            self.logger.info(f'Total sims files: {len(self.data_files)} in {op.join(self.data_dir, self.fid)}')
+        pass
+
             
 class HMF(BaseSummaryStats):
     """

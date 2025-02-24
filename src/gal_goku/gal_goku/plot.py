@@ -21,6 +21,19 @@ class BasePlot():
     """
     def __init__():
         pass
+    def _setup_panels(self, sim_nums, per_panel=10):
+        """
+        Find the number of rows and columns for the subplots
+        """
+        panels = np.ceil(sim_nums /per_panel).astype(int)
+        if panels > 5:
+            columns = 5
+            rows = np.ceil(panels/columns).astype(int)
+        else:
+            columns = panels
+            rows = 2
+        #self.logger.debug(f'sim_nums = {sim_nums}, panels = {panels}, rows = {rows}, columns = {columns}')
+        return rows, columns
 
 class BasePlotEmu():
     def __init__(self, logging_level='INFO', show_full_params=False):
@@ -352,19 +365,8 @@ class PlotXiSims(BasePlot):
     """
     def __init__(self):
         pass
-
-    def load_individual(self, corr_file):
-        """
-        Load the correlation function for a single simulation
-        """
-        with h5py.File(corr_file, 'r') as f:
-            sim_tag = f['sim_tag'][()]
-            rbins = f['mbins'][:]
-            xi = f['corr'][:]
-            mass_pairs = f['pairs'][:]
-        return sim_tag, rbins, xi, mass_pairs
     
-    def plot_2d_mth1_mth2(self, r_ind, corr_file):
+    def plot_2d_mth1_mth2(self, corr_2d, mass_bins, fig, ax):
         """
         Plot a 2D colormap for the xi(r) with different threshold mass values
         Parameters:
@@ -374,17 +376,33 @@ class PlotXiSims(BasePlot):
         corr_file: str
             The correlation function file
         """
-        data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
-        xi = summary_stats.Xi(data_dir, fid='L2')
-        corr_2d, mass_bins = xi.corr_2d(corr_file, r_ind=10)
-
-        fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-        im = ax.imshow(corr_2d, origin='lower', extent=[mass_bins.min(), mass_bins.max(), mass_bins.min(), mass_bins.max()])
-        ax.set_ylabel(r'$M_{th1}$')
-        ax.set_ylabel(r'$M_{th2}$')
-        #ax.set_title(sim_tag)
-        fig.colorbar(im)
-        
+        im = ax.imshow(np.log10(corr_2d), origin='lower', extent=[mass_bins[0], mass_bins[-1], mass_bins[0], mass_bins[-1]], vmin=-0.5, vmax=0.4)
+        ax.set_ylabel(r'$M > M_{th1}$')
+        ax.set_xlabel(r'$M > M_{th2}$')
+        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label('Correlation')
+    
+    def plot_all_2d(self, r_ind, fid, data_dir):
+        """
+        Plot all the 2D correlation functions
+        """
+        per_panel = 1
+        xi = summary_stats.Xi(data_dir, fid=fid)
+        rows, columns = self._setup_panels(sim_nums=len(xi.sim_tags), per_panel=per_panel)
+        fig, ax = plt.subplots(rows, columns, figsize=(4*columns, 3*rows))
+        for i, s in enumerate(xi.sim_tags):
+            corr_2d, mass_bins = xi.corr_2d(sim_tag=s, r_ind=r_ind)
+            p = np.floor(i/per_panel).astype(int)
+            indx, indy = np.floor(p/columns).astype(int), p%columns
+            self.plot_2d_mth1_mth2(corr_2d, mass_bins, fig, ax[indx, indy])
+        fig.tight_layout()
+    
+    def xi_1d_mth1_mth2(self, corr, rbins, mth, fig, ax):
+        """
+        Plot the 1D correlation function for a given threshold mass
+        """
+        ax.plot(rbins, corr, label=f'{mth}')
+    
 
 
 
@@ -679,18 +697,6 @@ class PlotHMF(BasePlotEmu):
         self.logging_level = logging_level
         self.data_dir = data_dir
 
-    def _setup_panels(self, sim_nums, per_panel=10):
-        """
-        """
-        panels = np.ceil(sim_nums /per_panel).astype(int)
-        if panels > 5:
-            columns = 5
-            rows = np.ceil(panels/columns).astype(int)
-        else:
-            columns = panels
-            rows = 2
-        #self.logger.debug(f'sim_nums = {sim_nums}, panels = {panels}, rows = {rows}, columns = {columns}')
-        return rows, columns
 
     def sim_hmf(self, fids=['HF'], fig=None, ax=None):
         """
@@ -1066,6 +1072,29 @@ class PlotHmfEmu(BasePlotEmu):
             ax[0].set_ylim((1e-7, 1e-1))
         return fig, ax
     
+    def dens_loo_pred_truth(self, savefile):
+        """
+        Comapre the number density thresholded on M > M_th, the truth 
+        and the predictions
+        """
+        pred, var_pred, truth, X, mbins, labels = self.load_saved_loo(savefile)
+        print(pred.shape)
+        fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+        for i in np.arange(2):
+            dens_true = np.cumsum(truth[i][::-1])*np.log10(mbins[1]/mbins[0])
+            dens_pred = np.cumsum(pred[i][::-1])*np.log10(mbins[1] /mbins[0])
+            ax.plot(mbins[::-1], dens_true, label=f'Truth {labels[i]}', color=f'C{i}')
+            ax.plot(mbins[::-1], dens_pred, label=f'Pred {labels[i]}', ls='dotted', color=f'C{i}')
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_xlabel(r'$M_{th}$')
+        ax.set_ylabel('N(>M)')
+        ax.invert_xaxis()
+
+        ax.grid()
+        fig.tight_layout()
+        return fig, ax
+
     def err_vs_params(self, savefile, percentiles=np.arange(10, 101, 25)):
         """
         Plot LOO error in the HMF vs the cosmological parameters
