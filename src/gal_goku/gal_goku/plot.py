@@ -19,8 +19,9 @@ class BasePlot():
     """
     BasePlot for plotting the statistics computed from the sims
     """
-    def __init__():
-        pass
+    def __init__(self, logging_level='INFO'):
+        self.logger = self.configure_logging(logging_level)
+
     def _setup_panels(self, sim_nums, per_panel=10):
         """
         Find the number of rows and columns for the subplots
@@ -34,6 +35,18 @@ class BasePlot():
             rows = 2
         #self.logger.debug(f'sim_nums = {sim_nums}, panels = {panels}, rows = {rows}, columns = {columns}')
         return rows, columns
+    
+    def configure_logging(self, logging_level):
+        """Sets up logging based on the provided logging level."""
+        logger = logging.getLogger('ProjCorrEmus')
+        logger.setLevel(logging_level)
+        console_handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+
+        return logger
+        
 
 class BasePlotEmu():
     def __init__(self, logging_level='INFO', show_full_params=False):
@@ -366,7 +379,7 @@ class PlotXiSims(BasePlot):
     def __init__(self):
         pass
     
-    def plot_2d_mth1_mth2(self, corr_2d, mass_bins, fig, ax):
+    def plot_2d_mth1_mth2(self, corr_2d, mass_bins, fig, ax, title=None):
         """
         Plot a 2D colormap for the xi(r) with different threshold mass values
         Parameters:
@@ -376,11 +389,13 @@ class PlotXiSims(BasePlot):
         corr_file: str
             The correlation function file
         """
-        im = ax.imshow(np.log10(corr_2d), origin='lower', extent=[mass_bins[0], mass_bins[-1], mass_bins[0], mass_bins[-1]], vmin=-0.5, vmax=0.4)
+        im = ax.imshow(np.log10(corr_2d), origin='lower', extent=[mass_bins[0], mass_bins[-1], mass_bins[0], mass_bins[-1]])#, vmin=-0.5, vmax=0.4)
         ax.set_ylabel(r'$M > M_{th1}$')
         ax.set_xlabel(r'$M > M_{th2}$')
         cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
         cbar.set_label('Correlation')
+        if title is not None:
+            ax.set_title(title)
     
     def plot_all_2d(self, r_ind, fid, data_dir):
         """
@@ -391,10 +406,10 @@ class PlotXiSims(BasePlot):
         rows, columns = self._setup_panels(sim_nums=len(xi.sim_tags), per_panel=per_panel)
         fig, ax = plt.subplots(rows, columns, figsize=(4*columns, 3*rows))
         for i, s in enumerate(xi.sim_tags):
-            corr_2d, mass_bins = xi.corr_2d(sim_tag=s, r_ind=r_ind)
+            corr_2d, mass_bins, r_bin = xi.corr_2d(sim_tag=s, r_ind=r_ind)
             p = np.floor(i/per_panel).astype(int)
             indx, indy = np.floor(p/columns).astype(int), p%columns
-            self.plot_2d_mth1_mth2(corr_2d, mass_bins, fig, ax[indx, indy])
+            self.plot_2d_mth1_mth2(corr_2d, mass_bins, fig, ax[indx, indy], title=f'{s[-4::]} at r = {np.round(r_bin, 1)} Mpc/h')
         fig.tight_layout()
     
     def xi_1d_mth1_mth2(self, corr, rbins, mth, fig, ax):
@@ -687,13 +702,13 @@ class PlotTestEmus():
         plt.show()
 
 
-class PlotHMF(BasePlotEmu):
+class PlotHMF(BasePlot):
     """
     Class to plot Halo Mass fucntion and the meualtor
     
     """
     def __init__(self, data_dir, logging_level='INFO', show_full_params=False):
-        super().__init__(logging_level, show_full_params)
+        super().__init__()
         self.logging_level = logging_level
         self.data_dir = data_dir
 
@@ -733,6 +748,7 @@ class PlotHMF(BasePlotEmu):
         hmfs = {}
         bins = {}
         smoothed = {}
+        remained_sim_num = {}
         for fd in ['HF', 'L2']:
             halo_funcs[fd] = summary_stats.HMF(self.data_dir, fid=fd, no_merge=no_merge, chi2=chi2, narrow=narrow, logging_level=self.logging_level)
             hmfs[fd], bins[fd] = halo_funcs[fd].load()
@@ -748,6 +764,7 @@ class PlotHMF(BasePlotEmu):
             ind = np.where(np.isin(sim_nums, common_nums))[0]
             # sort based on the sim # for consistency
             argsort = np.argsort(sim_nums[ind])
+            remained_sim_num[fd] = sim_nums[ind][argsort]
             hmfs[fd] = hmfs[fd][ind][argsort]
             bins[fd] = bins[fd][ind][argsort]
             
@@ -756,16 +773,16 @@ class PlotHMF(BasePlotEmu):
             smoothed[fd] = []
             for i in argsort:
                 smoothed[fd].append(smoothed_temp[i])
-        return hmfs, bins, smoothed, x
+        return hmfs, bins, smoothed, remained_sim_num
 
 
     def compare_fids(self, no_merge=True, chi2=False, narrow=False, delta_r=None):
         x= np.arange(11.1, 13.5, 0.1)
-        hmfs, bins, smoothed, x = self.get_pairs(x=x, no_merge=no_merge, chi2=chi2, narrow=narrow, delta_r=delta_r)
+        hmfs, bins, smoothed, sim_nums = self.get_pairs(x=x, no_merge=no_merge, chi2=chi2, narrow=narrow, delta_r=delta_r)
         styles= [{'marker':'o', 'color':'C0', 's':45}, {'marker':'x', 'color':'C1', 's':45}]
         fig, ax = None, None
         for i, fd in enumerate(list(hmfs.keys())):
-            fig, ax = self._plot_smoothed(hmfs[fd], bins[fd], smoothed[fd], x, title='HF vs L2', style=styles[i], fig=fig, ax=ax, per_panel=1)
+            fig, ax = self._plot_smoothed(hmfs[fd], bins[fd], smoothed[fd], x, title='HF vs L2', ax_tilte=sim_nums[fd], style=styles[i], fig=fig, ax=ax, per_panel=1)
 
         num_sims = len(hmfs['HF'])
         per_panel = 1
@@ -776,7 +793,7 @@ class PlotHMF(BasePlotEmu):
             p = np.floor(i/per_panel).astype(int)
             indx, indy = np.floor(p/columns).astype(int), p%columns
             ax[indx, indy].plot(10**x, smoothed['L2'][i]/smoothed['HF'][i] - 1, 'o-', color=f'C{i}', alpha=0.5, label='Last bins merged')
-            ax[indx, indy].set_title(i)
+            ax[indx, indy].set_title(sim_nums['HF'][i])
             ax[indx, indy].set_ylim(-0.5, 0.5)
             ax[indx, indy].set_xscale('log')
             ax[indx, indy].grid()
@@ -787,7 +804,7 @@ class PlotHMF(BasePlotEmu):
         fig.tight_layout()
 
 
-    def _plot_smoothed(self, hmfs, bins, smoothed, x, title=None, per_panel=10, fig=None, ax=None, style=None, *kwargs):
+    def _plot_smoothed(self, hmfs, bins, smoothed, x, title=None, ax_tilte=None, per_panel=10, fig=None, ax=None, style=None, *kwargs):
 
         ## Find the number of rows and columns for the plot
         sim_nums = hmfs.shape[0]
@@ -817,6 +834,7 @@ class PlotHMF(BasePlotEmu):
             ax[ax_indx, ax_indy].set_yscale('log')
             ax[ax_indx, ax_indy].set_xlim(1e11, 1e14)
             ax[ax_indx, ax_indy].set_ylim(1e-7, 1e-1)
+            ax[ax_indx, ax_indy].set_title(ax_tilte[j])
             
             if title is not None:
                 fig.suptitle(title)

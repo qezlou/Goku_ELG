@@ -51,7 +51,7 @@ class BaseSummaryStats:
     
     def configure_logging(self, logging_level='INFO'):
         """Sets up logging based on the provided logging level in an MPI environment."""
-        logger = logging.getLogger('BaseStatEmu')
+        logger = logging.getLogger('summary_stats')
         logger.setLevel(logging_level)
 
         # Create a console handler with flushing
@@ -298,7 +298,7 @@ class Xi(BaseSummaryStats):
     Speherically Averaged correlation function
     """
     def __init__(self, data_dir, fid, narrow=False, logging_level='INFO'):
-        super().__init__(data_dir, fid, logging_level)
+        super().__init__(data_dir, fid, logging_level=logging_level)
         self.data_dir = data_dir
         self.fid = fid
         self.narrow = narrow
@@ -310,7 +310,7 @@ class Xi(BaseSummaryStats):
             self.sim_tags = [f[:-5] for f in os.listdir(op.join(self.data_dir, self.fid)) if self.pref in f and f.endswith('.hdf5')]
             self.logger.info(f'Total sims files: {len(self.sim_tags)} in {op.join(self.data_dir, self.fid)}')
 
-    def load_individual(self, sim_tag):
+    def _load_1d(self, sim_tag):
         """
         Load the correlation function for a single simulation
         """
@@ -322,23 +322,48 @@ class Xi(BaseSummaryStats):
             mass_pairs = f['pairs'][:]
         return sim_tag, rbins, xi, mass_pairs
     
-    def corr_2d(self, sim_tag, r_ind):
+    def _load_2d(self, sim_tag, r_ind=None, symmetric=False):
         """
         Put individual correlation functions on a cube
         """
-        sim_tag, rbins, xi, mass_pairs = self.load_individual(sim_tag)
+        sim_tag, rbins, xi, mass_pairs = self._load_1d(sim_tag)
         mass_bins = np.unique(mass_pairs)[::-1]
         indx_pairs = np.digitize(mass_pairs, mass_bins).astype(int)
-        corr_2d = np.full((mass_bins.size, mass_bins.size), np.nan)
+        if r_ind is not None:
+            corr_2d = np.full((mass_bins.size, mass_bins.size), np.nan)
+        else:
+            corr_2d = np.full((mass_bins.size, mass_bins.size, rbins.size), np.nan)
         for (i,j), val in zip(indx_pairs, xi):
-            corr_2d[i,j] = val[r_ind]
-        return corr_2d, mass_bins
+            if r_ind is None:
+                corr_2d[i,j] = val
+            else:
+                corr_2d[i,j] = val[r_ind]
+        if symmetric:
+            for i in range(corr_2d.shape[0]):
+                for j in range(i+1, corr_2d.shape[1]):
+                    corr_2d[j,i] = corr_2d[i,j]
+        return corr_2d, mass_bins, rbins[r_ind]
         
-    def load(self):
+    def load_all(self, mass_bin=None, r_ind=None,  two_d=False):
         """
         Load all computed correlation functions (xi(r))
         """
-        pass
+        all_corrs = []
+        for sim_tag in self.sim_tags:
+            if two_d:
+                corr, mass_bin, rbins = self._load_2d(sim_tag, r_ind=r_ind, symmetric=True)
+            else:
+                _, rbins, corr, mass_pairs = self._load_1d(sim_tag)
+            if mass_bin is not None:
+                mass_pairs = np.around(mass_pairs, 1)
+                ind = np.where((mass_pairs[:,0]==mass_bin[0])*(mass_pairs[:,1]==mass_bin[1]))
+                if len(ind[0]) == 0:
+                    raise ValueError(f'Mass bin {mass_bin} not found')
+                all_corrs.append(corr[ind])
+            else:
+                all_corrs.append(corr)
+                
+        return rbins, mass_bin,  np.array(all_corrs).squeeze()
 
             
 class HMF(BaseSummaryStats):
