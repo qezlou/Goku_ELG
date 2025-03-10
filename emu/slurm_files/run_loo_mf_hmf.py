@@ -2,8 +2,8 @@ from  mpi4py import MPI
 from gal_goku import emus_multifid as emus
 
 #data_dir = '/rhome/mqezl001/bigdata/HETDEX/data/HMF/'
-#data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/HMF/'
-data_dir = '/scratch/06536/qezlou/Goku/processed_data/HMF/'
+data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/HMF/'
+#data_dir = '/scratch/06536/qezlou/Goku/processed_data/HMF/'
 
 
 emu_type = {'multi-fid':True, 'single-bin':True, 'linear':True, 'wide_and_narrow':False }
@@ -20,9 +20,13 @@ rank = comm.Get_rank()
 print(f'rank = {rank}', flush=True)
 #savefile = '/home/qezlou/HD2/HETDEX/cosmo/data/HMF/train/loo_L2_mf_no_merge.hdf5'
 
-emu = emus.Hmf(data_dir=data_dir,
-               emu_type=emu_type, 
-               no_merge=no_merge,
-               logging_level='INFO')
+#emu = emus.Hmf(data_dir=data_dir,
+#               emu_type=emu_type, 
+#               no_merge=no_merge,
+#               logging_level='INFO')
+emu = emus.HmfNativeBins(data_dir=data_dir,
+                         emu_type=emu_type, 
+                         no_merge=no_merge,
+                         logging_level='INFO')
 emu.loo_train_pred(savefile=savefile)
 #emu.train_pred_all_sims(savefile=savefile)

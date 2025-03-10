@@ -9,6 +9,7 @@ import numpy as np
 from . import summary_stats
 #from . import single_fid
 from . import gpemulator_singlebin as gpemu
+from mfgpflow.linear_svgp import LatentMFCoregionalizationSVGP
 import sys
 import copy
 
@@ -29,17 +30,27 @@ class BaseStatEmu():
 
     def __init__(self, X, Y, 
                  logging_level='info', 
-                 emu_type={'multi-fid':False, 'single-bin':False, 'linear':True},
-                 n_optimization_restarts=5):
+                 emu_type={'multi-fid':False, 'single-bin':False, 'linear':True, 'mf-svgp':False},
+                 n_optimization_restarts=5, emu_args=None):
         """The base emu to be inherited by single fidelity emulators built on any summary statistics
         This is the interface for all classses above.
         :param X_train:  (n_fidelities, n_points, n_dims) list of parameter vectors.
         :param Y_train:  (n_fidelities, n_points, n_nins) list of matter power spectra.
         """
         self.logger = self.configure_logging(logging_level)
+        # This if statement is to make sure that the emu_type has all the keys
+        if 'mf-svgp' not in emu_type:
+            emu_type['mf-svgp'] = False
         self.emu_type = emu_type
         self.n_optimization_restarts = n_optimization_restarts
-        if emu_type['multi-fid'] and emu_type['linear'] and emu_type['single-bin']:
+
+        ## TO DO: Better layout for the emu_type
+        if emu_type['mf-svgp'] and emu_type['multi-fid'] and emu_type['linear']:
+            # Class for Linear multi-fidelity emulator using gpflow's SVGP
+            # This helps with dimensionality reduction of the output space
+            self.emu = LatentMFCoregionalizationSVGP
+
+        elif emu_type['multi-fid'] and emu_type['linear'] and emu_type['single-bin']:
             # Class for Linear multi-fidelity emulators
             self.emu = gpemu.SingleBinLinearGP
         
@@ -212,6 +223,15 @@ class BaseStatEmu():
 class Hmf(BaseStatEmu):
     def __init__(self, data_dir, fid=['L2'], logging_level='INFO', no_merge=True, emu_type={'multi-fid':False, 'single-bin':False, 'linear':True, 'wide_and_narrow':True}):
         """
+        emu_type : dict
+            A dictionary with the emulator types. 
+            linear : bool
+                If True, use the linear emulator.
+            multi-fid : bool
+                If True, use the multi-fidelity emulator.
+            wide_and_narrow : bool
+                If True, use both wide and narrow simulations.
+            mf-svgp : bool
         """
         self.logging_level = logging_level
         self.logger = self.configure_logging(logging_level)
@@ -254,3 +274,91 @@ class Hmf(BaseStatEmu):
             self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
 
         super().__init__(X=self.X, Y=self.Y, logging_level=logging_level, emu_type=emu_type, n_optimization_restarts=5)
+    
+
+class HmfNativeBins(BaseStatEmu):
+    """
+    A class using the native bins of the Halo Mass Function and using `LinearMFCoregionalizationSVGP`
+    to do the dimensionality reduction of the output space and train the emulator. 
+    """
+    def __init__(self, data_dir, no_merge=True,  emu_type={'wide_and_narrow':True}, logging_level='INFO'):
+        """
+        Parameters
+        ----------
+        data_dir : str
+            The directory where the data is stored.
+        no_merge : bool
+            If True, do not merge the last bins of the Halo Mass Function with
+            lower counts than 20 halos.
+        emu_type : dict
+            wide_and_narrow : bool
+                If True, use both wide and narrow simulations.
+        """
+        self.logging_level = logging_level
+        self.logger = self.configure_logging(logging_level)
+        self.data_dir = data_dir
+        self.no_merge = no_merge
+        self.X = []
+        self.Y = []
+        self.labels = []
+        # Fix a few features of the emulator
+        emu_type.update({'multi-fid':True, 'single-bin':False, 'linear':True, 'mf-svgp':True})
+        fids = ['L2', 'HF']
+        for fd in fids:
+            # Goku-wide sims
+            hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=False, no_merge=no_merge, logging_level=logging_level)
+            # Train on the hmf values on native bins
+            Y_wide, self.mbins = hmf.load()
+            print(f'Y_wide: {Y_wide.shape}')
+            X_wide = hmf.get_params_array()
+            labels_wide = hmf.get_labels()
+            # Only use Goku-wide
+            if not emu_type['wide_and_narrow']:
+                self.Y.append(Y_wide)
+                self.X.append(X_wide)
+                self.labels.append(labels_wide)
+            # Use both Goku-wide and narrow
+            else:
+                # Goku-narrow sims
+                hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=True, no_merge=no_merge, logging_level=logging_level)
+                # train on the hmf values on native bins
+                Y, self.mbins = hmf.load()
+                # For now, get rid of the lastbins with 0 value
+                self.Y.append(np.concatenate((Y_wide, Y), axis=0))
+                self.X.append(np.concatenate((X_wide, hmf.get_params_array()), axis=0))
+                self.labels.append(np.concatenate((labels_wide, hmf.get_labels()), axis=0))
+        if rank==0:
+            self.logger.info(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
+
+        self.X = np.vstack(self.X)
+        X_normed, X_min, X_max, Y_normed = self.normalize(self.X, self.Y)
+
+
+        super().__init__(X=self.X, Y=self.Y, logging_level=logging_level, emu_type=emu_type, n_optimization_restarts=5)
+    
+        
+    def normalize(self, X, Y):
+        """
+        Normalize all input, X, such it is between 0 and 1
+        Subtract the output, Y, by it's mean, only for LF
+        and leave the HF uncrouched
+
+        Returns:
+        --------
+        X_normalized: normalized input data between 0 and 1
+        X_min: minimum value of the input data
+        X_max: maximum value of the input data
+        mean_func: the mean of the output to be used as the mean function
+        in the GP model
+        """
+        X_min, X_max = np.min(X, axis=0), np.max(X, axis=0)
+        X_normalized = (X-X_min)/(X_max-X_min)
+        Y_normalized = []
+        # The zeros row is the LF
+        # Since each sim has different number of bins, we need iterate 
+        Y_normalized.append(Y[0,:] - np.mean(Y[0,:], axis=0))
+        # Don't subtract the mean for the HF, The MF GP will match
+        # the HF mean
+        Y_normalized.append(Y[1,:])
+
+        return X_normalized, X_min, X_max, Y_normalized

@@ -426,7 +426,7 @@ class HMF(BaseSummaryStats):
             hmfs = comm.bcast(hmfs)
         self.sim_tags = sim_tags
         self.bad_sims = bad_sims
-        self.logger.debug(f'Loadded HMFs from {save_file}') 
+        self.logger.debug(f'Loaded HMFs from {save_file}') 
         return hmfs, bins
 
     def _do_fits(self, ind=None, delta_r=None, *kwargs):
