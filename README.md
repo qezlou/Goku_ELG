@@ -1,4 +1,4 @@
-# HETDEX-Comology
+# Galaxy emualtor
 
 
 ```
