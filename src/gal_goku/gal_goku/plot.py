@@ -403,13 +403,14 @@ class PlotXiSims(BasePlot):
         """
         per_panel = 1
         xi = summary_stats.Xi(data_dir, fid=fid)
+        # Load xi(sim, n1, n2) at r0 = r[r_ind]
+        r0, mass_bins, corrs_2d = xi.get_xi_n1_n2(r_ind)
         rows, columns = self._setup_panels(sim_nums=len(xi.sim_tags), per_panel=per_panel)
         fig, ax = plt.subplots(rows, columns, figsize=(4*columns, 3*rows))
         for i, s in enumerate(xi.sim_tags):
-            corr_2d, mass_bins, r_bin = xi.corr_2d(sim_tag=s, r_ind=r_ind)
             p = np.floor(i/per_panel).astype(int)
             indx, indy = np.floor(p/columns).astype(int), p%columns
-            self.plot_2d_mth1_mth2(corr_2d, mass_bins, fig, ax[indx, indy], title=f'{s[-4::]} at r = {np.round(r_bin, 1)} Mpc/h')
+            self.plot_2d_mth1_mth2(corrs_2d[i], mass_bins, fig, ax[indx, indy], title=f'{s[-4::]} at r = {np.round(r0, 1)} Mpc/h')
         fig.tight_layout()
     
     def xi_1d_mth1_mth2(self, corr, rbins, mth, fig, ax):

@@ -9,7 +9,7 @@ import os.path as op
 import logging
 import json
 import re
-from scipy.interpolate import BSpline
+from scipy.interpolate import BSpline, LSQBivariateSpline, make_lsq_spline, LSQUnivariateSpline
 from matplotlib import pyplot as plt
 from . import utils
 import sys
@@ -309,8 +309,13 @@ class Xi(BaseSummaryStats):
             # Each sim is an indivudal hdf5 file in op.join(data_dir, fid)
             self.sim_tags = [f[:-5] for f in os.listdir(op.join(self.data_dir, self.fid)) if self.pref in f and f.endswith('.hdf5')]
             self.logger.info(f'Total sims files: {len(self.sim_tags)} in {op.join(self.data_dir, self.fid)}')
+        
+        _, self.rbins, _, mass_pairs = self._load_data(self.sim_tags[0])
+        self.mass_pairs = np.around(mass_pairs, 2)
+        self.mass_bins = np.round(np.unique(mass_pairs), 2)
 
-    def _load_1d(self, sim_tag):
+
+    def _load_data(self, sim_tag, r_cut=0.2):
         """
         Load the correlation function for a single simulation
         """
@@ -320,52 +325,164 @@ class Xi(BaseSummaryStats):
             rbins = f['mbins'][:]
             xi = f['corr'][:]
             mass_pairs = f['pairs'][:]
+            if r_cut is not None:
+                ind = np.where(rbins > r_cut)[0]
+                rbins = rbins[ind]
+                xi = xi[:,ind]
         return sim_tag, rbins, xi, mass_pairs
-    
-    def _load_2d(self, sim_tag, r_ind=None, symmetric=False):
+
+    def make_3d_corr(self, corr, symmetric=False):
         """
-        Put individual correlation functions on a cube
+        Pass xi(n_mass_pairs, n_rbins) and get a
+        3D array (n_mass_pairs, n_mass_pairs, n_rbins)
         """
-        sim_tag, rbins, xi, mass_pairs = self._load_1d(sim_tag)
-        mass_bins = np.unique(mass_pairs)[::-1]
-        indx_pairs = np.digitize(mass_pairs, mass_bins).astype(int)
-        if r_ind is not None:
-            corr_2d = np.full((mass_bins.size, mass_bins.size), np.nan)
-        else:
-            corr_2d = np.full((mass_bins.size, mass_bins.size, rbins.size), np.nan)
-        for (i,j), val in zip(indx_pairs, xi):
-            if r_ind is None:
-                corr_2d[i,j] = val
-            else:
-                corr_2d[i,j] = val[r_ind]
+        mass_bins = self.mass_bins[::-1]
+        ind_m_pair = np.digitize(self.mass_pairs, mass_bins).astype(int)
+        corr_3d = np.full((mass_bins.size, mass_bins.size, self.rbins.size), np.nan)
+        for (i,j), val in zip(ind_m_pair, corr):
+            corr_3d[i,j] = val
         if symmetric:
-            for i in range(corr_2d.shape[0]):
-                for j in range(i+1, corr_2d.shape[1]):
-                    corr_2d[j,i] = corr_2d[i,j]
-        return corr_2d, mass_bins, rbins[r_ind]
-        
-    def load_all(self, mass_bin=None, r_ind=None,  two_d=False):
+            for i in range(mass_bins.size):
+                for j in range(mass_bins.size):
+                    corr_3d[j,i] = corr_3d[i,j]
+        return corr_3d
+    
+    def _xi_sim_n1_n2(self, sim_tag, r_ind=None, symmetric=False):
         """
-        Load all computed correlation functions (xi(r))
+        Get xi(n1, n2) for a single simulation at fixed r0 = rbins[r_ind]
+        """
+        sim_tag, rbins, corr, mass_pairs = self._load_data(sim_tag)
+        mass_bins = np.unique(mass_pairs)[::-1]
+        ind_m_pair = np.digitize(mass_pairs, mass_bins).astype(int)
+
+        corr_2d = np.full((mass_bins.size, mass_bins.size), np.nan)
+            
+        for (i,j), val in zip(ind_m_pair, corr):
+            corr_2d[i,j] = val[r_ind]
+        if symmetric:
+            corr_2d = np.triu(corr_2d) + np.triu(corr_2d, 1).T
+        return  rbins[r_ind], mass_bins,  corr_2d
+    
+    def _xi_sim_n1_n2_r(self, sim_tag, symmetric=False):
+        """
+        Get xi(n1, n2, r) for a single simulation
+        """
+        _, _, corr, _ = self._load_data(sim_tag)
+        corr_3d = self.make_3d_corr(corr, symmetric=symmetric)
+        return corr_3d
+    
+    def get_xi_n1_n2(self, r_ind, symmetric=False):
+        """
+        Get Xi(n1, n2) for all simulations at fixed r
         """
         all_corrs = []
         for sim_tag in self.sim_tags:
-            if two_d:
-                corr, mass_bin, rbins = self._load_2d(sim_tag, r_ind=r_ind, symmetric=True)
-            else:
-                _, rbins, corr, mass_pairs = self._load_1d(sim_tag)
-            if mass_bin is not None:
-                mass_pairs = np.around(mass_pairs, 1)
-                ind = np.where((mass_pairs[:,0]==mass_bin[0])*(mass_pairs[:,1]==mass_bin[1]))
-                if len(ind[0]) == 0:
-                    raise ValueError(f'Mass bin {mass_bin} not found')
-                all_corrs.append(corr[ind])
-            else:
-                all_corrs.append(corr)
-                
-        return rbins, mass_bin,  np.array(all_corrs).squeeze()
+            r0, mass_bins, corr = self._xi_sim_n1_n2(sim_tag, r_ind=r_ind, symmetric=symmetric)
+            all_corrs.append(corr)
+        return r0, mass_bins, np.array(all_corrs)
+    
+    def get_xi_n1_n2_r(self):
+        """
+        Get xi(n1, n2, r) for all simulations
+        Returns:
+        --------------
+        rbins: np.ndarray, shape=(n_rbins,)
+            The r values
+        mass_bins: np.ndarray, shape=(n_mass_bins,)
+            The mass bins, storing the mass values
+            in descending order. This is the order the corr is stored
+        all_corrs: np.ndarray, shape=(n_sims, n_mass_bins, n_mass_bins, n_rbins)
+            The xi(n1, n2, r) for all the simulations
+        """
+        all_corrs = []
+        for sim_tag in self.sim_tags:
+            rbins, mass_bins, corr = self._xi_sim_n1_n2_r(sim_tag)
+            all_corrs.append(corr)
+        return rbins, mass_bins, np.array(all_corrs)
+    
+    def _sim_fit_spline_n1n2(self, sim_tag, r_ind, tx= None):
+        """
+        Fit a bivariate to the xi(n1,n2) at r0 = rbins[r_ind]
+        Parameters:
+        --------------
+        sim_tag: str
+            The simulation tag
+        r_ind: int
+            The index of the r value to fit
+        tx: np.ndarray, optional, default=None
+            The knots for the spline fit
+        Retruns:
+        --------------
+        r0: float
+            The r value at which the fit is done
+        mass_bins: np.ndarray
+            The mass bins in increasing order
+        corr_2d: np.ndarray
+            The trimmed log10(xi(n1, n2)) array, with
+            nan values replaced by -10
+        spline: scipy.interpolate.LSQBivariateSpline
+            The spline fit to the log10(xi(n1, n2)) at r0.
+        NOTE: The spline corresponds to the "flipped"
+        mass_bins, corr_2d arrays.
 
-            
+        """
+        ## Load a 2D array, (sim, m1_cut, m2_cut) which are
+        ## the correlation functions at fixed xi(r_0)
+        r0, mass_bins, corr_2d = self._xi_sim_n1_n2(sim_tag, r_ind=r_ind, symmetric=True)
+        # We need the mass bins to be in ascending order    
+        mass_bins = mass_bins[::-1]
+        corr_2d = np.flip(corr_2d, axis=(0,1))
+        # Replace the nan bins with a small negative number
+        # And give a weight of zero to these bins while fitting
+        corr_2d = np.log10(corr_2d)
+        ind = np.isnan(corr_2d)
+        corr_2d[ind] = -10
+        ## spline weights
+        w = np.ones_like(corr_2d)
+        w[ind] = 1e-5
+
+        x, y = np.meshgrid(mass_bins, mass_bins)
+        ## The fixed knots for the spline
+        if tx is None:
+            tx = np.linspace(11, 12, 5)
+            tx = np.append(tx, np.linspace(12.1, 13, 3))
+        ty = np.copy(tx)
+        spline = LSQBivariateSpline(x.flatten(), y.flatten(), corr_2d.flatten(), tx, ty, w=w.flatten(), kx=3, ky=3)
+        return r0, mass_bins, corr_2d, spline
+
+    def _sim_fit_spline_r(self, sim_tag):
+        """
+        Fit a univariate spline to the xi(r) at fixed n1, n2
+        """
+        _, _, corr_sim, mass_pairs = self._load_data(sim_tag)
+        # Replace the nan bins with a small negative number
+        # And give a weight of zero to these bins while fitting
+        corr_sim = np.log10(corr_sim)
+        ind = np.isnan(corr_sim)
+        self.logger.debug(f'Found {100*ind.sum()/corr_sim.size:.1f} % of xi(r,n1,n2) is nan')
+        corr_sim[ind] = -10
+        all_splines = []
+        w = np.ones_like(corr_sim)
+        w[ind] = 1e-5
+        #w[:,self.rbins< 0.5] = 0
+        rbins = self.rbins
+        # The fixed knots for the spline
+        tx = np.array([rbins[0], rbins[0], rbins[0], rbins[0], 1, 1.2, 1.5])
+        tx = np.append(tx, np.logspace(np.log10(2), np.log10(60), 5)[1:])
+        tx = np.append(tx, np.linspace(60, rbins[-1], 5)[1:])
+        tx = np.append(tx, [rbins[-1], rbins[-1], rbins[-1]])
+        tx = np.log10(tx)
+        rbins = np.log10(np.copy(self.rbins))
+        assert np.all(np.sort(tx) == tx), 'The knots are not sorted'
+        assert np.all(np.sort(rbins) == rbins), 'The rbins are not sorted'
+
+        for i in range(corr_sim.shape[0]):
+            # Fit the spline
+            spline = make_lsq_spline(rbins, corr_sim[i], tx, w=w[i].flatten(), k=3)
+            all_splines.append(spline)
+        return corr_sim, all_splines
+        
+    
 class HMF(BaseSummaryStats):
     """
     Halo mass function
