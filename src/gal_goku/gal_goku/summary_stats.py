@@ -9,13 +9,15 @@ import os.path as op
 import logging
 import json
 import re
-from scipy.interpolate import BSpline, LSQBivariateSpline, make_lsq_spline, LSQUnivariateSpline
+from scipy.interpolate import BSpline, LSQBivariateSpline, make_lsq_spline, make_splrep, UnivariateSpline, bisplrep
 from matplotlib import pyplot as plt
 from . import utils
 import sys
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-
+import gpflow
+from gpflow.utilities import print_summary
+import tensorflow as tf
 # Each MPI rank build GP for one bin
 try :
     #raise ImportError
@@ -330,6 +332,16 @@ class Xi(BaseSummaryStats):
                 rbins = rbins[ind]
                 xi = xi[:,ind]
         return sim_tag, rbins, xi, mass_pairs
+    
+    def load_all_data(self):
+        """
+        Load all the correlation functions in original form
+        """
+        all_corrs = []
+        for sim_tag in self.sim_tags:
+            _, _, corr, _ = self._load_data(sim_tag)
+            all_corrs.append(corr)
+        return np.array(all_corrs)
 
     def make_3d_corr(self, corr, symmetric=False):
         """
@@ -363,7 +375,7 @@ class Xi(BaseSummaryStats):
             corr_2d = np.triu(corr_2d) + np.triu(corr_2d, 1).T
         return  rbins[r_ind], mass_bins,  corr_2d
     
-    def _xi_sim_n1_n2_r(self, sim_tag, symmetric=False):
+    def _xi_sim_n1_n2_r(self, sim_tag, symmetric=True):
         """
         Get xi(n1, n2, r) for a single simulation
         """
@@ -396,11 +408,20 @@ class Xi(BaseSummaryStats):
         """
         all_corrs = []
         for sim_tag in self.sim_tags:
-            rbins, mass_bins, corr = self._xi_sim_n1_n2_r(sim_tag)
+            corr = self._xi_sim_n1_n2_r(sim_tag)
             all_corrs.append(corr)
-        return rbins, mass_bins, np.array(all_corrs)
+        return np.array(all_corrs)
     
-    def _sim_fit_spline_n1n2(self, sim_tag, r_ind, tx= None):
+    def _replace_nan_corrs(self, log_corr, window=5):
+        """
+        Replace the correlation function bins with
+        negative values (nan in log space) with the average
+        value of the corrs at smaller mass bins with a `window`
+        size.
+        """
+        pass
+
+    def _sim_fit_spline_n1n2(self, sim_tag, r=None, r_ind=None, tx= None, allow_scipy=False):
         """
         Fit a bivariate to the xi(n1,n2) at r0 = rbins[r_ind]
         Parameters:
@@ -426,31 +447,43 @@ class Xi(BaseSummaryStats):
         mass_bins, corr_2d arrays.
 
         """
+        if r is not None:
+            r_ind = np.argmin(np.abs(self.rbins - r))
         ## Load a 2D array, (sim, m1_cut, m2_cut) which are
         ## the correlation functions at fixed xi(r_0)
         r0, mass_bins, corr_2d = self._xi_sim_n1_n2(sim_tag, r_ind=r_ind, symmetric=True)
         # We need the mass bins to be in ascending order    
-        mass_bins = mass_bins[::-1]
+        mass_bins = np.around(mass_bins[::-1], 2)
         corr_2d = np.flip(corr_2d, axis=(0,1))
-        # Replace the nan bins with a small negative number
-        # And give a weight of zero to these bins while fitting
-        corr_2d = np.log10(corr_2d)
-        ind = np.isnan(corr_2d)
-        corr_2d[ind] = -10
-        ## spline weights
-        w = np.ones_like(corr_2d)
-        w[ind] = 1e-5
 
-        x, y = np.meshgrid(mass_bins, mass_bins)
+        corr_2d = np.log10(corr_2d)
+
         ## The fixed knots for the spline
         if tx is None:
-            tx = np.linspace(11, 12, 5)
-            tx = np.append(tx, np.linspace(12.1, 13, 3))
+            tx = np.array([11.1, 11.5, 11.9, 12.1, 12.3, 12.5, 13.0])
+        tx = np.round(tx, 2)
         ty = np.copy(tx)
-        spline = LSQBivariateSpline(x.flatten(), y.flatten(), corr_2d.flatten(), tx, ty, w=w.flatten(), kx=3, ky=3)
-        return r0, mass_bins, corr_2d, spline
+        common_indices = np.where(np.isin(mass_bins, tx))[0]
+        assert np.all(mass_bins[common_indices] == tx), f'The knots are not in the mass bins {mass_bins[common_indices]} != {tx}'
+        mask = np.meshgrid(common_indices, common_indices)
+        x_g, y_g = np.meshgrid(tx, ty)
+        # Don't use the bins with nan values
+        corr_grid = corr_2d[mask[0], mask[1]].flatten()
+        nan_mask = np.isnan(corr_grid).flatten()
+        x_g = x_g.flatten()[~nan_mask]
+        y_g = y_g.flatten()[~nan_mask]
+        corr_grid = corr_grid[~nan_mask]
+        assert len(x_g.flatten()) == len(corr_grid), f'The lengths do not match, {len(x_g.flatten())} != {len(corr_grid)}'
+        # The minimum number of points required for a spline fit
+        if x_g.size < (3+1)*(3+1):
+            spline = None
+        else:
+            spline = LSQBivariateSpline(x_g.flatten(), y_g.flatten(), corr_grid, tx, ty, kx=3, ky=3)
+            if allow_scipy:
+                spline = bisplrep(x_g.flatten(), y_g.flatten(), corr_grid, kx=3, ky=3, s=1e-3)
+        return r0, tx, mass_bins, corr_2d, spline
 
-    def _sim_fit_spline_r(self, sim_tag):
+    def _sim_fit_spline_r(self, sim_tag, s=1e-3):
         """
         Fit a univariate spline to the xi(r) at fixed n1, n2
         """
@@ -460,28 +493,157 @@ class Xi(BaseSummaryStats):
         corr_sim = np.log10(corr_sim)
         ind = np.isnan(corr_sim)
         self.logger.debug(f'Found {100*ind.sum()/corr_sim.size:.1f} % of xi(r,n1,n2) is nan')
-        corr_sim[ind] = -10
-        all_splines = []
-        w = np.ones_like(corr_sim)
-        w[ind] = 1e-5
-        #w[:,self.rbins< 0.5] = 0
         rbins = self.rbins
-        # The fixed knots for the spline
-        tx = np.array([rbins[0], rbins[0], rbins[0], rbins[0], 1, 1.2, 1.5])
-        tx = np.append(tx, np.logspace(np.log10(2), np.log10(60), 5)[1:])
-        tx = np.append(tx, np.linspace(60, rbins[-1], 5)[1:])
-        tx = np.append(tx, [rbins[-1], rbins[-1], rbins[-1]])
-        tx = np.log10(tx)
-        rbins = np.log10(np.copy(self.rbins))
-        assert np.all(np.sort(tx) == tx), 'The knots are not sorted'
-        assert np.all(np.sort(rbins) == rbins), 'The rbins are not sorted'
-
-        for i in range(corr_sim.shape[0]):
-            # Fit the spline
-            spline = make_lsq_spline(rbins, corr_sim[i], tx, w=w[i].flatten(), k=3)
-            all_splines.append(spline)
-        return corr_sim, all_splines
         
+        # The fixed knots for the spline
+        #tx = np.array([rbins[0], rbins[0], rbins[0], rbins[0], 1., 1.2, 1.5])
+        #tx = np.append(tx, np.logspace(np.log10(2), np.log10(60), 3)[1:])
+        #tx = np.append(tx, np.linspace(60, rbins[-1], 5)[1:])
+        #tx = np.append(tx, [rbins[-1]+1, rbins[-1]+1, rbins[-1]+1])
+        #assert np.all(np.sort(tx) == tx), 'The knots are not sorted'
+        
+        # The smapling points
+        xg = np.array([0.1, 0.3, 0.5, 1, 1.2, 1.5, 2])
+        xg = np.append(xg, np.logspace(np.log10(2), np.log10(10), 5)[1:])
+        xg = np.append(xg, np.logspace(np.log10(10), np.log10(60), 5)[1:])
+        xg = np.append(xg, np.linspace(60, rbins[-1], 5)[1:])
+        xg = np.append(xg, rbins[-1])
+        # Find the closest indices to the grid points
+        closest_indices = np.searchsorted(rbins, xg)
+        closest_indices = np.clip(closest_indices, 1, len(rbins) - 1)
+        closest_indices = closest_indices - (np.abs(rbins[closest_indices - 1] - xg) < np.abs(rbins[closest_indices] - xg))
+        xg  = rbins[closest_indices]
+
+        xg = np.log10(xg)
+        # Same weights for all the points
+        w = np.ones_like(xg)
+        w[xg < 0.5] = 0.5
+        # We only use the data on the grid points
+        corr_grid = corr_sim[:,closest_indices]
+        # Remove the grids with no data
+        nan_mask = np.isnan(corr_grid)
+
+        all_splines = []
+        for i in range(corr_sim.shape[0]):
+            # Don't fit the spline if there are less than 20 (vs 40 in total) points
+            if len(xg[~nan_mask[i]]) < 20:  # Need at least k+1 knots for degree k=3
+                spline = None
+            else:
+                w =  w[~nan_mask[i]]
+                spline = make_splrep(xg[~nan_mask[i]], corr_grid[i][~nan_mask[i]], w=w, k=3, s=s)
+                self.logger.debug(spline.c.size)
+                #spline = UnivariateSpline(xg[~nan_mask[i]], corr_grid[i][~nan_mask[i]], k=3, s=1e-4)
+                #self.logger.debug(spline.get_coeffs().size)
+            all_splines.append(spline)
+        return xg, corr_sim, all_splines
+
+    def _normalize(self, X=None,Y=None):
+        """
+        Normalzie the data for GP fitting
+        Parameters:
+        --------------
+        X: np.ndarray, shape=(n,)
+            The input data
+        Y: np.ndarray, shape=(n,)
+            The output data
+        Returns:
+        --------------
+        mean_func: np.ndarray
+            The mean function of the data
+        X: np.ndarray
+            The normalized input data
+        X_min, X_max: float
+            The min and max of the input data
+        """
+        mean_func, X_min, X_max = None, None, None
+        if X is not None:
+            X_min, X_max = tf.reduce_min(X), tf.reduce_max(X)
+            X = (X - X_min) / (X_max - X_min)
+        if Y is not None:
+            medind = np.argsort(Y)[np.shape(Y)[0]//2]
+            mean_func = Y[medind]
+        return mean_func, X, X_min, X_max
+
+    def _do_gp(self, X, Y):
+        """
+        Helper to fit a GP on one dataset
+        Parameters:
+        --------------
+        X: np.ndarray
+            The input data
+        Y: np.ndarray
+            The output data
+        Returns:
+        --------------
+        model: gpflow.models.GPR
+            The trained GP model
+        opt_logs: dict
+            The optimization logs
+        """
+        # Mean func of the GP
+        ind_nan = np.isnan(Y)
+        mean_func, _, _, _ = self._normalize(Y=Y)
+        dtype = mean_func.dtype
+        
+        # simple mean of Y
+        class MeanFunction(gpflow.mean_functions.MeanFunction):
+            def __call__(self, X):
+                return mean_func * tf.ones((X.shape[0], 1), dtype=dtype)
+
+        ## 3 GPs with chagepoints at 1, 10 cMpc/h
+        kernel_list = [gpflow.kernels.RBF() for _ in range(3)]
+        compound_kernel = gpflow.kernels.ChangePoints(kernel_list, locations=np.log10([1, 10]))
+        model = gpflow.models.VGP(data=(X[:, np.newaxis], Y[:,np.newaxis]), kernel=compound_kernel, mean_function=MeanFunction())
+        gpflow.set_trainable(model.kernel.locations, False)
+        ## Optimize
+        opt = gpflow.optimizers.Scipy()
+        opt_logs = opt.minimize(model.training_loss, model.trainable_variables, options=dict(maxiter=100))
+        return model, opt_logs
+
+    
+    def _sim_fit_gp_r(self, sim_tag, r_range=(0.1, np.inf)):
+        """
+        Fit a GP to the xi(r) at fixed n1, n2. For one simulation
+        with tags=`sim_tag`
+        Parameters:
+        --------------
+        sim_tag: str
+            The simulation tag
+        r_range: tuple
+            The range of r values to consider for fitting
+        Returns:
+        --------------
+        rbins: np.ndarray
+            The r values used for the fit
+            units: Mpc/h
+        corrs: np.ndarray
+            The xi(r) values for the fit at 
+            each mass pair
+        all_models: list
+            List of trained GP models for each mass pair
+        """
+        _, _, corrs, mass_pairs = self._load_data(sim_tag)
+        ind_rbins = np.where((self.rbins > r_range[0]) & (self.rbins < r_range[1]))[0]
+        rbins = np.copy(self.rbins[ind_rbins])
+        corrs = np.log10(corrs[:,ind_rbins])
+        rbins = np.log10(rbins)
+        _, X, X_min, X_max = self._normalize(X=rbins)
+        all_models = [] # store the GPs per mass pair
+        for b in range(3):
+            if b%10 == 0:
+                self.logger.info(f'Fitting GP, prog {b}/{corrs.shape[0]}')
+            Y = corrs[b]
+            model, opt_logs = self._do_gp(X, Y)
+            if opt_logs['success'] == False:
+                self.logger.warning(f'Optimization did not converge for {sim_tag} at mass pair {mass_pairs[b]}')
+                all_models.append(None)
+            else:
+                all_models.append(model)
+            
+        return 10**rbins, 10**corrs, all_models
+
+
+
     
 class HMF(BaseSummaryStats):
     """
