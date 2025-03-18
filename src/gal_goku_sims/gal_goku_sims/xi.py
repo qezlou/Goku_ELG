@@ -318,6 +318,8 @@ class Corr():
         hmfs, trimmed_bins = [], []
         bad_sims = []
         sim_tags = []
+        if self.rank==0:
+            self.logger.info(f'Gert corr for sim {start} to {end}')
         for i in range(start, end):
             save_file = os.path.join(save_dir, pigs["sim_tags"][i]+'.hdf5')
             if os.path.exists(save_file):
