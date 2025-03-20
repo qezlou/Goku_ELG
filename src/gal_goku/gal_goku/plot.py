@@ -378,6 +378,21 @@ class PlotXiSims(BasePlot):
     """
     def __init__(self):
         pass
+    def find_common_pairs(self, data_dir, sim_tags, r_ind):
+        halo_funcs = {}
+        hmfs = {}
+        bins = {}
+        smoothed = {}
+        remained_sim_num = {}
+        for fd in ['HF', 'L2']:
+            halo_funcs[fd] = summary_stats.HMF(self.data_dir, fid=fd, no_merge=no_merge, chi2=chi2, narrow=narrow, logging_level=self.logging_level)
+            hmfs[fd], bins[fd] = halo_funcs[fd].load()
+            sim_nums = halo_funcs[fd]._sim_nums()
+            if fd == 'HF':
+                common_nums = sim_nums
+            else:
+                common_nums = np.intersect1d(common_nums, sim_nums)
+        self.logger.info(f'Found {len(common_nums)} common pairs')
     
     def plot_2d_mth1_mth2(self, corr_2d, mass_bins, fig, ax, title=None):
         """
@@ -413,10 +428,11 @@ class PlotXiSims(BasePlot):
             self.plot_2d_mth1_mth2(corrs_2d[i], mass_bins, fig, ax[indx, indy], title=f'{s[-4::]} at r = {np.round(r0, 1)} Mpc/h')
         fig.tight_layout()
     
-    def xi_1d_mth1_mth2(self, corr, rbins, mth, fig, ax):
+    def xi_r_mth1_mth2(self, corr, rbins, mth, fig, ax):
         """
         Plot the 1D correlation function for a given threshold mass
         """
+        fig, ax = plt.subplots(1, 1, figsize=(4, 3))
         ax.plot(rbins, corr, label=f'{mth}')
     
 

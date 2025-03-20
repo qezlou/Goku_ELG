@@ -4,13 +4,16 @@ Evaluating multifid emulator, HF and L2 pairs. Using Ming-Feng's thin wrappers o
 """
 
 import logging
+import pickle
 import h5py
 import numpy as np
 from . import summary_stats
 #from . import single_fid
 from . import gpemulator_singlebin as gpemu
+import gpflow
 from mfgpflow.linear_svgp import LatentMFCoregionalizationSVGP
 import sys
+import os.path as op
 import copy
 
 try :
@@ -167,7 +170,24 @@ class BaseStatEmu():
         """
         Train the model on all simulations and comapre with the truth
         """
-        if self.emu_type['multi-fid']:
+        if self.emu_type['mf-svgp']:
+            # Add the fidelity indocators
+            X_l2_aug = np.hstack([self.X[0], np.zeros((self.X[0].shape[0], 1))])
+            X_hf_aug = np.hstack([self.X[-1], np.ones((self.X[-1].shape[0], 1))])
+            # Stack the L2 and HF data vertically
+            self.X = np.vstack([X_l2_aug, X_hf_aug])
+            self.Y = np.vstack([self.Y[0], self.Y[-1]])
+            # Base kernel of the MF GP
+            kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(self.X.shape[1]-1), variance=1.0)
+            kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(self.X.shape[1]-1), variance=1.0)
+            self.emu = LatentMFCoregionalizationSVGP(self.X, self.Y, kernel_L, kernel_delta, 
+                                                     num_latents=5, num_inducing=100,
+                                                     num_outputs=self.n_bins[0])
+            self.logger.info(f'shapes passed to LMF : {self.X.shape, self.Y.shape}')
+            self.emu.optimize(data=(self.X, self.Y))
+
+        
+        elif self.emu_type['multi-fid']:
             model = self.emu(copy.deepcopy(self.X), copy.deepcopy(self.Y), n_fidelities=self.n_fidelities, kernel_list=None)
             model.optimize(n_optimization_restarts=self.n_optimization_restarts)
         else:
@@ -309,7 +329,6 @@ class HmfNativeBins(BaseStatEmu):
             hmf = summary_stats.HMF(data_dir=data_dir, fid = fd,  narrow=False, no_merge=no_merge, logging_level=logging_level)
             # Train on the hmf values on native bins
             Y_wide, self.mbins = hmf.load()
-            print(f'Y_wide: {Y_wide.shape}')
             X_wide = hmf.get_params_array()
             labels_wide = hmf.get_labels()
             # Only use Goku-wide
@@ -362,3 +381,177 @@ class HmfNativeBins(BaseStatEmu):
         Y_normalized.append(Y[1,:])
 
         return X_normalized, X_min, X_max, Y_normalized
+
+class XiNativeBins():
+    """
+    Emulator for the Correlation Function, xi(r, n1, n2) using the native bins
+    """
+    def __init__(self, data_dir, mass_pair, emu_type={'wide_and_narrow':True}, logging_level='INFO'):
+        """
+        Parameters
+        ----------
+        data_dir : str
+            The directory where the data is stored.
+        no_merge : bool
+            If True, do not merge the last bins of the Halo Mass Function with
+            lower counts than 20 halos.
+        emu_type : dict
+            wide_and_narrow : bool
+                If True, use both wide and narrow simulations.
+        """
+        self.logging_level = logging_level
+        self.logger = self.configure_logging(logging_level)
+        self.data_dir = data_dir
+        self.X = []
+        self.Y = []
+        self.labels = []
+        # Fix a few features of the emulator
+        emu_type.update({'multi-fid':True, 'single-bin':False, 'linear':True, 'mf-svgp':True})
+        fids = ['L2', 'HF']
+        for fd in fids:
+            # Goku-wide sims
+            xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=False, logging_level=logging_level)
+            # Load xi(r) at fixed mass_pair for wide
+            self.mbins, Y_wide = xi.get_xi_r(mass_pair=mass_pair, rcut=(0.2, 61))
+            # Train on log10(xi(r))
+            Y_wide = np.log10(Y_wide)
+            self.logger.debug(f'Y_wide: {Y_wide.shape}')
+            X_wide = xi.get_params_array()
+            labels_wide = xi.get_labels()
+            # Only use Goku-wide
+            if not emu_type['wide_and_narrow']:
+                self.Y.append(Y_wide)
+                self.X.append(X_wide)
+                self.labels.append(labels_wide)
+            # Use both Goku-wide and narrow
+            else:
+                # Goku-narrow sims
+                xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=True, logging_level=logging_level)
+                # train on the hmf values on native bins
+                _, Y = xi.get_xi_r(mass_pair=mass_pair, rcut=(0.2, 61))
+                self.logger.debug(f'Y_narrow: {Y.shape}')
+                # For now, get rid of the lastbins with 0 value
+                self.Y.append(np.concatenate((Y_wide, Y), axis=0))
+                self.X.append(np.concatenate((X_wide, xi.get_params_array()), axis=0))
+                self.labels.append(np.concatenate((labels_wide, xi.get_labels()), axis=0))
+
+        bad_sims = self._remove_sims_with_nans()
+        if rank==0:
+            self.logger.debug(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
+            self.logger.info(f'Removed {len(bad_sims[0])}/{self.Y[0].shape[0]+len(bad_sims[0])} sims from L2 and {len(bad_sims[1])}/{self.Y[1].shape[0]+len(bad_sims[1])} sims from HF')
+
+        # X is normalized between 0 and 1, but for Y only HF fideliy is not normalized
+        # the MF GP will match the HF mean
+        self.X, self.Y, self.X_min, self.X_max = self.normalize(self.X, self.Y)
+
+    def configure_logging(self, logging_level):
+        """Sets up logging based on the provided logging level in an MPI environment."""
+        logger = logging.getLogger('BaseStatEmu')
+        logger.setLevel(logging_level)
+
+        # Create a console handler with flushing
+        console_handler = logging.StreamHandler(sys.stdout)
+
+        # Include Rank, Logger Name, Timestamp, and Message in format
+        formatter = logging.Formatter(
+            f'%(name)s | %(asctime)s | Rank {rank} | %(levelname)s  |  %(message)s',
+            datefmt='%m/%d/%Y %I:%M:%S %p'
+        )
+        console_handler.setFormatter(formatter)
+
+        # Ensure logs flush immediately
+        console_handler.flush = sys.stdout.flush  
+
+        # Add handler to logger
+        logger.addHandler(console_handler)
+        
+        return logger
+    
+    def _remove_sims_with_nans(self):
+        """
+        Remove simulations with nan values in the output
+        """
+        bad_sims = []
+        # Iterate over the fidelities
+        for i in range(len(self.Y)):
+            mask = np.isnan(self.Y[i])
+            ind = np.where(np.isnan(self.Y[i]))[0]
+            self.Y[i] = np.delete(self.Y[i], ind, axis=0)
+            self.X[i] = np.delete(self.X[i], ind, axis=0)
+            bad_sims.append(np.unique(ind))
+        return bad_sims
+
+    def normalize(self, X, Y):
+        """
+        Normalize all input, X, such it is between 0 and 1
+        Subtract the output, Y, by it's mean, only for LF
+        and leave the HF uncrouched
+
+        Returns:
+        --------
+        X_normalized: normalized input data between 0 and 1
+        X_min: minimum value of the input data
+        X_max: maximum value of the input data
+        mean_func: the mean of the output to be used as the mean function
+        in the GP model
+        """
+        X_min, X_max = np.min(X[0], axis=0), np.max(X[0], axis=0)
+        X_normalized = []
+        for i in range(len(X)):
+            X_normalized.append((X[i]-X_min)/(X_max-X_min))
+        Y_normalized = []
+        # The zeros row is the LF
+        mean_func =  np.mean(Y[0], axis=0)
+        Y_normalized.append(Y[0] -mean_func)
+        # Don't subtract the mean for the HF, The MF GP will match
+        # the HF mean
+        Y_normalized.append(Y[1])
+
+        return X_normalized, Y_normalized, X_min, X_max
+    
+    def train(self, ind_train, ind_test, model_file='Xi_Native_emu_mapirs2.pkl'):
+        """
+        Train the model and save this in `save_dir`
+        """
+        # Add the fidelity indocators
+        X_l2_aug = np.hstack([self.X[0], np.zeros((self.X[0].shape[0], 1))])
+        X_hf_aug = np.hstack([self.X[1][ind_train], np.ones((ind_train.size, 1))])
+        # Stack the L2 and HF data vertically
+        X_train = np.vstack([X_l2_aug, X_hf_aug])
+        Y_train = np.vstack([self.Y[0], self.Y[1][ind_train]])
+        # Base kernel of the MF GP
+        kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1), variance=1.0)
+        kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1), variance=1.0)
+        self.emu = LatentMFCoregionalizationSVGP(X_train, Y_train, kernel_L, kernel_delta, 
+                                                    num_latents=5, num_inducing=100,
+                                                    num_outputs=Y_train.shape[1])
+        model_file = op.join(self.data_dir, model_file)
+        if op.exists(model_file):
+            self.logger.info(f"Model already exists at {model_file}. Reload the model.")
+            with open(model_file, "rb") as f:
+                params = pickle.load(f)
+            gpflow.utilities.multiple_assign(self.emu, params)
+        else:
+            self.logger.info(f'Training. shapes passed to LMF : {X_train.shape, Y_train.shape}')
+            self.emu.optimize(data=(X_train, Y_train), max_iters=6_000)
+            self.emu.save_model(model_file)
+            # Save loss_history
+            with open(op.join(self.data_dir, f'{model_file}.loss_history'), 'wb') as f:
+                pickle.dump(self.emu.loss_history, f)
+
+
+    def predict(self, ind_train, ind_test, model_file):
+        """
+        
+        """
+        self.train(ind_train, ind_test, model_file)
+        # Add the fidelity indocators
+        X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))])
+        # Stack the L2 and HF data vertically
+        Y_test = self.Y[1][ind_train]
+        mean_pred, var_pred = self.emu.predict_f(X_test)
+        
+        return mean_pred, var_pred
+
+
+

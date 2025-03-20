@@ -120,7 +120,7 @@ class BaseSummaryStats:
         Load the IC json file
         """
         if rank ==0:
-            self.logger.info(f'Load IC file from {self.ic_file}')
+            self.logger.debug(f'Load IC file from {self.ic_file}')
             # Load JSON file as a dictionary
             with open(self.ic_file, 'r') as file:
                 data = json.load(file)
@@ -300,48 +300,73 @@ class Xi(BaseSummaryStats):
     Speherically Averaged correlation function
     """
     def __init__(self, data_dir, fid, narrow=False, logging_level='INFO'):
+        """
+        Calling this will load the xi(r, n1, n2) for all the simulations
+        Parameters:
+        --------------
+        data_dir: str
+            The directory containing the data
+        fid: str
+            The folder id
+        narrow: bool, optional, default=False
+            Whether it is Goku-narrow or not
+        logging_level: str, optional, default='INFO'
+            The logging level
+        """
         super().__init__(data_dir, fid, logging_level=logging_level)
         self.data_dir = data_dir
         self.fid = fid
         self.narrow = narrow
         # Get the file counts
         if self.narrow:
-            raise NotImplementedError('Narrow not implemented yet')
+            self.xi_file = op.join(self.data_dir, self.fid, 'narrow', f'xi_grid_{self.fid}_narrow.hdf5')
+            self.sim_tags, self.rbins, self.xi, self.mass_pairs = self._load_data()
+            self.sim_nums = [int(f.split('_')[-2]) for f in self.sim_tags]
         else:
-            # Each sim is an indivudal hdf5 file in op.join(data_dir, fid)
-            self.sim_tags = [f[:-5] for f in os.listdir(op.join(self.data_dir, self.fid)) if self.pref in f and f.endswith('.hdf5')]
-            self.logger.info(f'Total sims files: {len(self.sim_tags)} in {op.join(self.data_dir, self.fid)}')
+            self.xi_file = op.join(self.data_dir, self.fid, f'xi_grid_{self.fid}.hdf5')
+            self.sim_tags, self.rbins, self.xi, self.mass_pairs = self._load_data()
+            self.sim_nums = [int(f.split('_')[-1]) for f in self.sim_tags]
+
+        # Sort the dat based on the sim id
+        self.sim_nums = np.array(self.sim_nums).astype(int)
+        ind_sort = np.argsort(self.sim_nums)
+        self.sim_tags = np.array(self.sim_tags)[ind_sort]
+        self.sim_nums = np.array(self.sim_nums)[ind_sort]
+        self.xi = self.xi[ind_sort]
+
+        self.logger.debug(f'Total sims files: {len(self.sim_tags)} in {op.join(self.data_dir, self.fid)}')
         
-        _, self.rbins, _, mass_pairs = self._load_data(self.sim_tags[0])
-        self.mass_pairs = np.around(mass_pairs, 2)
-        self.mass_bins = np.round(np.unique(mass_pairs), 2)
+        self.mass_pairs = np.around(self.mass_pairs, 2)
+        self.mass_bins = np.round(np.unique(self.mass_pairs), 2)
 
-
-    def _load_data(self, sim_tag, r_cut=0.2):
+    def _load_data(self):
         """
         Load the correlation function for a single simulation
         """
-        corr_file = op.join(self.data_dir, self.fid, f'{sim_tag}.hdf5')
-        with h5py.File(corr_file, 'r') as f:
-            sim_tag = f['sim_tag'][()]
+        sim_tags= []
+        with h5py.File(self.xi_file, 'r') as f:
             rbins = f['mbins'][:]
             xi = f['corr'][:]
-            mass_pairs = f['pairs'][:]
-            if r_cut is not None:
-                ind = np.where(rbins > r_cut)[0]
-                rbins = rbins[ind]
-                xi = xi[:,ind]
-        return sim_tag, rbins, xi, mass_pairs
+            mass_pairs = f['mass_pairs'][:]
+            for tag in f['sim_tags']:
+                sim_tags.append(tag.decode('utf-8'))
+        return sim_tags, rbins, xi, mass_pairs
     
-    def load_all_data(self):
+    def get_labels(self):
+        """It is just the simulation tags"""
+        if self.sim_tags is None:
+            raise ValueError('The simulation tags are not loaded yet, call `load()` first')
+        return self.sim_tags
+    
+    def get_xi_r(self, mass_pair, rcut = (0.2, 61)):
         """
-        Load all the correlation functions in original form
+        Get xi(r) for all simulations at fixed mass pair
         """
-        all_corrs = []
-        for sim_tag in self.sim_tags:
-            _, _, corr, _ = self._load_data(sim_tag)
-            all_corrs.append(corr)
-        return np.array(all_corrs)
+        ind_m = np.where( (self.mass_pairs[:,0] == mass_pair[0]) & 
+                         (self.mass_pairs[:,1] == mass_pair[1]))[0]
+        ind_r = np.where((self.rbins > rcut[0]) & (self.rbins < rcut[1]))[0]
+
+        return self.rbins[ind_r], self.xi[:, ind_m, ind_r].squeeze()
 
     def make_3d_corr(self, corr, symmetric=False):
         """
@@ -407,9 +432,8 @@ class Xi(BaseSummaryStats):
             The xi(n1, n2, r) for all the simulations
         """
         all_corrs = []
-        for sim_tag in self.sim_tags:
-            corr = self._xi_sim_n1_n2_r(sim_tag)
-            all_corrs.append(corr)
+        for i in range(len(self.sim_tags)):
+            all_corrs.append(self.make_3d_corr(self.xi[i], symmetric=True))
         return np.array(all_corrs)
     
     def _replace_nan_corrs(self, log_corr, window=5):
@@ -537,6 +561,41 @@ class Xi(BaseSummaryStats):
             all_splines.append(spline)
         return xg, corr_sim, all_splines
 
+    def spline_nan_interp(self, spline_s=1e-2, rcut=(0.2, 61), min_bin_accept=10):
+        """
+        Fit a univariate spline to the xi(r) at fixed n1, n2
+        """
+        ind_r = np.where((self.rbins > rcut[0]) & (self.rbins < rcut[1]))[0]
+        rbins = self.rbins[ind_r]
+        log_corr = np.log10(self.xi[:,:,ind_r])
+        # Find the nan bins
+        nan_mask = np.isnan(log_corr)
+        self.logger.debug(f'Found {100*nan_mask.sum()/log_corr.size:.1f} % of xi(r,n1,n2) is nan')
+         
+
+        # Same weights for all the points
+        w = np.ones_like(rbins)
+        # Except for the bins with r < 1
+        w[rbins < 1] = rbins[rbins < 1]**2
+
+        all_splines = []
+        eval_splines = np.full(log_corr.shape, np.nan)
+        bad_sims = np.zeros((log_corr.shape[0], log_corr.shape[1]), dtype=bool)
+        for m in range(log_corr.shape[1]):
+            for s in range(log_corr.shape[0]):
+                # Don't fit the spline if there are less than 20 (vs 40 in total) points
+                if len(rbins[~nan_mask[s,m]]) < min_bin_accept:  # Need at least k+1 knots for degree k=3
+                    spline = None
+                    bad_sims[s,m] = True
+                else:
+                    w_cleaned =  w[~nan_mask[s,m]]
+                    spline = make_splrep(rbins[~nan_mask[s,m]], log_corr[s,m][~nan_mask[s,m]], w=w_cleaned, k=3, s=spline_s)
+                    self.logger.debug(spline.c.size)
+                    #spline = UnivariateSpline(xg[~nan_mask[i]], log_corr_grid[i][~nan_mask[i]], k=3, s=1e-4)
+                    #self.logger.debug(spline.get_coeffs().size)
+                    eval_splines[s,m] = spline(rbins)
+                #all_splines.append(spline)
+        return rbins, log_corr, eval_splines, bad_sims
     def _normalize(self, X=None,Y=None):
         """
         Normalzie the data for GP fitting
