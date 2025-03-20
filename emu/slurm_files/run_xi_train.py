@@ -13,7 +13,10 @@ def run_it(fid, narrow, num_chunks, chunk):
 
 
     basedir = f'/scratch/06536/qezlou/Goku/FOF/{fid}'
-    save_dir = f'/scratch/06536/qezlou/Goku/processed_data/corrs_bins/{fid}'
+    if narrow:
+        save_dir = f'/scratch/06536/qezlou/Goku/processed_data/xi_bins/{fid}/narrow'
+    else:    
+        save_dir = f'/scratch/06536/qezlou/Goku/processed_data/xi_bins/{fid}'
     if not op.exists(save_dir):
         os.mkdir(save_dir)
 
