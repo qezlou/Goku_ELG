@@ -392,12 +392,16 @@ class XiNativeBins():
         ----------
         data_dir : str
             The directory where the data is stored.
-        no_merge : bool
-            If True, do not merge the last bins of the Halo Mass Function with
-            lower counts than 20 halos.
+        mass_pair : tuple
+            The mass pair for which the correlation function is to be emulated.
+        interp : str
+            If 'spline', interpolate the nan values in the correlation function
+            using a spline. Else, remove the sims with even a single nan values.
         emu_type : dict
             wide_and_narrow : bool
                 If True, use both wide and narrow simulations.
+        logging_level : str
+            The logging level. 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
         """
         self.logging_level = logging_level
         self.logger = self.configure_logging(logging_level)
@@ -407,6 +411,7 @@ class XiNativeBins():
         self.labels = []
         # Fix a few features of the emulator
         emu_type.update({'multi-fid':True, 'single-bin':False, 'linear':True, 'mf-svgp':True})
+        self.emu_type = emu_type
         fids = ['L2', 'HF']
         for fd in fids:
             # Goku-wide sims
@@ -454,13 +459,13 @@ class XiNativeBins():
             # Get rid of any sim with even one nan value
             bad_sims = self._remove_sims_with_nans()
             self.logger.info(f'Removed {len(bad_sims[0])}/{self.Y[0].shape[0]+len(bad_sims[0])} sims from L2 and {len(bad_sims[1])}/{self.Y[1].shape[0]+len(bad_sims[1])} sims from HF')
-        if rank==0:
-            self.logger.debug(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
-            
 
         # X is normalized between 0 and 1, but for Y only HF fideliy is not normalized
         # the MF GP will match the HF mean
         self.X, self.Y, self.X_min, self.X_max = self.normalize(self.X, self.Y)
+
+        if rank==0:
+            self.logger.info(f'X: ({np.array(self.X[0]).shape}, {np.array(self.X[1]).shape}, Y: ({np.array(self.Y[0]).shape}, {np.array(self.Y[1]).shape})')
 
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level in an MPI environment."""
@@ -527,11 +532,19 @@ class XiNativeBins():
 
         return X_normalized, Y_normalized, X_min, X_max
     
-    def train(self, ind_train, ind_test, model_file='Xi_Native_emu_mapirs2.pkl'):
+    def train(self, ind_train, model_file='Xi_Native_emu_mapirs2.pkl'):
         """
-        Train the model and save this in `save_dir`
+        Train the model and save this in `model_file`
+        Parameters
+        ----------
+        ind_train : array
+            The indices of the HF sims to be used for training
+        model_file : str
+            The file to save the Emulator. Two files
+            will be saved, one with the model and the other
+            with the loss history.
         """
-        # Add the fidelity indocators
+        # Add the fidelity indocators, 0 for L2 and 1 for HF
         X_l2_aug = np.hstack([self.X[0], np.zeros((self.X[0].shape[0], 1))])
         X_hf_aug = np.hstack([self.X[1][ind_train], np.ones((ind_train.size, 1))])
         # Stack the L2 and HF data vertically
@@ -545,28 +558,45 @@ class XiNativeBins():
                                                     num_outputs=Y_train.shape[1])
         model_file = op.join(self.data_dir, model_file)
         if op.exists(model_file):
-            self.logger.info(f"Model already exists at {model_file}. Reload the model.")
-            with open(model_file, "rb") as f:
-                params = pickle.load(f)
-            gpflow.utilities.multiple_assign(self.emu, params)
+            raise FileExistsError(f'{model_file} already exists. Please remove the file or use a different name.')
         else:
             self.logger.info(f'Training. shapes passed to LMF : {X_train.shape, Y_train.shape}')
-            self.emu.optimize(data=(X_train, Y_train), max_iters=6_000)
+            self.emu.optimize(data=(X_train, Y_train), max_iters=4_000)
             self.emu.save_model(model_file)
-            # Save loss_history
-            with open(op.join(self.data_dir, f'{model_file}.loss_history'), 'wb') as f:
-                pickle.dump(self.emu.loss_history, f)
+            # Save loss_history, ind_train and emu_type
+            with open(op.join(self.data_dir, f'{model_file}.h5'), 'wb') as f:
+                self.model_attrs = {}
+                self.model_attrs['loss_history'] = self.emu.loss_history
+                self.model_attrs['ind_train'] = ind_train
+                self.model_attrs['emu_type'] = self.emu_type
+                pickle.dump(self.model_attrs, f)
 
 
-    def predict(self, ind_train, ind_test, model_file):
+    def predict(self, ind_test, model_file):
         """
-        
+        Posteroir prediction of the emulator
+        Parameters
+        ----------
+        ind_train : array
+            The indices of the HF sims to be used for training
+        ind_test : array
+            The indices of the HF sims to be used for testing
+        model_file : str
+            The file to save the Emulator. If the file exists, 
+            the model is loaded from the file.
+        Returns
+        -------
+        mean_pred, var_pred : (array, array)
+            The mean and variance of the predicted 
+            log10(xi(r)) for the test sims.
         """
-        self.train(ind_train, ind_test, model_file)
+        with open(model_file, "rb") as f:
+            params = pickle.load(f)
+            gpflow.utilities.multiple_assign(self.emu, params)
+        with open(op.join(self.data_dir, f'{model_file}.attrs'), 'rb') as f:
+            self.model_attrs = pickle.load(f)
         # Add the fidelity indocators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))])
-        # Stack the L2 and HF data vertically
-        Y_test = self.Y[1][ind_train]
         mean_pred, var_pred = self.emu.predict_f(X_test)
         
         return mean_pred, var_pred
