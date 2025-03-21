@@ -558,13 +558,16 @@ class XiNativeBins():
                                                     num_outputs=Y_train.shape[1])
         model_file = op.join(self.data_dir, model_file)
         if op.exists(model_file):
-            raise FileExistsError(f'{model_file} already exists. Please remove the file or use a different name.')
+            self.logger.info(f'Loading model from {model_file}')
+            with open(op.join(self.data_dir, model_file), "rb") as f:
+                params = pickle.load(f)
+                gpflow.utilities.multiple_assign(self.emu, params)
         else:
             self.logger.info(f'Training. shapes passed to LMF : {X_train.shape, Y_train.shape}')
             self.emu.optimize(data=(X_train, Y_train), max_iters=4_000)
             self.emu.save_model(model_file)
             # Save loss_history, ind_train and emu_type
-            with open(op.join(self.data_dir, f'{model_file}.h5'), 'wb') as f:
+            with open(op.join(self.data_dir, f'{model_file}.attrs'), 'wb') as f:
                 self.model_attrs = {}
                 self.model_attrs['loss_history'] = self.emu.loss_history
                 self.model_attrs['ind_train'] = ind_train
@@ -590,11 +593,11 @@ class XiNativeBins():
             The mean and variance of the predicted 
             log10(xi(r)) for the test sims.
         """
-        with open(model_file, "rb") as f:
-            params = pickle.load(f)
-            gpflow.utilities.multiple_assign(self.emu, params)
         with open(op.join(self.data_dir, f'{model_file}.attrs'), 'rb') as f:
             self.model_attrs = pickle.load(f)
+        ind_train = self.model_attrs['ind_train']
+        self.emu_type = self.model_attrs['emu_type']
+        self.train(ind_train, model_file)
         # Add the fidelity indocators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))])
         mean_pred, var_pred = self.emu.predict_f(X_test)
