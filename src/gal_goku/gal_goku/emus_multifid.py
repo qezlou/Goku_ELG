@@ -386,7 +386,7 @@ class XiNativeBins():
     """
     Emulator for the Correlation Function, xi(r, n1, n2) using the native bins
     """
-    def __init__(self, data_dir, mass_pair, emu_type={'wide_and_narrow':True}, logging_level='INFO'):
+    def __init__(self, data_dir, mass_pair, interp=None, emu_type={'wide_and_narrow':True}, logging_level='INFO'):
         """
         Parameters
         ----------
@@ -412,12 +412,19 @@ class XiNativeBins():
             # Goku-wide sims
             xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=False, logging_level=logging_level)
             # Load xi(r) at fixed mass_pair for wide
-            self.mbins, Y_wide = xi.get_xi_r(mass_pair=mass_pair, rcut=(0.2, 61))
-            # Train on log10(xi(r))
-            Y_wide = np.log10(Y_wide)
+            if interp is None:
+                self.mbins, Y_wide = xi.get_xi_r(mass_pair=mass_pair, rcut=(0.2, 61))
+                # Train on log10(xi(r))
+                Y_wide = np.log10(Y_wide)
+                X_wide = xi.get_params_array()
+                labels_wide = xi.get_labels()
+            elif interp == 'spline':
+                self.mbins, _, Y_wide, bad_sims_mask = xi.spline_nan_interp(mass_pair, rcut=(0.2, 61))
+                Y_wide = Y_wide[~bad_sims_mask]
+                X_wide = xi.get_params_array()[~bad_sims_mask]
+                labels_wide = xi.get_labels()[~bad_sims_mask]
             self.logger.debug(f'Y_wide: {Y_wide.shape}')
-            X_wide = xi.get_params_array()
-            labels_wide = xi.get_labels()
+
             # Only use Goku-wide
             if not emu_type['wide_and_narrow']:
                 self.Y.append(Y_wide)
@@ -426,19 +433,30 @@ class XiNativeBins():
             # Use both Goku-wide and narrow
             else:
                 # Goku-narrow sims
-                xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=True, logging_level=logging_level)
-                # train on the hmf values on native bins
-                _, Y = xi.get_xi_r(mass_pair=mass_pair, rcut=(0.2, 61))
-                self.logger.debug(f'Y_narrow: {Y.shape}')
+                if interp is None:
+                    xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=True, logging_level=logging_level)
+                    _, Y_narrow = xi.get_xi_r(mass_pair=mass_pair, rcut=(0.2, 61))
+                    Y_narrow = np.log10(Y_narrow)
+                    X_narrow = xi.get_params_array()
+                    labels_narrow = xi.get_labels()
+                elif interp == 'spline':
+                    xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=True, logging_level=logging_level)
+                    _, _, Y_narrow, bad_sims_mask = xi.spline_nan_interp(mass_pair, rcut=(0.2, 61))
+                    Y_narrow = Y_narrow[~bad_sims_mask]
+                    X_narrow = xi.get_params_array()[~bad_sims_mask]
+                    labels_narrow = xi.get_labels()[~bad_sims_mask]
+                self.logger.debug(f'Y_narrow: {Y_narrow.shape}')
                 # For now, get rid of the lastbins with 0 value
-                self.Y.append(np.concatenate((Y_wide, Y), axis=0))
-                self.X.append(np.concatenate((X_wide, xi.get_params_array()), axis=0))
-                self.labels.append(np.concatenate((labels_wide, xi.get_labels()), axis=0))
-
-        bad_sims = self._remove_sims_with_nans()
+                self.Y.append(np.concatenate((Y_wide, Y_narrow), axis=0))
+                self.X.append(np.concatenate((X_wide, X_narrow), axis=0))
+                self.labels.append(np.concatenate((labels_wide, labels_narrow), axis=0))
+        if interp is None:
+            # Get rid of any sim with even one nan value
+            bad_sims = self._remove_sims_with_nans()
+            self.logger.info(f'Removed {len(bad_sims[0])}/{self.Y[0].shape[0]+len(bad_sims[0])} sims from L2 and {len(bad_sims[1])}/{self.Y[1].shape[0]+len(bad_sims[1])} sims from HF')
         if rank==0:
             self.logger.debug(f'X: {len(self.X), np.array(self.X[0]).shape}, Y: {len(self.Y), np.array(self.Y[0]).shape}')
-            self.logger.info(f'Removed {len(bad_sims[0])}/{self.Y[0].shape[0]+len(bad_sims[0])} sims from L2 and {len(bad_sims[1])}/{self.Y[1].shape[0]+len(bad_sims[1])} sims from HF')
+            
 
         # X is normalized between 0 and 1, but for Y only HF fideliy is not normalized
         # the MF GP will match the HF mean

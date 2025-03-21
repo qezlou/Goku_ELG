@@ -561,41 +561,65 @@ class Xi(BaseSummaryStats):
             all_splines.append(spline)
         return xg, corr_sim, all_splines
 
-    def spline_nan_interp(self, spline_s=1e-2, rcut=(0.2, 61), min_bin_accept=10):
+    def spline_nan_interp(self, mass_pair, spline_s=1e-2, rcut=(0.2, 61), alpha_bad=0.35):
         """
-        Fit a univariate spline to the xi(r) at fixed n1, n2
+        Fit univariate spline to xi(r) for a specific mass pair, handling NaN values.
+        
+        Parameters
+        ----------
+        mass_pair : tuple
+            Mass bin pair (m1, m2) to analyze
+        spline_s : float, default=1e-2
+            Spline smoothing parameter
+        rcut : tuple, default=(0.2, 61)
+            Min/max radius range in Mpc/h
+        alpha_bad : float, default=0.35
+            Threshold fraction of valid points required
+            
+        Returns
+        -------
+        rbins : ndarray
+            Radial bins within rcut range (Mpc/h)
+        log_corr : ndarray
+            Log10 of correlation function values
+        eval_splines : ndarray
+            Spline evaluations at each rbin, it is interpolated log10(xi(r))
+        bad_sims_mask : ndarray
+            Mask of simulations with a fraction of less than alpha_bad valid points
         """
         ind_r = np.where((self.rbins > rcut[0]) & (self.rbins < rcut[1]))[0]
+        ind_m = np.where((self.mass_pairs[:,0] == mass_pair[0]) & (self.mass_pairs[:,1] == mass_pair[1]))[0]
         rbins = self.rbins[ind_r]
-        log_corr = np.log10(self.xi[:,:,ind_r])
+        log_corr = np.log10(self.xi[:,ind_m,ind_r]).squeeze()
         # Find the nan bins
         nan_mask = np.isnan(log_corr)
         self.logger.debug(f'Found {100*nan_mask.sum()/log_corr.size:.1f} % of xi(r,n1,n2) is nan')
          
-
         # Same weights for all the points
         w = np.ones_like(rbins)
         # Except for the bins with r < 1
         w[rbins < 1] = rbins[rbins < 1]**2
-
-        all_splines = []
         eval_splines = np.full(log_corr.shape, np.nan)
-        bad_sims = np.zeros((log_corr.shape[0], log_corr.shape[1]), dtype=bool)
-        for m in range(log_corr.shape[1]):
-            for s in range(log_corr.shape[0]):
-                # Don't fit the spline if there are less than 20 (vs 40 in total) points
-                if len(rbins[~nan_mask[s,m]]) < min_bin_accept:  # Need at least k+1 knots for degree k=3
-                    spline = None
-                    bad_sims[s,m] = True
-                else:
-                    w_cleaned =  w[~nan_mask[s,m]]
-                    spline = make_splrep(rbins[~nan_mask[s,m]], log_corr[s,m][~nan_mask[s,m]], w=w_cleaned, k=3, s=spline_s)
-                    self.logger.debug(spline.c.size)
-                    #spline = UnivariateSpline(xg[~nan_mask[i]], log_corr_grid[i][~nan_mask[i]], k=3, s=1e-4)
-                    #self.logger.debug(spline.get_coeffs().size)
-                    eval_splines[s,m] = spline(rbins)
-                #all_splines.append(spline)
-        return rbins, log_corr, eval_splines, bad_sims
+        # Store the sims with non-NaN values less than 10
+        bad_sims_mask = np.zeros((log_corr.shape[0],), dtype=bool)
+        for s in range(log_corr.shape[0]):
+            # Don't fit the spline if there are less 
+            # than 40% of the points available
+            if len(rbins[~nan_mask[s]]) < alpha_bad*len(rbins):
+                spline = None
+                bad_sims_mask[s] = True
+            else:
+                # Do not use the NaN bins
+                w_cleaned =  w[~nan_mask[s]]
+                spline = make_splrep(rbins[~nan_mask[s]], log_corr[s][~nan_mask[s]], w=w_cleaned, k=3, s=spline_s)
+                #self.logger.debug(f'spline coeff.size : {spline.c.size}')
+                #spline = UnivariateSpline(xg[~nan_mask[i]], log_corr_grid[i][~nan_mask[i]], k=3, s=1e-4)
+                #self.logger.debug(spline.get_coeffs().size)
+                eval_splines[s] = spline(rbins)
+            #all_splines.append(spline)
+        self.logger.info(f'{self.fid}, narrow= {self.narrow}, Found {bad_sims_mask.sum()} sims with less than {100*alpha_bad:.0f}% of valid data points')
+        return rbins, log_corr, eval_splines, bad_sims_mask
+    
     def _normalize(self, X=None,Y=None):
         """
         Normalzie the data for GP fitting
