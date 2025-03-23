@@ -409,6 +409,7 @@ class XiNativeBins():
         self.X = []
         self.Y = []
         self.labels = []
+        self.wide_array = np.array([])
         # Fix a few features of the emulator
         emu_type.update({'multi-fid':True, 'single-bin':False, 'linear':True, 'mf-svgp':True})
         self.emu_type = emu_type
@@ -428,6 +429,7 @@ class XiNativeBins():
                 Y_wide = Y_wide[~bad_sims_mask]
                 X_wide = xi.get_params_array()[~bad_sims_mask]
                 labels_wide = xi.get_labels()[~bad_sims_mask]
+            self.wide_array= np.append(self.wide_array, np.ones(Y_wide.shape[0]))
             self.logger.debug(f'Y_wide: {Y_wide.shape}')
 
             # Only use Goku-wide
@@ -450,6 +452,7 @@ class XiNativeBins():
                     Y_narrow = Y_narrow[~bad_sims_mask]
                     X_narrow = xi.get_params_array()[~bad_sims_mask]
                     labels_narrow = xi.get_labels()[~bad_sims_mask]
+                self.wide_array= np.append(self.wide_array, np.zeros(Y_narrow.shape[0]))
                 self.logger.debug(f'Y_narrow: {Y_narrow.shape}')
                 # For now, get rid of the lastbins with 0 value
                 self.Y.append(np.concatenate((Y_wide, Y_narrow), axis=0))
@@ -556,10 +559,10 @@ class XiNativeBins():
         self.emu = LatentMFCoregionalizationSVGP(X_train, Y_train, kernel_L, kernel_delta, 
                                                     num_latents=5, num_inducing=100,
                                                     num_outputs=Y_train.shape[1])
-        model_file = op.join(self.data_dir, model_file)
+        model_file = op.join(self.data_dir, 'train', model_file)
         if op.exists(model_file):
             self.logger.info(f'Loading model from {model_file}')
-            with open(op.join(self.data_dir, model_file), "rb") as f:
+            with open(model_file, "rb") as f:
                 params = pickle.load(f)
                 gpflow.utilities.multiple_assign(self.emu, params)
         else:
@@ -567,7 +570,7 @@ class XiNativeBins():
             self.emu.optimize(data=(X_train, Y_train), max_iters=4_000)
             self.emu.save_model(model_file)
             # Save loss_history, ind_train and emu_type
-            with open(op.join(self.data_dir, f'{model_file}.attrs'), 'wb') as f:
+            with open(f'{model_file}.attrs', 'wb') as f:
                 self.model_attrs = {}
                 self.model_attrs['loss_history'] = self.emu.loss_history
                 self.model_attrs['ind_train'] = ind_train
@@ -593,7 +596,7 @@ class XiNativeBins():
             The mean and variance of the predicted 
             log10(xi(r)) for the test sims.
         """
-        with open(op.join(self.data_dir, f'{model_file}.attrs'), 'rb') as f:
+        with open(op.join(self.data_dir, 'train', f'{model_file}.attrs'), 'rb') as f:
             self.model_attrs = pickle.load(f)
         ind_train = self.model_attrs['ind_train']
         self.emu_type = self.model_attrs['emu_type']
