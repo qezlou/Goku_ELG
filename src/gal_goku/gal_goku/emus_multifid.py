@@ -567,7 +567,7 @@ class XiNativeBins():
                 gpflow.utilities.multiple_assign(self.emu, params)
         else:
             self.logger.info(f'Training. shapes passed to LMF : {X_train.shape, Y_train.shape}')
-            self.emu.optimize(data=(X_train, Y_train), max_iters=4_000)
+            self.emu.optimize(data=(X_train, Y_train), max_iters=10_000, initial_lr=5e-4)
             self.emu.save_model(model_file)
             # Save loss_history, ind_train and emu_type
             with open(f'{model_file}.attrs', 'wb') as f:
