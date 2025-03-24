@@ -19,15 +19,15 @@ start_time = time.time()
 def run_it(num_chunks, chunk):
     #data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
     data_dir = '/scratch/06536/qezlou/Goku/processed_data/xi_bins/'
-    #mass_pair = (11.4,11.4)
-    mass_pair = (11.2, 11.2)
     emu_type = {'wide_and_narrow':True}
 
     xi = summary_stats.Xi(data_dir=data_dir, fid = 'HF',  narrow=False, logging_level='ERROR')
     # Distribute the work load of iterating over
     # all mass piars across avaoilable number of ranks
     all_mass_pairs = xi.mass_pairs
+    #all_mass_pairs = np.array([(12.8, 12.8)])
     s, e = distribute(xi.mass_pairs.shape[0], num_chunks, chunk)
+
 
     for i in range(s,e):
         mass_pair = all_mass_pairs[i]
@@ -39,11 +39,29 @@ def run_it(num_chunks, chunk):
         # let the ranks with no HF sim wait
         if rank < num_hf_sims:
             ind_train=np.delete(np.arange(num_hf_sims), np.array(int(rank)))
-            xi_emu.train(ind_train=ind_train, model_file=model_file)
+            # The optimization hyper parameters
+            opt_params = get_opt_params(mass_pair)
+            xi_emu.train(ind_train=ind_train, model_file=model_file, opt_params=opt_params)
         comm.Barrier()
     end_time = time.time()
 
     print(f'rank {rank}, elappsed {(end_time - start_time)/60} minutes')
+
+def get_opt_params(mass_pair):
+    """
+    Larger masses requite harder training. 
+    Get the `max_iters` and `initial_lr` for 
+    ptimization process
+    """
+    if mass_pair[0] >= 12.8:
+        opt_params = {'max_iters':50_000, 'initial_lr':5e-4}
+    elif mass_pair[0] >= 12.5:
+        opt_params = {'max_iters':30_000, 'initial_lr':5e-4}
+    elif mass_pair[0] >= 12.0:
+        opt_params = {'max_iters':20_000, 'initial_lr':5e-4}
+    else:
+        opt_params = {'max_iters':10_000, 'initial_lr':5e-4}
+    return opt_params
 
 def distribute(counts, num_chunks, chunk):
     per_chunk = counts//num_chunks
@@ -54,6 +72,7 @@ def distribute(counts, num_chunks, chunk):
         end = start + per_chunk
     
     return start, end
+
 
 if __name__ == '__main__':
 

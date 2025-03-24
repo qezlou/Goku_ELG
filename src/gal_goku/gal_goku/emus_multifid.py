@@ -535,7 +535,7 @@ class XiNativeBins():
 
         return X_normalized, Y_normalized, X_min, X_max
     
-    def train(self, ind_train, model_file='Xi_Native_emu_mapirs2.pkl'):
+    def train(self, ind_train, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}):
         """
         Train the model and save this in `model_file`
         Parameters
@@ -566,8 +566,14 @@ class XiNativeBins():
                 params = pickle.load(f)
                 gpflow.utilities.multiple_assign(self.emu, params)
         else:
+            if len(list(opt_params)) == 0:
+                max_iters = 4_000
+                initial_lr = 5e-3
+            else:
+                max_iters = opt_params['max_iters']
+                initial_lr = opt_params['initial_lr']
             self.logger.info(f'Training. shapes passed to LMF : {X_train.shape, Y_train.shape}')
-            self.emu.optimize(data=(X_train, Y_train), max_iters=10_000, initial_lr=5e-4)
+            self.emu.optimize(data=(X_train, Y_train), max_iters=max_iters, initial_lr=initial_lr)
             self.emu.save_model(model_file)
             # Save loss_history, ind_train and emu_type
             with open(f'{model_file}.attrs', 'wb') as f:
