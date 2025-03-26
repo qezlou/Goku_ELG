@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 from . import summary_stats
 #from . import single_fid
-from . import gpemulator_singlebin as gpemu
+#from . import gpemulator_singlebin as gpemu
 import gpflow
 from mfgpflow.linear_svgp import LatentMFCoregionalizationSVGP
 import sys
@@ -416,7 +416,7 @@ class XiNativeBins():
         fids = ['L2', 'HF']
         for fd in fids:
             # Goku-wide sims
-            xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=False, logging_level=logging_level)
+            xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=False, MPI=None, logging_level=logging_level)
             # Load xi(r) at fixed mass_pair for wide
             if interp is None:
                 self.mbins, Y_wide = xi.get_xi_r(mass_pair=mass_pair, rcut=(0.2, 61))
@@ -441,13 +441,13 @@ class XiNativeBins():
             else:
                 # Goku-narrow sims
                 if interp is None:
-                    xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=True, logging_level=logging_level)
+                    xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=True, MPI=None, logging_level=logging_level)
                     _, Y_narrow = xi.get_xi_r(mass_pair=mass_pair, rcut=(0.2, 61))
                     Y_narrow = np.log10(Y_narrow)
                     X_narrow = xi.get_params_array()
                     labels_narrow = xi.get_labels()
                 elif interp == 'spline':
-                    xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=True, logging_level=logging_level)
+                    xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=True, MPI=None, logging_level=logging_level)
                     _, _, Y_narrow, bad_sims_mask = xi.spline_nan_interp(mass_pair, rcut=(0.2, 61))
                     Y_narrow = Y_narrow[~bad_sims_mask]
                     X_narrow = xi.get_params_array()[~bad_sims_mask]
