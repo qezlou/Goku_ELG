@@ -1,13 +1,9 @@
 import numpy as np
 import h5py
-import importlib
-import matplotlib.pyplot as plt
 from gal_goku import emus_multifid
 from gal_goku import summary_stats
-importlib.reload(emus_multifid)
 import os.path as op
 import argparse
-import pickle
 import warnings
 warnings.filterwarnings('ignore')
 from gal_goku import mpi_helper
@@ -19,22 +15,20 @@ size = comm.Get_size()
 def loo_mean_err_wide_narrow(data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'):
 
     # Get a list of mass_pairs
-    xi = summary_stats.Xi(data_dir, fid='HF', logging_level='ERROR')
+    xi = summary_stats.Xi(data_dir, fid='HF', MPI=None, logging_level='ERROR')
     all_mass_pairs = xi.mass_pairs
     all_frac_errs = np.zeros((len(all_mass_pairs), 36, 26), dtype=np.float32)
     starts, ends = mpi_helper.into_chunks(comm, all_mass_pairs.shape[0])
     s, e = starts[rank], ends[rank]
     bad_sims = np.zeros((len(all_mass_pairs), 36), dtype=bool)
     print(f'rank {rank} | s: {s}, e: {e}', flush=True)
-    for m in range(s, e):
-        print(f'rank {rank} | mass_pair: {all_mass_pairs[m]}', flush=True)
+    for i,m in enumerate(range(s, e)):
+        #print(f'rank {rank} | mass_pair: {all_mass_pairs[m]}', flush=True)
+        print(f'rank {rank} | prog = {100*i/(e-s):.1f}%', flush=True)
+        xi_emu = emus_multifid.XiNativeBins(data_dir, interp='spline', mass_pair=all_mass_pairs[m], logging_level='ERROR', emu_type={'wide_and_narrow':True})
         for sim in range(36):
-            row, col = divmod(s, 4)
             model_file = f'Xi_Native_emu_mapirs2_spline_{all_mass_pairs[m][0]}_{all_mass_pairs[m][1]}_wide_narrow_leave_{sim}.pkl'
-            emu_type = {'wide_and_narrow':True}
-        
-            # Plot true vs prediction
-            xi_emu = emus_multifid.XiNativeBins(data_dir, interp='spline', mass_pair=all_mass_pairs[m], logging_level='ERROR', emu_type=emu_type)
+            
             # Make sure the test sim is not missing
             try:
                 # Predict

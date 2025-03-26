@@ -18,24 +18,22 @@ from sklearn.preprocessing import StandardScaler
 import gpflow
 from gpflow.utilities import print_summary
 import tensorflow as tf
-# Each MPI rank build GP for one bin
-try :
-    #raise ImportError
-    import mpi4py
-    from mpi4py import MPI
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    mpi_size = comm.Get_size()
-except ImportError:
-    MPI = None
-    comm = None
-    rank = 0
-    mpi_size = 1
 
 class BaseSummaryStats:
     """Base class for summary statistics"""
-    def __init__(self, data_dir, fid, narrow=False, logging_level='INFO'):
-        self.rank = 0
+    def __init__(self, data_dir, fid, narrow=False, MPI=None, logging_level='INFO'):
+        # MPI is useful only when loading ICs or HMF
+        # files, to avoid loading the same file on all ranks
+        # Can let `MPI=None` if there aren't too many ranks
+        self.MPI = MPI
+        if MPI is not None:
+                self.comm = MPI.COMM_WORLD
+                self.rank = self.comm.Get_rank()
+                self.mpi_size = self,comm.Get_size()
+        else:
+            self.comm = None
+            self.rank = 0
+            self.mpi_size = 1
         self.logger = self.configure_logging(logging_level)
         self.data_dir = data_dir
         self.ic_file = op.join(self.data_dir, 'all_ICs.json')
@@ -61,7 +59,7 @@ class BaseSummaryStats:
 
         # Include Rank, Logger Name, Timestamp, and Message in format
         formatter = logging.Formatter(
-            f'%(name)s | %(asctime)s | Rank {rank} | %(levelname)s  |  %(message)s',
+            f'%(name)s | %(asctime)s | Rank {self.rank} | %(levelname)s  |  %(message)s',
             datefmt='%m/%d/%Y %I:%M:%S %p'
         )
         console_handler.setFormatter(formatter)
@@ -119,15 +117,15 @@ class BaseSummaryStats:
         """
         Load the IC json file
         """
-        if rank ==0:
+        if self.rank ==0:
             self.logger.debug(f'Load IC file from {self.ic_file}')
             # Load JSON file as a dictionary
             with open(self.ic_file, 'r') as file:
                 data = json.load(file)
         else:
             data = None
-        if MPI is not None:
-            data = comm.bcast(data)
+        if self.MPI is not None:
+            data = self.comm.bcast(data)
         return data
     
     def get_ics(self, keys):
@@ -299,7 +297,7 @@ class Xi(BaseSummaryStats):
     """
     Speherically Averaged correlation function
     """
-    def __init__(self, data_dir, fid, narrow=False, logging_level='INFO'):
+    def __init__(self, data_dir, fid, narrow=False, MPI=None, logging_level='INFO'):
         """
         Calling this will load the xi(r, n1, n2) for all the simulations
         Parameters:
@@ -313,7 +311,7 @@ class Xi(BaseSummaryStats):
         logging_level: str, optional, default='INFO'
             The logging level
         """
-        super().__init__(data_dir, fid, logging_level=logging_level)
+        super().__init__(data_dir, fid, MPI=MPI, logging_level=logging_level)
         self.data_dir = data_dir
         self.fid = fid
         self.narrow = narrow
@@ -763,7 +761,7 @@ class HMF(BaseSummaryStats):
                 save_file = f'{self.fid}_hmfs_no_merge.hdf5'
             else:
                 save_file = f'{self.fid}_hmfs.hdf5'
-        if rank==0:
+        if self.rank==0:
             self.logger.debug(f'Loading HMFs from {save_file}')   
             with h5py.File(op.join(self.data_dir, save_file), 'r') as f:
                 bins = f['bins_coarse'][:]
@@ -780,12 +778,12 @@ class HMF(BaseSummaryStats):
             bad_sims = None
             bins = None
             hmfs = None
-        if comm is not None:
-            comm.barrier()
-            sim_tags = comm.bcast(sim_tags)
-            bad_sims = comm.bcast(bad_sims)
-            bins = comm.bcast(bins)
-            hmfs = comm.bcast(hmfs)
+        if self.comm is not None:
+            self.comm.barrier()
+            sim_tags = self.comm.bcast(sim_tags)
+            bad_sims = self.comm.bcast(bad_sims)
+            bins = self.comm.bcast(bins)
+            hmfs = self.comm.bcast(hmfs)
         self.sim_tags = sim_tags
         self.bad_sims = bad_sims
         self.logger.debug(f'Loaded HMFs from {save_file}') 
