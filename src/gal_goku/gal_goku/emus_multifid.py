@@ -535,7 +535,7 @@ class XiNativeBins():
 
         return X_normalized, Y_normalized, X_min, X_max
     
-    def train(self, ind_train, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}):
+    def train(self, ind_train, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True):
         """
         Train the model and save this in `model_file`
         Parameters
@@ -565,18 +565,27 @@ class XiNativeBins():
             with open(model_file, "rb") as f:
                 params = pickle.load(f)
                 gpflow.utilities.multiple_assign(self.emu, params)
+            # load the loss_history:
+            with open(f'{model_file}.attrs', 'rb') as f:
+                attrs = pickle.load(f)
+                # Reload the loss history, so it will be appended
+                # during the new training
+                self.emu.loss_history = attrs['loss_history']
+
+        if len(list(opt_params)) == 0:
+            max_iters = 4_000
+            initial_lr = 5e-3
         else:
-            if len(list(opt_params)) == 0:
-                max_iters = 4_000
-                initial_lr = 5e-3
-            else:
-                max_iters = opt_params['max_iters']
-                initial_lr = opt_params['initial_lr']
+            max_iters = opt_params['max_iters']
+            initial_lr = opt_params['initial_lr']
+        # It won't train unless instructed
+        if force_train:
             self.logger.info(f'Training. shapes passed to LMF : {X_train.shape, Y_train.shape}')
             self.emu.optimize(data=(X_train, Y_train), max_iters=max_iters, initial_lr=initial_lr)
             self.emu.save_model(model_file)
             # Save loss_history, ind_train and emu_type
             with open(f'{model_file}.attrs', 'wb') as f:
+                self.logger.info(f'Writing the model on {model_file}')
                 self.model_attrs = {}
                 self.model_attrs['loss_history'] = self.emu.loss_history
                 self.model_attrs['ind_train'] = ind_train
@@ -606,7 +615,7 @@ class XiNativeBins():
             self.model_attrs = pickle.load(f)
         ind_train = self.model_attrs['ind_train']
         self.emu_type = self.model_attrs['emu_type']
-        self.train(ind_train, model_file)
+        self.train(ind_train, model_file, force_train=False)
         # Add the fidelity indocators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))])
         mean_pred, var_pred = self.emu.predict_f(X_test)
