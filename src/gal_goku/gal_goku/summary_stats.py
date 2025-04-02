@@ -615,7 +615,7 @@ class Xi(BaseSummaryStats):
                 #self.logger.debug(spline.get_coeffs().size)
                 eval_splines[s] = spline(rbins)
             #all_splines.append(spline)
-        self.logger.info(f'{self.fid}, narrow= {self.narrow}, Found {bad_sims_mask.sum()} sims with less than {100*alpha_bad:.0f}% of valid data points')
+        self.logger.debug(f'{self.fid}, narrow= {self.narrow}, Found {bad_sims_mask.sum()} sims with less than {100*alpha_bad:.0f}% of valid data points')
         return rbins, log_corr, eval_splines, bad_sims_mask
     
     def _normalize(self, X=None,Y=None):

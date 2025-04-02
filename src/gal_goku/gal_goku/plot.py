@@ -5,11 +5,14 @@ from glob import glob
 from os import path as op
 import h5py
 import numpy as np
+import pickle
 from scipy.interpolate import BSpline
 from matplotlib import pyplot as plt
 from scipy.ndimage import gaussian_filter1d as gf1d
 
+
 from . import summary_stats
+from . import emus_multifid
 #from . import wp_emus
 #from . import single_fid
 import warnings
@@ -436,7 +439,78 @@ class PlotXiSims(BasePlot):
         ax.plot(rbins, corr, label=f'{mth}')
     
 
+class PlotXiEmu(BasePlot):
+    """
+    Plot routines for the 3D correlation function xi(r) computed on the sims
+    """
+    def __init__(self, data_dir, train_subdir='train', logging_level='INFO'):
+        super().__init__(logging_level)
+        self.data_dir = data_dir
+        self.train_subdir = train_subdir
+    
+    def loo_diagnose(self, mass_pair, logging_level='ERROR'):
+        """
+        A diganose plot for the leave one out cross validation of Xi(r;m1,m2)
+        for a given mass pair
+        """
+        fig_comp, ax_loss = plt.subplots(9,4, figsize=(12,15))
+        fig_loss, ax_comp = plt.subplots(9,4, figsize=(12,27))
+        fig_ratio, ax_ratio = plt.subplots(1,1, figsize=(6,3))
+        all_frac_errs = []
+        for s in range(36):
+            row, col = divmod(s, 4)
+            model_file = f'Xi_Native_emu_mapirs2_spline_{mass_pair[0]}_{mass_pair[1]}_wide_narrow_leave_{s}.pkl'
+            emu_type = {'wide_and_narrow':True}
+            
+            # Plot true vs prediction
 
+            xi_emu = emus_multifid.XiNativeBins(self.data_dir, interp='spline', mass_pair=mass_pair, logging_level=logging_level, emu_type=emu_type)
+            ind_test = np.array([s])
+            # Make sure the test sim is not missing
+            try:
+                # Predict
+                mean, var = xi_emu.predict(ind_test=ind_test, model_file=model_file, train_subdir=self.train_subdir)
+                rbins = xi_emu.mbins
+            except FileNotFoundError:
+                print(f'File not found: {model_file}')
+                continue
+            # Plot the loss history
+            loss_history = xi_emu.model_attrs['loss_history']
+            ax_loss[row, col].plot(loss_history)
+            ax_loss[row, col].set_ylim(loss_history[-1], loss_history[-1]+1_000)
+            ax_loss[row, col].set_ylabel('LOSS')
+            # Check if the test sim is from Goku-wide or Goku-narrow
+            if xi_emu.wide_array[-36:][s]:
+                color= 'C0'
+            else:
+                color= 'C1'
+            
+            for j in range(len(ind_test)):
+                all_frac_errs.append(10**mean[j]/10**xi_emu.Y[1][ind_test[j]] -1)
+                ax_comp[row, col].plot(rbins, 10**xi_emu.Y[1][ind_test[j]], label='true', color=color)
+                ax_comp[row, col].plot(rbins, 10**mean[j], label='pred', color=color, linestyle='--')
+                ax_comp[row, col].fill_between(rbins, 10**(mean[j]-np.sqrt(var[j])), 10**(mean[j]+np.sqrt(var[j])), alpha=0.5, color=color)
+                ax_ratio.plot(rbins, all_frac_errs[-1] , label='pred', color=color, linestyle='--')
+                #ax_comp[row, col].set_ylim(0,1_000)
+                ax_comp[row, col].set_xscale('log')
+                ax_comp[row, col].set_yscale('log')
+                ax_comp[row, col].set_title(f'{mass_pair}')
+                ax_comp[row, col].set_xlabel('r [Mpc/h]')
+                ax_comp[row, col].set_ylabel(r'$\xi(r)$')
+                ax_comp[row, col].set_ylim(1e-3, 1e2)
+                ax_ratio.set_xscale('log')
+                ax_ratio.set_title(f'{mass_pair}')
+                ax_ratio.set_xlabel('r [Mpc/h]')
+                ax_ratio.set_ylabel(f'frac error')
+
+        abs_errs = np.abs(all_frac_errs)
+        ax_ratio.fill_between(rbins, np.percentile(abs_errs, 16, axis=0), np.percentile(abs_errs, 84, axis=0), alpha=0.5)
+        ax_ratio.plot(rbins, np.median(abs_errs, axis=0), color='k')
+
+        ax_ratio.set_ylim(-0.3, 0.3)
+        ax_ratio.grid()
+        fig_comp.tight_layout()
+        fig_loss.tight_layout() 
 
     
 class PlotProjCorrEmu(PlotCorr):

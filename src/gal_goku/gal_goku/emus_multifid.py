@@ -11,6 +11,7 @@ from . import summary_stats
 #from . import single_fid
 #from . import gpemulator_singlebin as gpemu
 import gpflow
+import tensorflow as tf
 from mfgpflow.linear_svgp import LatentMFCoregionalizationSVGP
 import sys
 import os.path as op
@@ -410,6 +411,8 @@ class XiNativeBins():
         self.Y = []
         self.labels = []
         self.wide_array = np.array([])
+        # Keeping the id for good HF sims
+        self.good_sim_ids = []
         # Fix a few features of the emulator
         emu_type.update({'multi-fid':True, 'single-bin':False, 'linear':True, 'mf-svgp':True})
         self.emu_type = emu_type
@@ -426,6 +429,9 @@ class XiNativeBins():
                 labels_wide = xi.get_labels()
             elif interp == 'spline':
                 self.mbins, _, Y_wide, bad_sims_mask = xi.spline_nan_interp(mass_pair, rcut=(0.2, 61))
+                good_sim_ids_wide = np.delete(np.arange(Y_wide.shape[0]), np.where(bad_sims_mask)[0])
+                # Original sim count for this fidelity
+                tot_fid_sim_count = Y_wide.shape[0]
                 Y_wide = Y_wide[~bad_sims_mask]
                 X_wide = xi.get_params_array()[~bad_sims_mask]
                 labels_wide = xi.get_labels()[~bad_sims_mask]
@@ -437,6 +443,7 @@ class XiNativeBins():
                 self.Y.append(Y_wide)
                 self.X.append(X_wide)
                 self.labels.append(labels_wide)
+                self.good_sim_ids.append(good_sim_ids_wide)
             # Use both Goku-wide and narrow
             else:
                 # Goku-narrow sims
@@ -449,6 +456,9 @@ class XiNativeBins():
                 elif interp == 'spline':
                     xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=True, MPI=None, logging_level=logging_level)
                     _, _, Y_narrow, bad_sims_mask = xi.spline_nan_interp(mass_pair, rcut=(0.2, 61))
+                    good_sim_ids_narrow = np.delete(np.arange(Y_narrow.shape[0]), np.where(bad_sims_mask)[0])
+                    # sim ids should start from the last sim of the wide
+                    good_sim_ids_narrow += tot_fid_sim_count
                     Y_narrow = Y_narrow[~bad_sims_mask]
                     X_narrow = xi.get_params_array()[~bad_sims_mask]
                     labels_narrow = xi.get_labels()[~bad_sims_mask]
@@ -458,17 +468,18 @@ class XiNativeBins():
                 self.Y.append(np.concatenate((Y_wide, Y_narrow), axis=0))
                 self.X.append(np.concatenate((X_wide, X_narrow), axis=0))
                 self.labels.append(np.concatenate((labels_wide, labels_narrow), axis=0))
+                self.good_sim_ids.append(np.concatenate((good_sim_ids_wide, good_sim_ids_narrow), axis=0))
         if interp is None:
             # Get rid of any sim with even one nan value
-            bad_sims = self._remove_sims_with_nans()
-            self.logger.info(f'Removed {len(bad_sims[0])}/{self.Y[0].shape[0]+len(bad_sims[0])} sims from L2 and {len(bad_sims[1])}/{self.Y[1].shape[0]+len(bad_sims[1])} sims from HF')
-
+            bad_sims, self.good_sims = self._remove_sims_with_nans()
+            self.logger.debug(f'Removed {len(bad_sims[0])}/{self.Y[0].shape[0]+len(bad_sims[0])} sims from L2 and {len(bad_sims[1])}/{self.Y[1].shape[0]+len(bad_sims[1])} sims from HF')
+            print(f'good_sims: {self.good_sims}')
         # X is normalized between 0 and 1, but for Y only HF fideliy is not normalized
         # the MF GP will match the HF mean
         self.X, self.Y, self.X_min, self.X_max = self.normalize(self.X, self.Y)
 
         if rank==0:
-            self.logger.info(f'X: ({np.array(self.X[0]).shape}, {np.array(self.X[1]).shape}, Y: ({np.array(self.Y[0]).shape}, {np.array(self.Y[1]).shape})')
+            self.logger.debug(f'X: ({np.array(self.X[0]).shape}, {np.array(self.X[1]).shape}, Y: ({np.array(self.Y[0]).shape}, {np.array(self.Y[1]).shape})')
 
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level in an MPI environment."""
@@ -498,14 +509,15 @@ class XiNativeBins():
         Remove simulations with nan values in the output
         """
         bad_sims = []
+        good_sims = []
         # Iterate over the fidelities
         for i in range(len(self.Y)):
-            mask = np.isnan(self.Y[i])
-            ind = np.where(np.isnan(self.Y[i]))[0]
+            ind = np.unique(np.where(np.isnan(self.Y[i]))[0])
+            bad_sims.append(ind)
+            good_sims.append(np.delete(np.arange(self.Y[i].size), ind, axis=0))
             self.Y[i] = np.delete(self.Y[i], ind, axis=0)
             self.X[i] = np.delete(self.X[i], ind, axis=0)
-            bad_sims.append(np.unique(ind))
-        return bad_sims
+        return bad_sims, good_sims
 
     def normalize(self, X, Y):
         """
@@ -535,7 +547,7 @@ class XiNativeBins():
 
         return X_normalized, Y_normalized, X_min, X_max
     
-    def train(self, ind_train, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True):
+    def train(self, ind_train, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train'):
         """
         Train the model and save this in `model_file`
         Parameters
@@ -559,9 +571,9 @@ class XiNativeBins():
         self.emu = LatentMFCoregionalizationSVGP(X_train, Y_train, kernel_L, kernel_delta, 
                                                     num_latents=5, num_inducing=100,
                                                     num_outputs=Y_train.shape[1])
-        model_file = op.join(self.data_dir, 'train', model_file)
+        model_file = op.join(self.data_dir, train_subdir, model_file)
         if op.exists(model_file):
-            self.logger.info(f'Loading model from {model_file}')
+            self.logger.debug(f'Loading model from {model_file}')
             with open(model_file, "rb") as f:
                 params = pickle.load(f)
                 gpflow.utilities.multiple_assign(self.emu, params)
@@ -571,6 +583,8 @@ class XiNativeBins():
                 # Reload the loss history, so it will be appended
                 # during the new training
                 self.emu.loss_history = attrs['loss_history']
+                current_iters = len(self.emu.loss_history)
+
 
         if len(list(opt_params)) == 0:
             max_iters = 4_000
@@ -580,20 +594,32 @@ class XiNativeBins():
             initial_lr = opt_params['initial_lr']
         # It won't train unless instructed
         if force_train:
-            self.logger.info(f'Training. shapes passed to LMF : {X_train.shape, Y_train.shape}')
-            self.emu.optimize(data=(X_train, Y_train), max_iters=max_iters, initial_lr=initial_lr)
-            self.emu.save_model(model_file)
-            # Save loss_history, ind_train and emu_type
-            with open(f'{model_file}.attrs', 'wb') as f:
-                self.logger.info(f'Writing the model on {model_file}')
-                self.model_attrs = {}
-                self.model_attrs['loss_history'] = self.emu.loss_history
-                self.model_attrs['ind_train'] = ind_train
-                self.model_attrs['emu_type'] = self.emu_type
-                pickle.dump(self.model_attrs, f)
+            self.logger.debug(f'Training. shapes passed to LMF : {X_train.shape, Y_train.shape}')
+            if len(self.emu.loss_history) >= max_iters:
+                self.logger.info(f'{model_file} already trained for {max_iters} iterations')
+                return
+            # Do the training in batches of 4_000, so we defenitely save
+            # the model every 4_000 iterations
+            iter_stop_point = np.append(np.arange(current_iters, max_iters, 4_000), max_iters) if max_iters % 4_000 != 0 else np.arange(current_iters, max_iters + 1, 4_000)
+            iter_stop_point = iter_stop_point[1:]
+            for it_stp in iter_stop_point:
+                current_iters = len(self.emu.loss_history)
+                self.logger.info(f'Continue optimization from {current_iters} to {it_stp}')
+                # The decaying learning rate
+                start_lr = tf.keras.optimizers.schedules.CosineDecay(initial_lr, max_iters)(current_iters)
+                self.emu.optimize(data=(X_train, Y_train), max_iters=it_stp, initial_lr=start_lr)
+                self.emu.save_model(model_file)
+                # Save loss_history, ind_train and emu_type
+                with open(f'{model_file}.attrs', 'wb') as f:
+                    self.logger.debug(f'Writing the model on {model_file}')
+                    self.model_attrs = {}
+                    self.model_attrs['loss_history'] = self.emu.loss_history
+                    self.model_attrs['ind_train'] = ind_train
+                    self.model_attrs['emu_type'] = self.emu_type
+                    pickle.dump(self.model_attrs, f)
+            self.logger.info(f'done with optimization {max_iters}')
 
-
-    def predict(self, ind_test, model_file):
+    def predict(self, ind_test, model_file, train_subdir = 'train'):
         """
         Posteroir prediction of the emulator
         Parameters
@@ -611,11 +637,11 @@ class XiNativeBins():
             The mean and variance of the predicted 
             log10(xi(r)) for the test sims.
         """
-        with open(op.join(self.data_dir, 'train', f'{model_file}.attrs'), 'rb') as f:
+        with open(op.join(self.data_dir, train_subdir, f'{model_file}.attrs'), 'rb') as f:
             self.model_attrs = pickle.load(f)
         ind_train = self.model_attrs['ind_train']
         self.emu_type = self.model_attrs['emu_type']
-        self.train(ind_train, model_file, force_train=False)
+        self.train(ind_train, model_file, force_train=False, train_subdir=train_subdir)
         # Add the fidelity indocators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))])
         mean_pred, var_pred = self.emu.predict_f(X_test)

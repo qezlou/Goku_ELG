@@ -32,7 +32,7 @@ def loo_mean_err_wide_narrow(data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_o
             # Make sure the test sim is not missing
             try:
                 # Predict
-                mean, var = xi_emu.predict(ind_test=np.array([sim]), model_file=model_file)
+                mean, var = xi_emu.predict(ind_test=np.array([sim]), model_file=model_file, train_subdir='train_larger_iters')
                 all_frac_errs[m, sim, :] = 10**mean[0]/10**xi_emu.Y[1][sim] -1
                 rbins = xi_emu.mbins
             except FileNotFoundError:
@@ -50,7 +50,7 @@ def loo_mean_err_wide_narrow(data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_o
     if rank == 0:
         all_frac_errs[bad_sims] = np.nan
         print('Saving...', flush=True)
-        with h5py.File(op.join(data_dir, 'train', 'median_loo_err.hdf5'),'w') as f:
+        with h5py.File(op.join(data_dir, 'train', 'median_loo_err_larger_trained.hdf5'),'w') as f:
             f.create_dataset('frac_errs', data=all_frac_errs)
             f.create_dataset('rbins', data=rbins)
     comm.Barrier()
