@@ -373,7 +373,7 @@ class Xi(BaseSummaryStats):
         """
         mass_bins = self.mass_bins[::-1]
         ind_m_pair = np.digitize(self.mass_pairs, mass_bins).astype(int)
-        corr_3d = np.full((mass_bins.size, mass_bins.size, self.rbins.size), np.nan)
+        corr_3d = np.full((mass_bins.size, mass_bins.size, corr.shape[-1]), np.nan)
         for (i,j), val in zip(ind_m_pair, corr):
             corr_3d[i,j] = val
         if symmetric:

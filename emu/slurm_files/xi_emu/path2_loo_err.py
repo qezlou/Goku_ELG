@@ -15,7 +15,7 @@ size = comm.Get_size()
 def loo_mean_err_wide_narrow(data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'):
 
     # Get a list of mass_pairs
-    xi = summary_stats.Xi(data_dir, fid='HF', MPI=None, logging_level='ERROR')
+    xi = summary_stats.Xi(data_dir=data_dir, fid='HF', MPI=None, logging_level='ERROR')
     all_mass_pairs = xi.mass_pairs
     all_frac_errs = np.zeros((len(all_mass_pairs), 36, 26), dtype=np.float32)
     starts, ends = mpi_helper.into_chunks(comm, all_mass_pairs.shape[0])
@@ -50,7 +50,7 @@ def loo_mean_err_wide_narrow(data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_o
     if rank == 0:
         all_frac_errs[bad_sims] = np.nan
         print('Saving...', flush=True)
-        with h5py.File(op.join(data_dir, 'train', 'median_loo_err_larger_trained.hdf5'),'w') as f:
+        with h5py.File(op.join(data_dir, 'train_larger_iters', 'median_loo_err_larger_trained.hdf5'),'w') as f:
             f.create_dataset('frac_errs', data=all_frac_errs)
             f.create_dataset('rbins', data=rbins)
     comm.Barrier()
@@ -58,6 +58,6 @@ def loo_mean_err_wide_narrow(data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_o
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_dir', type=str)
+    parser.add_argument('--data_dir', type=str, default='/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/')
     args = parser.parse_args()
     loo_mean_err_wide_narrow(args.data_dir)
