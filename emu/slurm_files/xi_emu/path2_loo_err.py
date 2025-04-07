@@ -50,7 +50,7 @@ def loo_mean_err_wide_narrow(data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_o
     if rank == 0:
         all_frac_errs[bad_sims] = np.nan
         print('Saving...', flush=True)
-        with h5py.File(op.join(data_dir, 'train_larger_iters', 'median_loo_err_larger_trained.hdf5'),'w') as f:
+        with h5py.File(op.join(data_dir, 'train_larger_iters', 'median_loo_err.hdf5'),'w') as f:
             f.create_dataset('frac_errs', data=all_frac_errs)
             f.create_dataset('rbins', data=rbins)
     comm.Barrier()

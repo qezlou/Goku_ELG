@@ -55,8 +55,10 @@ class BasePlotEmu():
     def __init__(self, logging_level='INFO', show_full_params=False):
         self.logger = self.configure_logging(logging_level)
         if show_full_params:
-            self.params=['hubble', 'scalar_amp', 'ns', 'omega0', 'omegab', 
-                         'w0_fld', 'wa_fld', 'N_ur', 'alpha_s', 'm_nu']
+            self.params=['omega0', 'omegab', 'hubble', 
+                         'scaler_amp' 'ns', 'w0_fld', 
+                         'wa_fld', 'N_ur', 'alpha_s', 
+                         'm_nu']
         else:
             self.params = ['scalar_amp', 'ns']
         self.latex_labels = {'omega0': r'$\Omega_m$', 'omegab': r'$\Omega_b$', 

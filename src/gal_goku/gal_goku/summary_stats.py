@@ -29,7 +29,7 @@ class BaseSummaryStats:
         if MPI is not None:
                 self.comm = MPI.COMM_WORLD
                 self.rank = self.comm.Get_rank()
-                self.mpi_size = self,comm.Get_size()
+                self.mpi_size = self.comm.Get_size()
         else:
             self.comm = None
             self.rank = 0
