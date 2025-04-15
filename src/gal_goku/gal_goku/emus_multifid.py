@@ -12,7 +12,7 @@ from . import summary_stats
 #from . import gpemulator_singlebin as gpemu
 import gpflow
 import tensorflow as tf
-from mfgpflow.linear_svgp import LatentMFCoregionalizationSVGP
+from mfgpflow.linear_svgp import LatentMFCoregionalizationSVGP, MissingLatentMFCoregionalizationSVGP
 import sys
 import os.path as op
 import copy
@@ -650,3 +650,255 @@ class XiNativeBins():
 
 
 
+class XiNativeBinsFullDimReduc():
+    """
+    Emulator for the Correlation Function, xi(r, n1, n2) using the native bins
+    This does the full dimensionality reduction of the output space using
+    `MissingLatentMFCoregionalizationSVGP` which allows each output to have a different
+    observational (simualtion quality) uncertainty.
+    """
+    def __init__(self, data_dir, emu_type={'wide_and_narrow':True}, logging_level='INFO'):
+        """
+        Parameters
+        ----------
+        data_dir : str
+            The directory where the data is stored.
+        mass_pair : tuple
+            The mass pair for which the correlation function is to be emulated.
+        interp : str
+            If 'spline', interpolate the nan values in the correlation function
+            using a spline. Else, remove the sims with even a single nan values.
+        emu_type : dict
+            wide_and_narrow : bool
+                If True, use both wide and narrow simulations.
+        logging_level : str
+            The logging level. 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
+        """
+        self.logging_level = logging_level
+        self.logger = self.configure_logging(logging_level)
+        self.data_dir = data_dir
+        self.X = []
+        self.Y = []
+        self.Y_err = []
+        self.labels = []
+        self.wide_array = np.array([])
+        # Keeping the id for good HF sims
+        self.good_sim_ids = []
+        # Fix a few features of the emulator
+        emu_type.update({'multi-fid':True, 'single-bin':False, 'linear':True, 'mf-svgp':True})
+        self.emu_type = emu_type
+        fids = ['L2', 'HF']
+        for fd in fids:
+            # Goku-wide sims
+            xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=False, MPI=None, logging_level=logging_level)
+            # Load xi((m1, m2), r) for wide
+            self.mbins, Y_wide, err_wide, X_wide, labels_wide = xi.get_xi_wt_err(rcut=(0.2, 61))
+            self.wide_array= np.append(self.wide_array, np.ones(Y_wide.shape[0]))
+            self.logger.debug(f'Y_wide: {Y_wide.shape}')
+            # Only use Goku-wide
+            if not emu_type['wide_and_narrow']:
+                self.Y.append(Y_wide)
+                self.X.append(X_wide)
+                self.Y_err.append(err_wide)
+                self.labels.append(labels_wide)
+            # Use both Goku-wide and narrow
+            else:
+                # Goku-narrow sims
+                xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=True, MPI=None, logging_level=logging_level)
+                # Load xi((m1, m2), r) for wide
+                _, Y_narrow, err_narrow, X_narrow, labels_narrow = xi.get_xi_wt_err(rcut=(0.2, 61))
+                self.wide_array= np.append(self.wide_array, np.zeros(Y_narrow.shape[0]))
+                self.logger.debug(f'Y_narrow: {Y_narrow.shape}')
+                # For now, get rid of the lastbins with 0 value
+                self.Y.append(np.concatenate((Y_wide, Y_narrow), axis=0))
+                self.X.append(np.concatenate((X_wide, X_narrow), axis=0))
+                self.Y_err.append(np.concatenate((err_wide, err_narrow), axis=0))
+                self.labels.append(np.concatenate((labels_wide, labels_narrow), axis=0))
+        # X is normalized between 0 and 1, but for Y only HF fideliy is not normalized
+        # the MF GP will match the HF mean
+        self.X, self.Y, self.X_min, self.X_max = self.normalize(self.X, self.Y)
+        self.output_dim = self.Y[0].shape[1]
+        # Concatenate the errors to Y, so self.Y is a list of fidelities: [array([Y_wide ... err_wide]), array([Y_narrow ... err_narrow])]
+
+        #self.Y[0] = np.concatenate((self.Y[0][:, :], Y_err[0][:,:]), axis=1)
+        #self.Y[1] = np.concatenate((self.Y[1][:,:], Y_err[1][:,:]), axis=1)
+
+        self.Y[0] = self.Y[0].astype(np.float32)
+        self.Y[1] = self.Y[1].astype(np.float32)
+        self.Y_err[0] = self.Y_err[0].astype(np.float32)
+        self.Y_err[1] = self.Y_err[1].astype(np.float32)
+        self.X[0] = self.X[0].astype(np.float32)
+        self.X[1] = self.X[1].astype(np.float32)
+
+        assert not np.isnan(self.X[0]).any(), f'X[0] has nans {np.where(np.isnan(self.X[0]))}'
+        assert not np.isnan(self.X[1]).any(), f'X[1] has nans {np.where(np.isnan(self.X[1]))}'
+        assert not np.isnan(self.Y[0]).any(), f'Y[0] has nans {np.where(np.isnan(self.Y[0]))}'
+        assert not np.isnan(self.Y[1]).any(), f'Y[1] has nans {np.where(np.isnan(self.Y[1]))}'
+
+    def configure_logging(self, logging_level):
+        """Sets up logging based on the provided logging level in an MPI environment."""
+        logger = logging.getLogger('XiNativeBinsFullDimReduc')
+        logger.setLevel(logging_level)
+
+        # Create a console handler with flushing
+        console_handler = logging.StreamHandler(sys.stdout)
+
+        # Include Rank, Logger Name, Timestamp, and Message in format
+        formatter = logging.Formatter(
+            f'%(name)s | %(asctime)s | Rank {rank} | %(levelname)s  |  %(message)s',
+            datefmt='%m/%d/%Y %I:%M:%S %p'
+        )
+        console_handler.setFormatter(formatter)
+
+        # Ensure logs flush immediately
+        console_handler.flush = sys.stdout.flush  
+
+        # Add handler to logger
+        logger.addHandler(console_handler)
+        
+        return logger
+    def normalize(self, X, Y):
+        """
+        Normalize all input, X, such it is between 0 and 1
+        Subtract the output, Y, by it's mean, only for LF
+        and leave the HF uncrouched
+
+        Returns:
+        --------
+        X_normalized: normalized input data between 0 and 1
+        X_min: minimum value of the input data
+        X_max: maximum value of the input data
+        mean_func: the mean of the output to be used as the mean function
+        in the GP model
+        """
+        X_min, X_max = np.min(X[0], axis=0), np.max(X[0], axis=0)
+        X_normalized = []
+        for i in range(len(X)):
+            X_normalized.append((X[i]-X_min)/(X_max-X_min))
+        Y_normalized = []
+        # The zeros row is the LF
+        mean_func =  np.nanmean(Y[0], axis=0)
+        Y_normalized.append(Y[0] -mean_func)
+        # Don't subtract the mean for the HF, The MF GP will match
+        # the HF mean
+        Y_normalized.append(Y[1])
+
+        return X_normalized, Y_normalized, X_min, X_max
+    
+    def train(self, model_file='Xi_Native_emu_mapirs2.pkl', num_latents=10, num_inducing=100, opt_params={}, force_train=True, train_subdir = 'train'):
+        """
+        Train the model and save this in `model_file`
+        Parameters
+        ----------
+        model_file : str
+            The file to save the Emulator. Two files
+            will be saved, one with the model and the other
+            with the loss history.
+        """
+        # Add the fidelity indocators, 0 for L2 and 1 for HF
+        X_l2_aug = np.hstack([self.X[0], np.zeros((self.X[0].shape[0], 1), dtype=np.float32)])
+        X_hf_aug = np.hstack([self.X[1], np.ones((self.X[1].shape[0], 1), dtype=np.float32)])
+        # Stack the L2 and HF data vertically
+        X_train = np.vstack([X_l2_aug, X_hf_aug])
+        Y_train = np.vstack([self.Y[0], self.Y[1]])
+        Y_err = np.vstack([self.Y_err[0], self.Y_err[1]])
+        Y_train = np.concatenate((Y_train, Y_err), axis=1) # shape becomes [N, 2*P]
+        self.logger.debug(f'X_train: {X_train.shape}, Y_train: {Y_train.shape}')
+
+        # Base kernel of the MF GP
+        kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1), variance=1.0)
+        kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1), variance=1.0)
+        P = int(Y_train.shape[1]/2) # Number of outputs
+        # We only pass the actual Y_train, not the errors to the
+        # class constructor
+        self.emu = MissingLatentMFCoregionalizationSVGP(
+            X_train, Y_train[:,0:P], kernel_L, kernel_delta,
+            num_latents=num_latents, num_inducing=num_inducing,
+            num_outputs=self.output_dim)
+        
+        self.logger.info(f'Built the model with')
+        self.logger.info(f'#num_latents {num_latents}')
+        self.logger.info(f'output_dim {self.output_dim}')
+        self.logger.info(f'num_inducing {num_inducing}')
+        self.logger.info(f'varaince dim {self.emu.likelihood.variance.numpy().shape}')
+
+        model_file = op.join(self.data_dir, train_subdir, model_file)
+        if op.exists(model_file):
+            self.logger.info(f'Loading model from {model_file}')
+            with open(model_file, "rb") as f:
+                params = pickle.load(f)
+                gpflow.utilities.multiple_assign(self.emu, params)
+            # load the loss_history:
+            with open(f'{model_file}.attrs', 'rb') as f:
+                attrs = pickle.load(f)
+                # Reload the loss history, so it will be appended
+                # during the new training
+                self.emu.loss_history = attrs['loss_history']
+                current_iters = len(self.emu.loss_history)
+        else:
+            current_iters = 0
+
+        if len(list(opt_params)) == 0:
+            max_iters = 4_000
+            initial_lr = 5e-3
+        else:
+            max_iters = opt_params['max_iters']
+            initial_lr = opt_params['initial_lr']
+        # It won't train unless instructed
+        if force_train:
+            self.logger.debug(f'Training. shapes passed to LMF : {X_train.shape, Y_train.shape}')
+            if len(self.emu.loss_history) >= max_iters:
+                self.logger.info(f'{model_file} already trained for {max_iters} iterations')
+                return
+            # Do the training in batches of 4_000, so we defenitely save
+            # the model every 4_000 iterations
+            iter_stop_point = np.append(np.arange(current_iters, max_iters, 4_000), max_iters) if max_iters % 4_000 != 0 else np.arange(current_iters, max_iters + 1, 4_000)
+            iter_stop_point = iter_stop_point[1:]
+            for it_stp in iter_stop_point:
+                current_iters = len(self.emu.loss_history)
+                self.logger.info(f'Continue optimization from {current_iters} to {it_stp}')
+                # The decaying learning rate
+                start_lr = tf.keras.optimizers.schedules.CosineDecay(initial_lr, max_iters)(current_iters)
+                # Both data and uncertainty are passed to the optimizer
+                self.emu.optimize(data=(X_train, Y_train), max_iters=it_stp, initial_lr=start_lr, unfix_noise_after=500)
+                self.emu.save_model(model_file)
+                # Save loss_history, ind_train and emu_type
+                with open(f'{model_file}.attrs', 'wb') as f:
+                    self.logger.debug(f'Writing the model on {model_file}')
+                    self.model_attrs = {}
+                    self.model_attrs['loss_history'] = self.emu.loss_history
+                    #self.model_attrs['ind_train'] = ind_train
+                    self.model_attrs['emu_type'] = self.emu_type
+                    pickle.dump(self.model_attrs, f)
+            self.logger.info(f'done with optimization {max_iters}')
+
+    def predict(self, ind_test, model_file, train_subdir = 'train'):
+        """
+        Posteroir prediction of the emulator
+        Parameters
+        ----------
+        ind_train : array
+            The indices of the HF sims to be used for training
+        ind_test : array
+            The indices of the HF sims to be used for testing
+        model_file : str
+            The file to save the Emulator. If the file exists, 
+            the model is loaded from the file.
+        Returns
+        -------
+        mean_pred, var_pred : (array, array)
+            The mean and variance of the predicted 
+            log10(xi(r)) for the test sims.
+        """
+        with open(op.join(self.data_dir, train_subdir, f'{model_file}.attrs'), 'rb') as f:
+            self.model_attrs = pickle.load(f)
+        #ind_train = self.model_attrs['ind_train']
+        #self.emu_type = self.model_attrs['emu_type']
+        #self.train(ind_train, model_file, force_train=False, train_subdir=train_subdir)
+        self.train(model_file=model_file, force_train=False, train_subdir=train_subdir)
+        
+        # Add the fidelity indocators
+        X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float32)
+        mean_pred, var_pred = self.emu.predict_f(X_test)
+        
+        return mean_pred, var_pred
