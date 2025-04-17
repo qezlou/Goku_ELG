@@ -657,7 +657,7 @@ class XiNativeBinsFullDimReduc():
     `MissingLatentMFCoregionalizationSVGP` which allows each output to have a different
     observational (simualtion quality) uncertainty.
     """
-    def __init__(self, data_dir, emu_type={'wide_and_narrow':True}, logging_level='INFO'):
+    def __init__(self, data_dir, num_latents, num_inducing, emu_type={'wide_and_narrow':True}, logging_level='INFO'):
         """
         Parameters
         ----------
@@ -677,6 +677,9 @@ class XiNativeBinsFullDimReduc():
         self.logging_level = logging_level
         self.logger = self.configure_logging(logging_level)
         self.data_dir = data_dir
+        self.num_latents = num_latents
+        self.num_inducing = num_inducing
+        # Laod the data
         self.X = []
         self.Y = []
         self.Y_err = []
@@ -785,7 +788,7 @@ class XiNativeBinsFullDimReduc():
 
         return X_normalized, Y_normalized, X_min, X_max
     
-    def train(self, model_file='Xi_Native_emu_mapirs2.pkl', num_latents=10, num_inducing=100, opt_params={}, force_train=True, train_subdir = 'train'):
+    def train(self, ind_train=None, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train'):
         """
         Train the model and save this in `model_file`
         Parameters
@@ -795,13 +798,15 @@ class XiNativeBinsFullDimReduc():
             will be saved, one with the model and the other
             with the loss history.
         """
+        if ind_train is None:
+            ind_train = np.arange(self.X[1].shape[0])
         # Add the fidelity indocators, 0 for L2 and 1 for HF
         X_l2_aug = np.hstack([self.X[0], np.zeros((self.X[0].shape[0], 1), dtype=np.float32)])
-        X_hf_aug = np.hstack([self.X[1], np.ones((self.X[1].shape[0], 1), dtype=np.float32)])
+        X_hf_aug = np.hstack([self.X[1][ind_train], np.ones((ind_train.size, 1), dtype=np.float32)])
         # Stack the L2 and HF data vertically
         X_train = np.vstack([X_l2_aug, X_hf_aug])
-        Y_train = np.vstack([self.Y[0], self.Y[1]])
-        Y_err = np.vstack([self.Y_err[0], self.Y_err[1]])
+        Y_train = np.vstack([self.Y[0], self.Y[1][ind_train]])
+        Y_err = np.vstack([self.Y_err[0], self.Y_err[1][ind_train]])
         Y_train = np.concatenate((Y_train, Y_err), axis=1) # shape becomes [N, 2*P]
         self.logger.debug(f'X_train: {X_train.shape}, Y_train: {Y_train.shape}')
 
@@ -813,15 +818,9 @@ class XiNativeBinsFullDimReduc():
         # class constructor
         self.emu = MissingLatentMFCoregionalizationSVGP(
             X_train, Y_train[:,0:P], kernel_L, kernel_delta,
-            num_latents=num_latents, num_inducing=num_inducing,
+            num_latents=self.num_latents, num_inducing=self.num_inducing,
             num_outputs=self.output_dim)
         
-        self.logger.info(f'Built the model with')
-        self.logger.info(f'#num_latents {num_latents}')
-        self.logger.info(f'output_dim {self.output_dim}')
-        self.logger.info(f'num_inducing {num_inducing}')
-        self.logger.info(f'varaince dim {self.emu.likelihood.variance.numpy().shape}')
-
         model_file = op.join(self.data_dir, train_subdir, model_file)
         if op.exists(model_file):
             self.logger.info(f'Loading model from {model_file}')
@@ -837,6 +836,14 @@ class XiNativeBinsFullDimReduc():
                 current_iters = len(self.emu.loss_history)
         else:
             current_iters = 0
+        # Log the model specifications
+        self.logger.info(f'Built the model with')
+        self.logger.info(f'#num_latents {self.num_latents}')
+        self.logger.info(f'output_dim {self.output_dim}')
+        self.logger.info(f'num_inducing {self.num_inducing}')
+        self.logger.info(f'varaince dim {self.emu.likelihood.variance.numpy().shape}')
+        self.logger.info(f'trained epochs {current_iters}')
+
 
         if len(list(opt_params)) == 0:
             max_iters = 4_000
@@ -900,5 +907,6 @@ class XiNativeBinsFullDimReduc():
         # Add the fidelity indocators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float32)
         mean_pred, var_pred = self.emu.predict_f(X_test)
+        xi = summary_stats.Xi(data_dir=self.data_dir, fid = 'HF', MPI=None, logging_level=self.logging_level)
         
         return mean_pred, var_pred

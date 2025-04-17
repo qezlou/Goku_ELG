@@ -667,14 +667,33 @@ class Xi(BaseSummaryStats):
 
         params = self.get_params_array()
         
-        # Create tiled parameters array - repeat each simulation's parameters 
-        # for each mass pair and radius bin combination
-        bins = np.zeros((log_corr.size, 3))
+        # Record the bins of ((m1, m2), r)
+        bins = np.zeros((log_corr.shape[1], 3))
+        bins[:,2] = np.tile(rbins, len(self.mass_pairs))
+        bins[:,1] = np.repeat(self.mass_pairs[:,1], rbins.size)
+        bins[:,0] = np.repeat(self.mass_pairs[:,0], rbins.size)
+
 
         ## Get the simulation labels for each data point
         sim_labels = np.repeat(self.sim_tags, log_corr.shape[1])
 
         return bins, log_corr, corr_err, params, sim_labels
+
+    def unconcatenate(self, corr, bins):
+        """
+        Unconcatenate the large xi arrays used for the emulator
+        Parameters
+        --------------
+        corr: np.ndarray, shape=(n_sims, n_bins)
+            The correlation function
+        bins: np.ndarray, shape=(n_bins, 3)
+            The bins of the correlation function in (m1, m2, r) format
+        Returns
+        --------------
+        corr: np.ndarray, shape=(n_sims, len(mass_pairs), len(rbins))
+            The correlation function for each mass pair
+        """
+        return corr.reshape(-1, len(self.mass_pairs), len(np.unique(bins[:,2])))
 
     def _normalize(self, X=None,Y=None):
         """

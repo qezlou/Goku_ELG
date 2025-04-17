@@ -514,6 +514,8 @@ class PlotXiEmu(BasePlot):
         fig_comp.tight_layout()
         fig_loss.tight_layout() 
 
+
+
     
 class PlotProjCorrEmu(PlotCorr):
     """
