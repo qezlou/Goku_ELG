@@ -567,7 +567,6 @@ class XiNativeBins():
         return X_normalized, Y_normalized, X_min, X_max
     
     def train(self, ind_train, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train'):
-    def train(self, ind_train, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train'):
         """
         Train the model and save this in `model_file`
         Parameters
@@ -644,7 +643,6 @@ class XiNativeBins():
             self.logger.info(f'done with optimization {max_iters}')
 
     def predict(self, ind_test, model_file, train_subdir = 'train'):
-    def predict(self, ind_test, model_file, train_subdir = 'train'):
         """
         Posteroir prediction of the emulator
         Parameters
@@ -663,11 +661,10 @@ class XiNativeBins():
             log10(xi(r)) for the test sims.
         """
         with open(op.join(self.data_dir, train_subdir, f'{model_file}.attrs'), 'rb') as f:
-        with open(op.join(self.data_dir, train_subdir, f'{model_file}.attrs'), 'rb') as f:
             self.model_attrs = pickle.load(f)
         ind_train = self.model_attrs['ind_train']
         self.emu_type = self.model_attrs['emu_type']
-        self.train(ind_train, model_file, force_train=False, train_subdir=train_subdir, train_subdir=train_subdir)
+        self.train(ind_train, model_file, force_train=False, train_subdir=train_subdir)
         # Add the fidelity indocators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))])
         mean_pred, var_pred = self.emu.predict_f(X_test)
