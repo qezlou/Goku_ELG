@@ -29,7 +29,7 @@ class BaseSummaryStats:
         if MPI is not None:
                 self.comm = MPI.COMM_WORLD
                 self.rank = self.comm.Get_rank()
-                self.mpi_size = self,comm.Get_size()
+                self.mpi_size = self.comm.Get_size()
         else:
             self.comm = None
             self.rank = 0
@@ -373,7 +373,7 @@ class Xi(BaseSummaryStats):
         """
         mass_bins = self.mass_bins[::-1]
         ind_m_pair = np.digitize(self.mass_pairs, mass_bins).astype(int)
-        corr_3d = np.full((mass_bins.size, mass_bins.size, self.rbins.size), np.nan)
+        corr_3d = np.full((mass_bins.size, mass_bins.size, corr.shape[-1]), np.nan)
         for (i,j), val in zip(ind_m_pair, corr):
             corr_3d[i,j] = val
         if symmetric:
@@ -615,9 +615,86 @@ class Xi(BaseSummaryStats):
                 #self.logger.debug(spline.get_coeffs().size)
                 eval_splines[s] = spline(rbins)
             #all_splines.append(spline)
-        self.logger.info(f'{self.fid}, narrow= {self.narrow}, Found {bad_sims_mask.sum()} sims with less than {100*alpha_bad:.0f}% of valid data points')
+        self.logger.debug(f'{self.fid}, narrow= {self.narrow}, Found {bad_sims_mask.sum()} sims with less than {100*alpha_bad:.0f}% of valid data points')
         return rbins, log_corr, eval_splines, bad_sims_mask
     
+    def get_xi_wt_err(self, rcut=(0.2, 61), alpha_bad=0.35):
+        """
+        Return the correlation function for all the simulations
+        and the corresponding uncertainties. NOT: For now we assign very large
+        uncertainties to the bins with NaN values and simulations missing more than
+        alpha_bad fraction of the r-bins for some  massive mass pairs.
+        ToDo: Use Jacknife resampling to get the uncertainties
+        Parameters
+        --------------
+        rcut: tuple
+            The range of r values to consider for fitting
+        alpha_bad: float
+            The fraction of bad points to consider
+        Returns
+        --------------
+        bins: np.ndarray, shape=(n,3)
+            The bins of the correlation function in (r, m1, m2) format
+        corr: np.ndarray, shape=(n*n_bins,)
+            The correlation function for the "remaining" bins
+            at (r, m1, m2) bins
+        corr_err: np.ndarray, shape=(n*n_bins)
+            The correlation function errors for the "remaining" bins
+            at (r, m1, m2) bins
+        params: np.ndarray, shape=(n*n_bins, prams_size)
+            The cosmological parameters for the "remaining" bins
+
+        """
+        ind_r = np.where((self.rbins > rcut[0]) & (self.rbins < rcut[1]))[0]
+        rbins = self.rbins[ind_r]
+        log_corr = np.log10(self.xi[:,:,ind_r]).squeeze()
+        log_corr = log_corr.reshape((log_corr.shape[0], log_corr.shape[1]*log_corr.shape[2]))
+        # Find the nan bins
+        nan_mask = np.isnan(log_corr)
+        self.logger.info(f'Found {100*nan_mask.sum()/log_corr.size:.1f} % of xi(r,n1,n2) is nan')
+        # For now we assign 0 for the missing bins
+        log_corr[nan_mask] = -1
+
+
+        # Remove the mass_pairs of some sims that are missing more than alpha_bad
+        # fraction of the rbins
+        #ind = np.where(np.sum(nan_mask, axis=2) > alpha_bad*log_corr.shape[2])
+        #print(ind)
+        #nan_mask[ind,:] = True
+
+        corr_err = np.zeros_like(log_corr)
+        corr_err[nan_mask] = 1e6
+
+        params = self.get_params_array()
+        
+        # Record the bins of ((m1, m2), r)
+        bins = np.zeros((log_corr.shape[1], 3))
+        bins[:,2] = np.tile(rbins, len(self.mass_pairs))
+        bins[:,1] = np.repeat(self.mass_pairs[:,1], rbins.size)
+        bins[:,0] = np.repeat(self.mass_pairs[:,0], rbins.size)
+
+
+        ## Get the simulation labels for each data point
+        sim_labels = np.repeat(self.sim_tags, log_corr.shape[1])
+
+        return bins, log_corr, corr_err, params, sim_labels
+
+    def unconcatenate(self, corr, bins):
+        """
+        Unconcatenate the large xi arrays used for the emulator
+        Parameters
+        --------------
+        corr: np.ndarray, shape=(n_sims, n_bins)
+            The correlation function
+        bins: np.ndarray, shape=(n_bins, 3)
+            The bins of the correlation function in (m1, m2, r) format
+        Returns
+        --------------
+        corr: np.ndarray, shape=(n_sims, len(mass_pairs), len(rbins))
+            The correlation function for each mass pair
+        """
+        return corr.reshape(-1, len(self.mass_pairs), len(np.unique(bins[:,2])))
+
     def _normalize(self, X=None,Y=None):
         """
         Normalzie the data for GP fitting

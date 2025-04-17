@@ -27,5 +27,6 @@ setuptools.setup(
     "scipy==1.15.1",
     "numpy",
     "h5py",
+    "mcfit",
     ],
 )
