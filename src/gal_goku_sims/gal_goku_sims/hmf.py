@@ -4,10 +4,10 @@ import h5py
 import logging
 import warnings
 from . import mpi_helper
-from . import get_corr
+from . import xi
 warnings.filterwarnings("ignore")
 
-class Hmf(get_corr.Corr):
+class Hmf(xi.Corr):
     def __init__(self, logging_level='INFO', ranks_for_nbkit=0):
         super().__init__(logging_level, ranks_for_nbkit)
         self.logger = logging.getLogger('Hmf')
@@ -66,7 +66,7 @@ class Hmf(get_corr.Corr):
             
         
 
-    def get_fof_hmf(self, pig_dir, vol,  bins, counts_min = 20, merge=True):
+    def get_fof_hmf(self, pig_dir, param, vol,  bins, counts_min = 20, merge=True):
         """
         Plot the halo mass function for the FoF halos
         Parameters:
@@ -81,7 +81,8 @@ class Hmf(get_corr.Corr):
             Halo mass function, log10(dn/log(M)) in units of
             dex^-1 hMpc^-1
         """
-        halos = self.load_halo_cat(pig_dir)
+        cosmo = self.get_cosmo(param)
+        halos = self.load_halo_cat(pig_dir, cosmo)
         counts, bins = np.histogram(np.log10(halos['Mass']).compute(), bins=bins)
         # Combine the last bins which have less than 20 counts
         counts, trimmed_bins = self._clean_end_bins(bins, counts, counts_min, merge=merge)

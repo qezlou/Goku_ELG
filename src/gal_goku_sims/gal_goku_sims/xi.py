@@ -14,7 +14,7 @@ import json
 from nbodykit import CurrentMPIComm
 from nbodykit.hod import Zheng07Model
 from nbodykit.lab import *
-from nbodykit.cosmology import Planck15 as cosmo
+from nbodykit.cosmology import Cosmology
 import h5py
 import logging
 import warnings
@@ -163,8 +163,23 @@ class Corr():
             nums.append([re.search(pattern, path).group(1) for path in pigs['sim_tags']])
         pairs = list(set(nums[0]).intersection(*nums[1:]))
         return pairs
-            
-    def load_halo_cat(self, pig_dir):
+
+    def get_cosmo(self, param):
+        """
+        Return an Nbodykit.cosmology.Cosmology module satisfying the 
+        cosmology parmeters in param
+        """
+        cosmo = Cosmology(Omega_cdm=param['omega0'],
+                            Omega_b= param['omegab'],
+                            h=param['hubble'],
+                            n_s=param['ns'],
+                            N_ur=param['N_ur'],
+                            extra_pars={"A_s":param['scalar_amp'], 
+                                        "n_s":param['ns'],
+                                        "m_ndm":param['m_nu'],
+                                        "alpha_s":param['alpha_s']})
+        return cosmo
+    def load_halo_cat(self, pig_dir, cosmo):
         """
         Load FOF tables as Nbodykit Halocatalog. It will be used to populate them with HOD models.
         Parameters:
@@ -190,7 +205,7 @@ class Corr():
         return halos
 
 
-    def get_power(self, pig_dir, mesh_res=0.25, seeds=[42], mode='1d', hod_model=Zheng07Model, model_params={}):
+    def get_power(self, pig_dir, cosmo, mass_th, z=2.5, mesh_res=0.25, seeds=[42], mode='1d', hod_model=Zheng07Model, model_params={}):
         """Get the powerspectrum for HOD populated galaxies in a FOF halo catalog.
         Parameters
         ----------
@@ -211,34 +226,28 @@ class Corr():
         """
         # in z-space
         los = [0, 0, 1]
-        halos = self.load_halo_cat(pig_dir)
-        Nmesh = int(halos.attrs['BoxSize'][0] / mesh_res)
-            
-        all_pks = []
-        for i, sd in enumerate(seeds):
-            if (i in [10, 25, 50, 75]) and self.nbkit_rank==0:
-                self.logger.debug(f'progress in seeds pool {i} %')
-            if i==0:
-                hod = halos.populate(hod_model, seed=sd, **model_params)
-            else:
-                hod.repopulate(seed=sd)
-            self.nbkit_comm.Barrier()
-            # Apply RSD to the galaxies
-            hod['RSDPosition'] = (hod['Position'] + hod['VelocityOffset'] * los)%halos.attrs['BoxSize']
-            mesh = hod.to_mesh(position='RSDPosition', Nmesh=Nmesh, compensated=True)
-            pk_gal_zspace = FFTPower(mesh, mode=mode).power
-            self.nbkit_comm.Barrier()
-            all_pks.append(pk_gal_zspace['power'].real)
-        all_pks = np.array(all_pks)
-        k = pk_gal_zspace['k'][:]
-        return all_pks, k
+        halos = self.load_halo_cat(pig_dir, cosmo=cosmo)
+        # Apply RSD to the galaxies
+        rsd_factor = (1+z) / (100 * cosmo.efunc(z))
+        halos['RSDPosition'] = (halos['Position'] + halos['Velocity'] * los * rsd_factor)%halos.attrs['BoxSize']
+
+        data1 = halos[halos['Mass'] >= mass_th[0]]
+        data2 = halos[halos['Mass'] >= mass_th[1]]
+
+        Nmesh = halos.attrs['BoxSize'][0] / mesh_res
+        power = FFTPower(first=data1, second=data2,  Nmesh=Nmesh, BoxSize=halos.attrs['BoxSize'], los=los, mode='1d')
+        return power.run()[0]
+
+
     
-    def _get_corr(self, pig_dir, mass_th, z=2.5):
+    def _get_corr(self, pig_dir, cosmo, mass_th, z=2.5):
         """Get the correlation function for two halo catalogs with 2 mass thresholds
         Parameters
         ----------
         pig_dir: str, 
             The path to the PIG directory
+        cosmo: Nbodykit.cosmology.Cosmology instance
+            output of `get_cosmo()`
         mass_th: tuple of floats
             The mass threshold for the first and second halo samples
         r_egses: array,
