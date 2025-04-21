@@ -618,7 +618,7 @@ class Xi(BaseSummaryStats):
         self.logger.debug(f'{self.fid}, narrow= {self.narrow}, Found {bad_sims_mask.sum()} sims with less than {100*alpha_bad:.0f}% of valid data points')
         return rbins, log_corr, eval_splines, bad_sims_mask
     
-    def get_xi_wt_err(self, rcut=(0.2, 61), alpha_bad=0.35):
+    def get_wt_err(self, rcut=(0.2, 61), alpha_bad=0.35):
         """
         Return the correlation function for all the simulations
         and the corresponding uncertainties. NOT: For now we assign very large
@@ -840,7 +840,7 @@ class HMF(BaseSummaryStats):
                 save_file = f'{self.fid}_hmfs.hdf5'
         if self.rank==0:
             self.logger.debug(f'Loading HMFs from {save_file}')   
-            with h5py.File(op.join(self.data_dir, save_file), 'r') as f:
+            with h5py.File(op.join(self.data_dir, 'HMF', save_file), 'r') as f:
                 bins = f['bins_coarse'][:]
                 hmfs = f['hmfs_coarse'][:]
                 sim_tags = []
@@ -865,6 +865,37 @@ class HMF(BaseSummaryStats):
         self.bad_sims = bad_sims
         self.logger.debug(f'Loaded HMFs from {save_file}') 
         return hmfs, bins
+
+    def get_wt_err(self):
+        """
+        Return the halo mass function for all the simulations
+        and the corresponding uncertainties. NOT: For now we assign very large
+        uncertainties to the bins with insufficient counts.
+        ToDo: Use Jacknife resampling to get the uncertainties
+        Parameters
+        --------------
+        Returns
+        --------------
+
+        """
+        hmfs, bins = self.load()
+        full_bins = np.arange(11.1, 13.52, 0.1)
+        full_mbins = 0.5 * (full_bins[1:] + full_bins[:-1])
+        log_hmfs = -7*np.ones((hmfs.shape[0], full_mbins.size))
+        hmf_errs = np.ones_like(log_hmfs)*1e2
+        for i, (h, b) in enumerate(zip(hmfs, bins)):
+            mbin = 0.5 * (b[1:] + b[:-1])
+            ind = np.digitize(mbin, full_mbins)-1
+            log_hmfs[i,ind] = np.log10(h)
+            hmf_errs[i,ind] = 0
+        del hmfs
+        del bins
+
+        full_mbins = 0.5 * (full_bins[1:] + full_bins[:-1])
+
+
+        return full_mbins, log_hmfs, hmf_errs, self.get_params_array(), np.array(self.sim_tags)
+
 
     def _do_fits(self, ind=None, delta_r=None, *kwargs):
         """

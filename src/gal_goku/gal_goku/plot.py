@@ -565,7 +565,7 @@ class PlotXiEmu(BasePlot):
 
         # Run predictions in parallel
         with Pool(num_cores) as pool:
-            results = pool.map(self._predict_and_calculate_error, range(36))
+            results = pool.map(self._predict_and_calculate_error, range(10,36))
             pred = [p for p, t, m, l, c in results]
             truth = [t for p, t, m, l, c in results]
             rbins = results[0][2]
