@@ -851,13 +851,18 @@ class XiNativeBinsFullDimReduc():
                 params = pickle.load(f)
                 gpflow.utilities.multiple_assign(self.emu, params)
             # load the loss_history:
-            with open(f'{model_file}.attrs', 'rb') as f:
-                attrs = pickle.load(f)
-                # Reload the loss history, so it will be appended
-                # during the new training
-                self.emu.loss_history = attrs['loss_history']
-                current_iters = len(self.emu.loss_history)
+            try:
+                with open(f'{model_file}.attrs', 'rb') as f:
+                    attrs = pickle.load(f)
+                    # Reload the loss history, so it will be appended
+                    # during the new training
+                    self.emu.loss_history = attrs['loss_history']
+                    current_iters = len(self.emu.loss_history)
+            except:
+                current_iters = None
+                self.logger.warning(f'No loss history found for {model_file}.attrs, but model exists')
         else:
+
             current_iters = 0
         # Log the model specifications
         self.logger.info(f'Built the model with')
@@ -920,8 +925,12 @@ class XiNativeBinsFullDimReduc():
             The mean and variance of the predicted 
             log10(xi(r)) for the test sims.
         """
-        with open(op.join(self.data_dir, train_subdir, f'{model_file}.attrs'), 'rb') as f:
-            self.model_attrs = pickle.load(f)
+        try:
+            with open(op.join(self.data_dir, train_subdir, f'{model_file}.attrs'), 'rb') as f:
+                self.model_attrs = pickle.load(f)
+        except:
+            self.logger.warning(f'No model attributes found for {model_file}.attrs')
+            self.model_attrs = {}
         #ind_train = self.model_attrs['ind_train']
         #self.emu_type = self.model_attrs['emu_type']
         #self.train(ind_train, model_file, force_train=False, train_subdir=train_subdir)
