@@ -4,9 +4,9 @@ import numpy as np
 # Define the template for the modified lines
 template = """#!/bin/bash
 #SBATCH -J comb{i}
-#SBATCH -p skx-dev
+#SBATCH -p spr
 #SBATCH -N 1
-#SBATCH --time=2:00:00
+#SBATCH --time=10:00:00
 #SBATCH --output=%x-%j.out
 
 hostname; pwd; date

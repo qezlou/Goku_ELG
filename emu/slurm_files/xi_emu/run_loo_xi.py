@@ -67,8 +67,8 @@ def run_it(num_chunks, chunk):
             xi_emu.train(ind_train=ind_train, model_file=model_file, opt_params=opt_params)
             end_time = time.time()
         print(f'rank {rank} | Progress: {i-s}/{e-s} |  mass_pair: {mass_pair}, elappsed {((end_time - start_time)/60):.1f} minutes, {xi_emu.good_sim_ids[-1].size} sims', flush=True)
-    comm.Barrier()
-            end_time = time.time()
+        comm.Barrier()
+        end_time = time.time()
         print(f'rank {rank} | Progress: {i-s}/{e-s} |  mass_pair: {mass_pair}, elappsed {((end_time - start_time)/60):.1f} minutes, {xi_emu.good_sim_ids[-1].size} sims', flush=True)
     comm.Barrier()
 
