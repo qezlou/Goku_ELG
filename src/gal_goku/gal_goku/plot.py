@@ -3,12 +3,15 @@ import re
 import logging
 from glob import glob
 from os import path as op
+import os
 import h5py
 import numpy as np
 import pickle
 from scipy.interpolate import BSpline
 from matplotlib import pyplot as plt
+from matplotlib.colors import BoundaryNorm
 from scipy.ndimage import gaussian_filter1d as gf1d
+from multiprocessing import Pool
 
 
 from . import summary_stats
@@ -446,9 +449,17 @@ class PlotXiEmu(BasePlot):
     Plot routines for the 3D correlation function xi(r) computed on the sims
     """
     def __init__(self, data_dir, train_subdir='train', logging_level='INFO'):
+        self.latex_labels = {'omega0': r'$\Omega_m$', 'omegab': r'$\Omega_b$', 
+                        'hubble': r'$h$', 'scalar_amp': r'$A_s$', 'ns': r'$n_s$', 
+                        'w0_fld': r'$w_0$', 'wa_fld': r'$w_a$', 'N_ur': r'$N_{ur}$', 
+                        'alpha_s': r'$\alpha_s$', 'm_nu': r'$m_{\nu}$'}
         super().__init__(logging_level)
         self.data_dir = data_dir
         self.train_subdir = train_subdir
+        self.xi = summary_stats.Xi(self.data_dir, fid='HF', MPI=None, logging_level='ERROR')
+        self.pred, self.truth, self.rbins, self.loss_hist, self.cosmo_pars  = self.get_loo_pred_truth()
+        self.frac_errs = np.abs(self.pred/self.truth - 1)
+        
     
     def loo_diagnose(self, mass_pair, logging_level='ERROR'):
         """
@@ -513,6 +524,231 @@ class PlotXiEmu(BasePlot):
         ax_ratio.grid()
         fig_comp.tight_layout()
         fig_loss.tight_layout() 
+
+    # Define the prediction function for parallel processing
+    def _predict_and_calculate_error(self, s, y_err_th = 1):
+        """
+        Prediction and truth for one simulation.
+        Returns:
+        ---------
+        The predicted and truth in 3D and symmetric along mass pairs. shape = (n_mbins, n_mbins, n_rbins)
+        """
+        model_file = f'xi_emu_combined_inducing_500_latents_40_leave{s}.pkl'
+        emu = emus_multifid.XiNativeBinsFullDimReduc(data_dir=self.data_dir, num_inducing=500, num_latents=40, logging_level='ERROR')
+        cosmo = emu.X[1][s]
+        mean_pred,_ = emu.predict(ind_test=np.array([s]), model_file=model_file, train_subdir=self.train_subdir)
+        mean_pred = self.xi.unconcatenate(mean_pred.numpy(), emu.mbins).squeeze()
+        ind_bad_bins = np.where(emu.Y_err[1][s] > y_err_th)
+        emu.Y[1][s][ind_bad_bins] = np.nan
+        truth = self.xi.unconcatenate(emu.Y[1][s], emu.mbins).squeeze()
+
+        loss_history = np.array(emu.model_attrs['loss_history'])
+        mean_pred = self.xi.make_3d_corr(mean_pred, symmetric=True)
+        truth = self.xi.make_3d_corr(truth, symmetric=True)
+        rbins = np.unique(emu.mbins[:, 2])
+
+        return 10**mean_pred.squeeze(), 10**truth.squeeze(), rbins, loss_history, cosmo
+
+
+    def get_loo_pred_truth(self):
+        """
+        Use multiprocessing to get the prediction and truth values for all 36 HF sims.
+        Returns:
+        ---------
+        The predicted and truth in 3D and symmetric along mass pairs. shape = (n_sims
+        """
+        # Use multiprocessing for parallel execution
+
+        # Determine the number of cores to use (leave some cores free)
+        num_cores = max(1, os.cpu_count() - 2)
+        print(f"Using {num_cores} cores for parallel processing")
+
+        # Run predictions in parallel
+        with Pool(num_cores) as pool:
+            results = pool.map(self._predict_and_calculate_error, range(10,36))
+            pred = [p for p, t, m, l, c in results]
+            truth = [t for p, t, m, l, c in results]
+            rbins = results[0][2]
+            loss_hist = [l for p, t, m, l, c in results]
+            cosmo = [c for p, t, m, l, c in results]
+        del results
+        return np.array(pred), np.array(truth), rbins, loss_hist, np.array(cosmo)
+
+    def _2d_err_map(self, data, rbins,  mass_range=(13,11)):
+        """
+        core function to plot the 2D error map of xi(m1, m2) at a given r.
+        Parameters
+        ----------
+        data : 2D array
+            The data to be plotted.
+        mass_range : tuple
+            The range of masses to put on the x and y axes.
+        Returns
+        -------
+        fig, ax : tuple
+            The figure and axes objects.
+        """
+        list_rs = [1, 4, 10, 15, 20, 40, 50]
+        extent=[mass_range[0], mass_range[1], mass_range[0], mass_range[1]]
+        fig, ax = plt.subplots(1,len(list_rs), figsize=(len(list_rs)*3,3))
+        for i, r0 in enumerate(list_rs):
+            ind_r = np.argmin(np.abs(rbins-r0))
+            cmap = plt.cm.viridis
+            cmap = plt.cm.viridis  # continuous colormap
+            bounds = [0, 0.1, 0.2, 0.3]
+            norm = BoundaryNorm(bounds, ncolors=cmap.N, clip=True)
+            cmap.set_bad(color='white')
+
+            im = ax[i].imshow(data[:,:,ind_r], origin='lower', extent=extent, cmap=cmap, norm=norm)
+            cbar = fig.colorbar(im, ax=ax[i], fraction=0.046, pad=0.04)
+            cbar.set_ticks(bounds)
+            ax[i].axhline(y=12, color='red', linestyle='--', linewidth=1)
+            ax[i].axvline(x=12, color='red', linestyle='--', linewidth=1)
+            ax[i].set_title(f'r= {(r0):.2f}')
+            ax[i].set_xlabel('M1')
+            ax[i].set_ylabel('M2')
+        fig.tight_layout()
+        return fig, ax
+
+    def _indvidual_pred_or_truth(self, data, rbins,  mass_range=(13,11), bounds=None):
+        """
+        core function to plot the 2D error map of xi(m1, m2) at a given r.
+        Parameters
+        ----------
+        data : 2D array
+            The data to be plotted.
+        mass_range : tuple
+            The range of masses to put on the x and y axes.
+        bounds : tuple, optional
+            The bounds for the color normalization (vmin, vmax).
+        Returns
+        -------
+        fig, ax, bounds : tuple
+            The figure, axes objects, and the colorbar bounds.
+        """
+        list_rs = [1, 4, 10, 15, 20, 40, 50]
+        extent=[mass_range[0], mass_range[1], mass_range[0], mass_range[1]]
+        fig, ax = plt.subplots(1,len(list_rs), figsize=(len(list_rs)*3,3))
+        if bounds is None:
+            bounds= []
+            compute_bounds = True
+        else:
+            compute_bounds = False
+        for i, r0 in enumerate(list_rs):
+            ind_r = np.argmin(np.abs(rbins-r0))
+            cmap = plt.cm.viridis
+            cmap.set_bad(color='white')
+            if compute_bounds:
+                vmin, vmax = np.nanpercentile(data[:,:,ind_r].flatten(), [5, 95])
+                bounds.append([vmin, vmax])
+            else:
+                vmin, vmax = bounds[i]
+            im = ax[i].imshow(data[:,:,ind_r], origin='lower', extent=extent, cmap=cmap, vmin=vmin, vmax=vmax)
+            cbar = fig.colorbar(im, ax=ax[i], fraction=0.046, pad=0.04)
+            cbar.mappable.set_clim(im.norm.vmin, im.norm.vmax)
+            ax[i].axhline(y=12, color='red', linestyle='--', linewidth=1)
+            ax[i].axvline(x=12, color='red', linestyle='--', linewidth=1)
+            ax[i].set_title(f'xi(r) at r= {(r0):.2f}')
+            ax[i].set_xlabel('M1')
+            ax[i].set_ylabel('M2')
+        fig.tight_layout()
+        return fig, ax, bounds
+
+
+    def cross_valid_2d_errs(self):
+        """
+        Plotting the median and individual cross-validation errors for each simulation.
+        Parameters
+        ----------
+        pred : array
+            The predicted maps, shape = (n_sims, n_mbins, n_mbins, n_rbins)
+        truth : array
+            The true values.
+        rbins : array
+            The radial bins.
+        """
+
+        # Plot the median cross-validation error 
+        median_frac_errs = np.nanmedian(self.frac_errs, axis=0)
+        fig, ax = self._2d_err_map(median_frac_errs[:], rbins=self.rbins)
+        fig.suptitle(f'Median cross-validation error')
+        fig.tight_layout()
+        # Plot the error for each simulation
+        for s in range(len(self.truth)):
+            fig, ax = self._2d_err_map(self.frac_errs[s], rbins=self.rbins)
+
+            fig.suptitle(f'Leave {s} out | frac_err')
+            fig.tight_layout()
+
+            # Plot the true vs predicted values
+            
+            fig, ax, bounds = self._indvidual_pred_or_truth(np.log10(self.truth[s]), rbins=self.rbins)
+            fig.suptitle(f'Leave {s} out |  truth')
+            fig.tight_layout()
+            fig, ax, _ = self._indvidual_pred_or_truth(np.log10(self.pred[s]), rbins=self.rbins, bounds=bounds)
+            fig.suptitle(f'Leave {s} out | predicted')
+            fig.tight_layout()
+
+            # plot the loss history
+            fig, ax = plt.subplots(1, 2, figsize=(8, 3))
+            ax[0].plot(np.log10(self.loss_hist[s]))
+            ax[0].set_ylim(6.665, 6.680)
+            ax[0].set_xlabel('Epochs')
+            ax[0].set_ylabel('log10(Loss)')
+            ax[0].grid(True, linestyle='--', alpha=0.7)
+
+            ax[1].scatter(np.arange(len(self.latex_labels)), 
+                          self.cosmo_pars[s], marker = 's', s=30)
+            ax[1].set_ylabel('Cosmological Parameters')
+            ax[1].set_ylim(0,1)
+            ax[1].set_xticks(range(len(self.latex_labels)))
+            ax[1].set_xticklabels(list(self.latex_labels.values()), rotation=90, ha='right')
+            ax[1].grid(True)
+            fig.suptitle('num_latents=40, num_inducing=500')
+            fig.tight_layout()
+
+
+
+
+    def cross_valid_1d_errs(self, pred, truth, rbins, mass_bins, loss_history=None):
+        """
+        Plotting the median and individual cross-validation errors for each simulation.
+        Parameters
+        ----------
+        pred : array
+            The predicted maps, shape = (n_sims, n_mbins, n_mbins, n_rbins)
+        truth : array
+            The true values.
+        rbins : array
+            The radial bins.
+        mass_bins : array
+            The mass bins in decreasing order.
+        """
+        frac_errs = np.abs(pred/truth - 1)
+        # Plot the median cross-validation error 
+        median_frac_errs = np.median(frac_errs, axis=0)
+        std = np.std(frac_errs, axis=0)
+        print(median_frac_errs.shape)
+        mpairs = [(12.0, 12.0), (11.3, 11.3)]
+        fig, ax = plt.subplots(1, 1, figsize=(10, 3))
+        for i in range(len(mpairs)):
+            mpair = mpairs[i]
+            indm1 = np.where(mass_bins == mpair[0])[0][0]
+            indm2 = np.where(mass_bins == mpair[1])[0][0]
+            print(indm1, indm2)
+            ax.plot(rbins, median_frac_errs[indm1, indm2, :], label=f'{mpair[0]}-{mpair[1]}')
+            ax.fill_between(rbins,
+                            median_frac_errs[indm1, indm2, :] - std[indm1, indm2, :], 
+                            median_frac_errs[indm1, indm2, :] + std[indm1, indm2, :], 
+                            alpha=0.3)
+            
+
+        ax.set_xlabel('Mass')
+        ax.set_ylabel('Fractional Error')
+        ax.set_ylim(0, 0.5)
+        ax.set_xscale('log')
+        ax.legend()
+        ax.grid()
 
 
 
