@@ -27,6 +27,10 @@ class BasePlot():
     """
     def __init__(self, logging_level='INFO'):
         self.logger = self.configure_logging(logging_level)
+        self.latex_labels = {'omega0': r'$\Omega_m$', 'omegab': r'$\Omega_b$', 
+                'hubble': r'$h$', 'scalar_amp': r'$A_s$', 'ns': r'$n_s$', 
+                'w0_fld': r'$w_0$', 'wa_fld': r'$w_a$', 'N_ur': r'$N_{ur}$', 
+                'alpha_s': r'$\alpha_s$', 'm_nu': r'$m_{\nu}$'}
 
     def _setup_panels(self, sim_nums, per_panel=10):
         """
@@ -457,7 +461,14 @@ class PlotXiEmu(BasePlot):
         self.data_dir = data_dir
         self.train_subdir = train_subdir
         self.xi = summary_stats.Xi(self.data_dir, fid='HF', MPI=None, logging_level='ERROR')
-        self.pred, self.truth, self.rbins, self.loss_hist, self.cosmo_pars  = self.get_loo_pred_truth()
+        # Relieve the memory load
+        del self.xi.xi
+        # Load the emualtor, mainly the data
+        self.emu = emus_multifid.XiNativeBinsFullDimReduc(data_dir=self.data_dir, num_inducing=500, num_latents=40, logging_level='ERROR')
+        self.cosmo_pars = self.emu.X[1]
+        self.sim_tags = self.emu.labels[1]
+        self.rbins = np.unique(self.emu.mbins[:, 2])
+        self.pred, self.truth, self.loss_hist = self.get_loo_pred_truth()
         self.frac_errs = np.abs(self.pred/self.truth - 1)
         
     
@@ -534,20 +545,19 @@ class PlotXiEmu(BasePlot):
         The predicted and truth in 3D and symmetric along mass pairs. shape = (n_mbins, n_mbins, n_rbins)
         """
         model_file = f'xi_emu_combined_inducing_500_latents_40_leave{s}.pkl'
-        emu = emus_multifid.XiNativeBinsFullDimReduc(data_dir=self.data_dir, num_inducing=500, num_latents=40, logging_level='ERROR')
-        cosmo = emu.X[1][s]
-        mean_pred,_ = emu.predict(ind_test=np.array([s]), model_file=model_file, train_subdir=self.train_subdir)
-        mean_pred = self.xi.unconcatenate(mean_pred.numpy(), emu.mbins).squeeze()
-        ind_bad_bins = np.where(emu.Y_err[1][s] > y_err_th)
-        emu.Y[1][s][ind_bad_bins] = np.nan
-        truth = self.xi.unconcatenate(emu.Y[1][s], emu.mbins).squeeze()
+        
+        mean_pred,_ = self.emu.predict(ind_test=np.array([s]), model_file=model_file, train_subdir=self.train_subdir)
+        mean_pred = self.xi.unconcatenate(mean_pred.numpy(), self.emu.mbins).squeeze()
+        ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
+        self.emu.Y[1][s][ind_bad_bins] = np.nan
+        truth = self.xi.unconcatenate(self.emu.Y[1][s], self.emu.mbins).squeeze()
 
-        loss_history = np.array(emu.model_attrs['loss_history'])
+        loss_history = np.array(self.emu.model_attrs['loss_history'])
         mean_pred = self.xi.make_3d_corr(mean_pred, symmetric=True)
         truth = self.xi.make_3d_corr(truth, symmetric=True)
-        rbins = np.unique(emu.mbins[:, 2])
+        
 
-        return 10**mean_pred.squeeze(), 10**truth.squeeze(), rbins, loss_history, cosmo
+        return 10**mean_pred.squeeze(), 10**truth.squeeze(), loss_history
 
 
     def get_loo_pred_truth(self):
@@ -565,14 +575,13 @@ class PlotXiEmu(BasePlot):
 
         # Run predictions in parallel
         with Pool(num_cores) as pool:
-            results = pool.map(self._predict_and_calculate_error, range(10,36))
-            pred = [p for p, t, m, l, c in results]
-            truth = [t for p, t, m, l, c in results]
-            rbins = results[0][2]
-            loss_hist = [l for p, t, m, l, c in results]
-            cosmo = [c for p, t, m, l, c in results]
+            results = pool.map(self._predict_and_calculate_error, range(36))
+            pred = [p for p, t, l in results]
+            truth = [t for p, t, l in results]
+            loss_hist = [l for p, t, l in results]
         del results
-        return np.array(pred), np.array(truth), rbins, loss_hist, np.array(cosmo)
+
+        return np.array(pred), np.array(truth), loss_hist
 
     def _2d_err_map(self, data, rbins,  mass_range=(13,11)):
         """
@@ -677,16 +686,16 @@ class PlotXiEmu(BasePlot):
         for s in range(len(self.truth)):
             fig, ax = self._2d_err_map(self.frac_errs[s], rbins=self.rbins)
 
-            fig.suptitle(f'Leave {s} out | frac_err')
+            fig.suptitle(f'Leave {self.sim_tags[s]} out | frac_err')
             fig.tight_layout()
 
             # Plot the true vs predicted values
             
             fig, ax, bounds = self._indvidual_pred_or_truth(np.log10(self.truth[s]), rbins=self.rbins)
-            fig.suptitle(f'Leave {s} out |  truth')
+            fig.suptitle(f'Leave {self.sim_tags[s]} out |  truth')
             fig.tight_layout()
             fig, ax, _ = self._indvidual_pred_or_truth(np.log10(self.pred[s]), rbins=self.rbins, bounds=bounds)
-            fig.suptitle(f'Leave {s} out | predicted')
+            fig.suptitle(f'Leave {self.sim_tags[s]} out | predicted')
             fig.tight_layout()
 
             # plot the loss history
@@ -706,8 +715,6 @@ class PlotXiEmu(BasePlot):
             ax[1].grid(True)
             fig.suptitle('num_latents=40, num_inducing=500')
             fig.tight_layout()
-
-
 
 
     def cross_valid_1d_errs(self, pred, truth, rbins, mass_bins, loss_history=None):
@@ -1488,3 +1495,111 @@ class PlotHmfEmu(BasePlotEmu):
         fig.tight_layout()
         
 
+class HmfCombined(BasePlot):
+    """
+    Class to  plot HMF emulator build using Heteroscedastic Likelihood
+    of LinearMFCoregionzalization emulator
+    """
+    def __init__(self, data_dir, train_subdir, num_latents=5, num_inducing=500, logging_level='INFO'):
+        super().__init__(logging_level)
+        self.data_dir = data_dir
+        self.train_subdir = train_subdir
+        self.num_latents = num_latents
+        self.num_inducing = num_inducing
+        self.emu = emus_multifid.HmfNativeBins(data_dir=self.data_dir, num_latents= self.num_latents, 
+                                    num_inducing=self.num_inducing, logging_level='ERROR')
+        self.mbins = 10**self.emu.mbins
+        self.sim_tags = self.emu.labels[1]
+        self.cosmo_pars = self.emu.X[1]
+        self.pred, self.truth, self.loss_history = self.get_loo_pred_truth()
+        
+    
+    def _predict_and_calculate_error(self, s, y_err_th = 1):
+        """
+        Prediction and truth for one simulation.
+        Returns:
+        ---------
+        The predicted and truth in 3D and symmetric along mass pairs. shape = (n_mbins, n_mbins, n_rbins)
+        """
+        model_file = f'hmf_emu_combined_inducing_{self.num_inducing}_latents_{self.num_latents}_leave{s}.pkl'
+
+
+        mean_pred,_ = self.emu.predict(ind_test=np.array([s]), model_file=model_file, train_subdir=self.train_subdir)
+        ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
+        self.emu.Y[1][s][ind_bad_bins] = np.nan
+        truth = self.emu.Y[1][s]
+        loss_history = np.array(self.emu.model_attrs['loss_history'])
+
+        return 10**mean_pred.numpy().squeeze(), 10**truth.squeeze(), loss_history
+
+        
+    def get_loo_pred_truth(self, sims=None):
+        """
+        Use multiprocessing to get the prediction and truth values for all 36 HF sims.
+        Returns:
+        ---------
+        The predicted and truth in 3D and symmetric along mass pairs. shape = (n_sims
+        """
+        if sims is None:
+            sims = np.arange(36)
+        # Use multiprocessing for parallel execution
+
+        # Determine the number of cores to use (leave some cores free)
+        #num_cores = max(1, os.cpu_count() - 2)
+        num_cores = 10
+        self.logger.info(f"Using {num_cores} cores for parallel prediction")
+
+        # Run predictions in parallel
+        with Pool(num_cores) as pool:
+            results = pool.map(self._predict_and_calculate_error, sims)
+            pred = [p for p, t, l in results]
+            truth = [t for p, t, l in results]
+            loss_hist = [l for p, t, l in results]
+        del results
+        return np.array(pred), np.array(truth), loss_hist
+
+    def pred_vs_trtuh(self):
+        """
+        Plot the predictions vs truth for all the simulations
+        """
+        fig, ax = plt.subplots(self.pred.shape[0]+1, 4, figsize=(15, 4*self.pred.shape[0]), 
+                               gridspec_kw={'width_ratios': [3, 3, 2, 3]})
+
+        for i in range(self.pred.shape[0]):
+            ax[i,0].set_title(f'{self.sim_tags[i]}')
+            ax[i,0].plot(self.mbins, self.truth[i], color=f'C{i}', lw=4, alpha=0.5, marker='x', label=f'Truth {i}')
+            ax[i,0].plot(self.mbins, self.pred[i], color=f'C{i}', ls='dotted', label=f'Pred {i}')
+            ax[i,0].set_xlim(1e11, 2e13)
+            ax[i,1].plot(self.mbins, self.pred[i]/self.truth[i] - 1, color=f'C{i}', lw=4, alpha=0.5, marker='x')
+            ax[i,1].set_xscale('log')
+            ax[i,0].set_xscale('log')
+            ax[i,0].set_yscale('log')
+            ax[i,0].set_xlabel(r'$M$')
+            ax[i,0].set_ylabel(r'$\Phi$')
+            ax[i,1].set_ylabel('frac errors')
+            ax[i,1].set_ylim(-1, 1)
+            ax[i,1].set_yticks(np.arange(-1, 1.1, 0.2))
+            ax[i,0].legend()
+        
+            ax[i,2].plot(self.loss_history[i], label=f'{i}')
+            ax[i,2].set_ylabel('loss')
+            ax[i,3].scatter(np.arange(len(self.latex_labels)), 
+                            self.cosmo_pars[i], marker = 's', s=30)
+            ax[i,3].set_ylim(0,1)
+            ax[i, 3].set_xticks(range(len(self.latex_labels)))
+            ax[i, 3].set_xticklabels(list(self.latex_labels.values()), rotation=90, ha='right')
+            ax[i,3].set_ylabel('scaled values')
+            for j in range(4):
+                ax[i,j].grid(True)
+            
+        # The median error of all sims
+        median_err = np.median(np.abs(self.pred/self.truth - 1), axis=0)
+        ax[-1, 1].plot(self.mbins, median_err, color='k', lw=4, alpha=0.5, marker='x', label='Median')
+        ax[-1, 1].set_xscale('log')
+        ax[-1, 1].set_ylim(0, 1)
+        ax[-1, 1].set_yticks(np.arange(0, 1, 0.1))
+        ax[-1, 1].grid(True)
+
+        
+        fig.suptitle(f'num_latents = {self.num_latents}, num_inducing = {self.num_inducing}')
+        fig.tight_layout()

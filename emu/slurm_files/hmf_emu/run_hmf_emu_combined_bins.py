@@ -4,7 +4,7 @@ import importlib
 from gal_goku import emus_multifid
 
 
-def run_it(ind_test, num_inducing=500, num_latents=40):
+def run_it(ind_test, num_inducing=500, num_latents=5):
     #data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
     #train_subdir = 'train_hetero'
     data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/'
