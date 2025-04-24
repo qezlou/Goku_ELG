@@ -4,10 +4,10 @@ import importlib
 from gal_goku import emus_multifid
 
 
-def run_it(ind_test, num_inducing=500, num_latents=40):
+def run_it(ind_test, num_inducing=500, num_latents=20):
     #data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
     #train_subdir = 'train_hetero'
-    data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/'
+    data_dir = '/scratch/06536/qezlou/Goku/processed_data/'
     train_subdir = 'HMF/train'
     
     emu = emus_multifid.HmfNativeBins(data_dir=data_dir,
@@ -26,7 +26,7 @@ def run_it(ind_test, num_inducing=500, num_latents=40):
     
     emu.train(ind_train,
             train_subdir=train_subdir, 
-            opt_params={'max_iters':4_000, 'initial_lr':5e-3}, 
+            opt_params={'max_iters':12_000, 'initial_lr':5e-3}, 
             model_file=model_file
             )
 
