@@ -675,9 +675,9 @@ class Xi(BaseSummaryStats):
 
 
         ## Get the simulation labels for each data point
-        sim_labels = np.repeat(self.sim_tags, log_corr.shape[1])
+        #sim_labels = np.repeat(self.sim_tags, log_corr.shape[1])
 
-        return bins, log_corr, corr_err, params, sim_labels
+        return bins, log_corr, corr_err, params, self.sim_tags
 
     def unconcatenate(self, corr, bins):
         """
