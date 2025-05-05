@@ -86,6 +86,8 @@ class Gal(GalBase):
         # Load the trained emulator for xi_direct
         self.xi_emu = emu_cosmo.Xi()
         self.rbins = self.xi_emu.rbins
+        self.logger.debug(f'Emulators mass bins: {self.xi_emu.mass_bins}')
+        self.logger.debug(f'Emulators rbins.size: {self.xi_emu.rbins.size}')
         self.rbins_fine = np.linspace(self.rbins[0], self.rbins[-1], 100)
         # Load the emulator for HMF
         self.hmf_emu = emu_cosmo.Hmf()
@@ -138,7 +140,10 @@ class Gal(GalBase):
         self.xi_grid, _ = self.xi_emu.predict(cosmo_pars)
         # TODO: Implement the tree-level correlation function and stitching between the two
         self.xi_grid = self.xi_grid.squeeze()
+        # get the power on the grid of mass thresholds defined by the emulator
+        self.k, self.p_grid = self.xi_grid_to_p_grid()
         self.xi_hh_mth_bspline = None
+        self.p_hh_mth_bspline = None
 
     def dndlog_m(self, logMh):
         """
@@ -399,38 +404,6 @@ class Gal(GalBase):
         return k, phh.squeeze()
 
 
-    def get_xi_gg(self):
-        """
-        Compute the galaxy correlation function xi(r) for a given cosmology and HOD parameters.
-
-        Parameters
-        ----------
-        cosmo : list or np.ndarray
-            Cosmology parameters.
-        hod : list or np.ndarray
-            HOD parameters.
-
-        Returns
-        -------
-        xi_gg : np.ndarray
-            Galaxy correlation function xi(r).
-        """
-        # FIXME: Maybe find a way to integrate with passing the fucntions to quad
-        # instead of building the matrices
-        k, _ = self.p_hh_m1m2((self.config['logMh'][1], self.config['logMh'][1]))
-        phh_m1m2_mat = np.full((len(self.config['logMh']), len(self.config['logMh']), k.size), np.nan)
-        for i in range(len(self.config['logMh'])):
-            for j in range(len(self.config['logMh'])):
-                k, phh_m1m2_mat[i, j] = self.p_hh_m1m2((self.config['logMh'][i], self.config['logMh'][j]))
-                phh_m1m2_mat[j, i] = phh_m1m2_mat[i, j]
-        # Compute the mean number of central and satellite galaxies
-        N_cen, N_sat = self.get_Ncen_Nsat(self.config['logMh'])
-        dndm = self.dndm(self.config['logMh'])
-        dm = 10**self.config['logMh'][1] - 10**self.config['logMh'][0]
-        # TODO: Compute the displacement kernels
-
-        # Compute the 1-halo term
-
     def _pgg_1h_ss(self):
         """
         Get the 1-halo term for the central-satellite correlation function
@@ -445,9 +418,103 @@ class Gal(GalBase):
         integrand = lambda m: self.dndm(m) * (self._Nsat(m)**2 / self._Ncen(m))
         return (1/self.get_ng()**2) * quad(integrand, self.config['logMh'][0], self.config['logMh'][-1])[0]
 
-    def _pgg_2h_cc(self):
+    def _interp_p_grid(self):
         """
-        Get the 2-halo term for the central-central correlation function (vectorized implementation).
+        Compute the spline interpolators for the power spectrum P_hh(M_thresh1, M_thresh2).
+
+        Returns
+        -------
+        None
+        """
+        # interpolate the power spectrum P_hh(M_thresh1, M_thresh2) on the grid of mass thresholds
+        if self.p_hh_mth_bspline is None:
+            self.p_hh_mth_bspline = []
+            for i in range(self.k.size):
+                self.p_hh_mth_bspline.append(RectBivariateSpline(self.xi_emu.mass_bins, 
+                                                        self.xi_emu.mass_bins, 
+                                                        self.p_grid[:, :, i], 
+                                                        kx=3, ky=3, s=self.config['smooth_xihh_mass']))    
+    def xi_grid_to_p_grid(self):
+        """
+        Get the power spectrum P_hh(m_th1, mth2) on the grid of mass thresholds defined
+        by the emulator.
+        """
+        self.logger.debug("Convertigg the emulated xi_hh(mth1, mth2) to P_hh(mth1, mth2)")
+        ind = (self.rbins_fine > self.config['r_range'][0]) & (self.rbins_fine < self.config['r_range'][1])
+        spl = UnivariateSpline(self.xi_emu.rbins, self.xi_grid[0, 0], k=3, s=self.config['smooth_xihh_r'])
+        xi_interp = spl(self.rbins_fine[ind]) 
+        k, _ = mcfit.xi2P(self.rbins_fine[ind], l=0, lowring=True)(xi_interp, extrap=True)
+
+        # placehoder for the full grid of power at mass thresholds
+        p_grid = np.full((len(self.xi_emu.mass_bins), len(self.xi_emu.mass_bins), k.size), np.nan)
+        for i in range(len(self.xi_emu.mass_bins)):
+            for j in range(len(self.xi_emu.mass_bins)):
+                spl = UnivariateSpline(self.xi_emu.rbins, self.xi_grid[i, j], k=3, s=self.config['smooth_xihh_r'])
+                xi_interp = spl(self.rbins_fine[ind])
+                _, p_grid[i,j] = mcfit.xi2P(self.rbins_fine[ind], l=0, lowring=True)(xi_interp, extrap=True)
+        return k, p_grid
+
+    def get_p_hh_mth(self, logm1, logm2):
+        
+        # Convert single mass pairs to arrays if necessary
+        if not isinstance(logm1, np.ndarray):
+            logm1 = np.array([logm1])[:, np.newaxis]
+        if not isinstance(logm2, np.ndarray):
+            logm2 = np.array([logm2])[:, np.newaxis]
+
+        # Compute the spline interpolators for the 3D correlation function
+        self._interp_p_grid()
+        # Initialize output array with NaNs
+        p_hh_mth = np.full((logm1.shape[0], logm1.shape[1], len(self.p_hh_mth_bspline)), np.nan)
+        # Evaluate the interpolators over the input mass pairs for each radial bin
+        for i in range(len(self.p_hh_mth_bspline)):
+            p_hh_mth[:, :, i] = self.p_hh_mth_bspline[i].ev(logm1, logm2)
+        return p_hh_mth.squeeze()       
+
+    def get_phh_m1m2_reversed(self, masses):
+        """
+        First take the FFTLog of the xi_hh_m1m2 on the emualted mass_threshold grid
+        and calclute on the exact mass grid of logMg X logMh usign the finite difference
+        """
+        # Now we need to take the FFTLog of the xi_hh_m1m2 on the emulated mass_threshold grid
+        
+        # and calculate on the exact mass grid of logMg X logMh using the finite difference
+        delta = 0.01  # log10 mass step size
+        logm1, logm2 = masses[0], masses[1]
+        logm1p, logm1m = logm1 + delta, logm1 - delta
+        logm2p, logm2m = logm2 + delta, logm2 - delta
+
+        d1p = self.mth_to_dens(logm1p)
+        d1m = self.mth_to_dens(logm1m)
+        d2p = self.mth_to_dens(logm2p)
+        d2m = self.mth_to_dens(logm2m)
+
+        p_mm = self.get_p_hh_mth(logm1m, logm2m)
+        p_mp = self.get_p_hh_mth(logm1m, logm2p)
+        p_pm = self.get_p_hh_mth(logm1p, logm2m)
+        p_pp = self.get_p_hh_mth(logm1p, logm2p)
+        numer = p_mm * d1m * d2m - p_mp * d1m * d2p - p_pm * d1p * d2m + p_pp * d1p * d2p
+        denom = d1m * d2m - d1m * d2p - d1p * d2m + d1p * d2p
+        p_exact_mass = numer / denom
+        return p_exact_mass
+
+
+    def get_phh_m1m2_matrix_reversed(self):
+        
+        phh_m1m2_mat = np.full((len(self.config['logMh']), len(self.config['logMh']), self.p_grid.shape[-1]), np.nan)
+        for i in range(len(self.config['logMh'])):
+            for j in range(len(self.config['logMh'])):
+                phh = self.get_phh_m1m2_reversed((self.config['logMh'][i], self.config['logMh'][j]))
+                assert not np.any(np.isnan(phh)), f"p_hh_m1m2 returned NaN for masses {self.config['logMh'][i]} and {self.config['logMh'][j]}"
+                phh_m1m2_mat[i, j] = phh
+                phh_m1m2_mat[j, i] = phh_m1m2_mat[i, j]
+        return self.k, phh_m1m2_mat        
+
+    def get_phh_m1m2_matrix(self):
+        """
+        Get the phhh_m1m2 on a grid of logMh, logMh' values.
+        This is used to compute the 2-halo and 1-ha;p term for the central-central 
+        and central-sattelite correlation function.
         """
         # get the p_hh on (M,M') grid
         k, _ = self.p_hh_m1m2((self.config['logMh'][1], self.config['logMh'][1]))
@@ -458,7 +525,14 @@ class Gal(GalBase):
                 assert not np.any(np.isnan(phh)), f"p_hh_m1m2 returned NaN for masses {self.config['logMh'][i]} and {self.config['logMh'][j]}"
                 phh_m1m2_mat[i, j] = phh
                 phh_m1m2_mat[j, i] = phh_m1m2_mat[i, j]
-
+        return k, phh_m1m2_mat
+    
+    def _pgg_2h_cc(self):
+        """
+        Get the 2-halo term for the central-central correlation function (vectorized implementation).
+        """
+        # get the p_hh on (M,M') grid
+        k, phh_m1m2_mat = self.get_phh_m1m2_matrix_reversed()
         # Set up the mass-dependent arrays
         # dndm_vals: dn/dlog10M replicated along k
         dndm_vals = np.tile(self.dndlog_m(self.config['logMh']), (k.size, 1)).T  # dn/dlog10M replicated along k
@@ -478,6 +552,7 @@ class Gal(GalBase):
         spl = UnivariateSpline(k, pgg_cc, s=self.config['smooth_phh_k'], k=3)
         pgg_cc = spl(k)
         return k, pgg_cc
+    
 
     def get_pk_gg(self):
         """
