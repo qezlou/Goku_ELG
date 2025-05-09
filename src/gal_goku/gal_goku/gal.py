@@ -473,7 +473,7 @@ class Gal(GalBase):
         # Now we need to take the FFTLog of the xi_hh_m1m2 on the emulated mass_threshold grid
         
         # and calculate on the exact mass grid of logMg X logMh using the finite difference
-        delta = 0.1  # log10 mass step size
+        delta = 0.01  # log10 mass step size
         logm1, logm2 = masses[0], masses[1]
         logm1p, logm1m = logm1 + delta, logm1 - delta
         logm2p, logm2m = logm2 + delta, logm2 - delta

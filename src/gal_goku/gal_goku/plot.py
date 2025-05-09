@@ -664,7 +664,7 @@ class PlotXiEmu(BasePlot):
         return fig, ax, bounds
 
 
-    def cross_valid_2d_errs(self):
+    def cross_valid_2d_errs(self, mass_range=(13,11)):
         """
         Plotting the median and individual cross-validation errors for each simulation.
         Parameters
@@ -679,29 +679,29 @@ class PlotXiEmu(BasePlot):
 
         # Plot the median cross-validation error 
         median_frac_errs = np.nanmedian(self.frac_errs, axis=0)
-        fig, ax = self._2d_err_map(median_frac_errs[:], rbins=self.rbins)
+        fig, ax = self._2d_err_map(median_frac_errs[:], rbins=self.rbins, mass_range=mass_range)
         fig.suptitle(f'Median cross-validation error')
         fig.tight_layout()
         # Plot the error for each simulation
         for s in range(len(self.truth)):
-            fig, ax = self._2d_err_map(self.frac_errs[s], rbins=self.rbins)
+            fig, ax = self._2d_err_map(self.frac_errs[s], rbins=self.rbins, mass_range=mass_range)
 
             fig.suptitle(f'Leave {self.sim_tags[s]} out | frac_err')
             fig.tight_layout()
 
             # Plot the true vs predicted values
             
-            fig, ax, bounds = self._indvidual_pred_or_truth(np.log10(self.truth[s]), rbins=self.rbins)
+            fig, ax, bounds = self._indvidual_pred_or_truth(np.log10(self.truth[s]), rbins=self.rbins, mass_range=mass_range)
             fig.suptitle(f'Leave {self.sim_tags[s]} out |  truth')
             fig.tight_layout()
-            fig, ax, _ = self._indvidual_pred_or_truth(np.log10(self.pred[s]), rbins=self.rbins, bounds=bounds)
+            fig, ax, _ = self._indvidual_pred_or_truth(np.log10(self.pred[s]), rbins=self.rbins, bounds=bounds, mass_range=mass_range)
             fig.suptitle(f'Leave {self.sim_tags[s]} out | predicted')
             fig.tight_layout()
 
             # plot the loss history
             fig, ax = plt.subplots(1, 2, figsize=(8, 3))
             ax[0].plot(np.log10(self.loss_hist[s]))
-            ax[0].set_ylim(6.665, 6.680)
+            #ax[0].set_ylim(6.665, 6.680)
             ax[0].set_xlabel('Epochs')
             ax[0].set_ylabel('log10(Loss)')
             ax[0].grid(True, linestyle='--', alpha=0.7)

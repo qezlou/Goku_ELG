@@ -211,7 +211,8 @@ class Xi(BaseEmulator):
         super().__init__(loggin_level=loggin_level, logger_name='XiEmulator')
         
         # The mass pairs the emulator was trained on
-        mbins = np.arange(13, 10.9, -0.1)
+        #mbins = np.arange(13, 10.9, -0.1)
+        mbins = np.arange(12.3, 11, -0.1)
         idx = np.triu_indices(len(mbins), k=0)
         self.mass_pairs = np.column_stack((mbins[idx[0]], mbins[idx[1]]))
         self.mass_pairs = np.round(self.mass_pairs, 1)
@@ -237,8 +238,9 @@ class Xi(BaseEmulator):
             Loaded emulator instance.
         """
         # TODO: Replace this with the GP trained on the full simulation suite
-        emu_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/train_combined/'
-        model_file = op.join(emu_dir, 'xi_emu_combined_inducing_500_latents_40_leave0.pkl')
+        emu_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/train_less_massive/'
+        model_file = op.join(emu_dir, 'xi_emu_combined_inducing_500_latents_40_leave2.pkl')
+        self.logger.info(f'Loading the xi emulator from {model_file}')
         return self._get_emu(model_file=model_file)
     
 

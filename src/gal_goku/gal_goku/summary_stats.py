@@ -813,7 +813,7 @@ class HMF(BaseSummaryStats):
     """
     Halo mass function
     """
-    def __init__(self, data_dir, fid, mass_range=(11.0, 12.32), narrow=False, no_merge=True, chi2=False, logging_level='INFO'):
+    def __init__(self, data_dir, fid, mass_range=(11.1, 12.32), narrow=False, no_merge=True, chi2=False, logging_level='INFO'):
         super().__init__(data_dir, logging_level)
         self.fid = fid
         self.no_merge = no_merge
@@ -871,11 +871,16 @@ class HMF(BaseSummaryStats):
         self.sim_tags = sim_tags
         self.bad_sims = bad_sims
         self.logger.debug(f'Loaded HMFs from {save_file}')
-        masked_bins = []
-        for b in bins:
-            ind = np.where((b >= self.mass_range[0]) & (b <= self.mass_range[1]))[0]
-            masked_bins.append(b[ind])
-        return hmfs, masked_bins
+        # Only use bins within thr self.mass_range
+        masked_mbins = []
+        masked_hmfs = []
+        for i in range(len(bins)):
+            mbin = 0.5*(bins[i][1:] + bins[i][:-1])
+            h = hmfs[i]
+            ind = np.where((mbin >= self.mass_range[0]) & (mbin <= self.mass_range[1]))[0]
+            masked_mbins.append(mbin[ind])
+            masked_hmfs.append(h[ind])
+        return masked_hmfs, masked_mbins
 
     def get_wt_err(self):
         """
@@ -889,22 +894,19 @@ class HMF(BaseSummaryStats):
         --------------
 
         """
-        hmfs, bins = self.load()
-        full_bins = np.arange(11.1, 13.52, 0.1)
-        full_mbins = 0.5 * (full_bins[1:] + full_bins[:-1])
-        log_hmfs = -7*np.ones((hmfs.shape[0], full_mbins.size))
+        hmfs, mbins = self.load()
+        full_bins = np.arange(self.mass_range[0], self.mass_range[1]+0.01, 0.1)
+        print(f'full_bins = {full_bins}')
+        log_hmfs = -7*np.ones((len(hmfs), full_bins.size-1))
         hmf_errs = np.ones_like(log_hmfs)*1e2
-        for i, (h, b) in enumerate(zip(hmfs, bins)):
-            mbin = 0.5 * (b[1:] + b[:-1])
-            ind = np.digitize(mbin, full_mbins)-1
+        for i, (h, b) in enumerate(zip(hmfs, mbins)):
+            ind = np.digitize(mbins[i], full_bins)-1
+            print(ind)
             log_hmfs[i,ind] = np.log10(h)
             hmf_errs[i,ind] = 0
         del hmfs
-        del bins
-
-        full_mbins = 0.5 * (full_bins[1:] + full_bins[:-1])
-
-
+        del mbins
+        full_mbins = 0.5*(full_bins[1:] + full_bins[:-1])
         return full_mbins, log_hmfs, hmf_errs, self.get_params_array(), np.array(self.sim_tags)
 
 
@@ -916,7 +918,7 @@ class HMF(BaseSummaryStats):
         kwargs: dict
             Keyword arguments for utils.ConstrainedSplineFitter
         """
-        hmfs, bins = self.load()
+        hmfs, mbins = self.load()
         # We fix the knots for the spline fit
         #self.knots = np.array([11.1 , 11.1, 11.1,
         #                  11.35, 11.6 , 11.85, 
@@ -933,7 +935,6 @@ class HMF(BaseSummaryStats):
         fit = utils.ConstrainedSplineFitter(*kwargs, logging_level=self.logging_level)
         splines = []
         for i in ind:
-            mbins = 0.5*(bins[i][1:] + bins[i][:-1])
             if self.chi2:
                 sigma = np.log10(hmfs[i][0]/hmfs[i][:])
             else:
