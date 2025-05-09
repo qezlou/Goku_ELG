@@ -896,12 +896,10 @@ class HMF(BaseSummaryStats):
         """
         hmfs, mbins = self.load()
         full_bins = np.arange(self.mass_range[0], self.mass_range[1]+0.01, 0.1)
-        print(f'full_bins = {full_bins}')
         log_hmfs = -7*np.ones((len(hmfs), full_bins.size-1))
         hmf_errs = np.ones_like(log_hmfs)*1e2
         for i, (h, b) in enumerate(zip(hmfs, mbins)):
             ind = np.digitize(mbins[i], full_bins)-1
-            print(ind)
             log_hmfs[i,ind] = np.log10(h)
             hmf_errs[i,ind] = 0
         del hmfs
