@@ -336,6 +336,7 @@ class Xi(BaseSummaryStats):
         
         self.mass_pairs = np.around(self.mass_pairs, 2)
         self.mass_bins = np.round(np.unique(self.mass_pairs), 2)
+        self.logger.info(f'mass_bins = {self.mass_bins}')
 
     def _load_data(self, mass_range):
         """
@@ -812,7 +813,7 @@ class HMF(BaseSummaryStats):
     """
     Halo mass function
     """
-    def __init__(self, data_dir, fid, narrow=False, no_merge=True, chi2=False, logging_level='INFO'):
+    def __init__(self, data_dir, fid, mass_range=(11.0, 12.32), narrow=False, no_merge=True, chi2=False, logging_level='INFO'):
         super().__init__(data_dir, logging_level)
         self.fid = fid
         self.no_merge = no_merge
@@ -821,6 +822,7 @@ class HMF(BaseSummaryStats):
         self.logging_level = logging_level
         self.knots = None
         self.chi2 = chi2
+        self.mass_range = mass_range
 
     
     def get_labels(self):
@@ -868,8 +870,12 @@ class HMF(BaseSummaryStats):
             hmfs = self.comm.bcast(hmfs)
         self.sim_tags = sim_tags
         self.bad_sims = bad_sims
-        self.logger.debug(f'Loaded HMFs from {save_file}') 
-        return hmfs, bins
+        self.logger.debug(f'Loaded HMFs from {save_file}')
+        masked_bins = []
+        for b in bins:
+            ind = np.where((b >= self.mass_range[0]) & (b <= self.mass_range[1]))[0]
+            masked_bins.append(b[ind])
+        return hmfs, masked_bins
 
     def get_wt_err(self):
         """
