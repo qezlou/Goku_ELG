@@ -59,19 +59,6 @@ class GalBase:
         
         return logger
     
-    def set_cosmology(self, cosmo):
-        """
-        Set the cosmology parameters for calculations.
-
-        Parameters
-        ----------
-        cosmo : dict
-            Dictionary containing cosmology parameters with keys:
-            'omega0', 'omegab', 'hubble', 'scalar_amp', 'ns',
-            'w0_fld', 'wa_fld', 'N_ur', 'alpha_s', 'm_nu'.
-        """
-        self.cosmo = cosmo
-    
 
 class Gal(GalBase):
     """
@@ -111,6 +98,7 @@ class Gal(GalBase):
                 'logMh': np.arange(self.hmf_emu.mbins[0], self.hmf_emu.mbins[-1], 0.05),
                 'smooth_xihh_r': 1e-2,
                 'smooth_phh_k': 1e-2,
+                'smooth_xihh_mass': 0,
                 'r_range': [0, 65]
                 }
         else:
@@ -194,7 +182,7 @@ class Gal(GalBase):
         if hod_params is None:
             self.hod_params = {
                 # Central galaxy parameters
-                'logMmin': 11.2,
+                'logMmin': 11.3,
                 'sig_logM': 0.1,
                 #'alpha_inc': 0.5,
                 #'Minc': 12.0,
@@ -227,7 +215,17 @@ class Gal(GalBase):
         f_inc = 1
         N_cen = f_inc * 0.5 * (1 + special.erf((logMh - self.hod_params['logMmin']) / self.hod_params['sig_logM']))
         return N_cen
-    
+    def _lambda_sat(self, logMh):
+        
+        N_cen = self._Ncen(logMh)
+        # Compute satellite galaxy number density
+        M1 = 10**self.hod_params['M1']
+        Mmin = 10**self.hod_params['logMmin']
+        Mh = 10**logMh
+
+        lambda_sat =  ((Mh - self.hod_params['kappa'] * Mmin) / M1) ** self.hod_params['alpha']
+        return lambda_sat
+
     def _Nsat(self, logMh):
         """
         Compute the mean number of satellite galaxies for given halo masses.
@@ -240,14 +238,10 @@ class Gal(GalBase):
         N_sat : array_like
             Mean number of satellite galaxies.
         """
-        N_cen = self._Ncen(logMh)
-        # Compute satellite galaxy number density
-        M1 = 10**self.hod_params['M1']
-        Mmin = 10**self.hod_params['logMmin']
-        Mh = 10**logMh
-        N_sat = N_cen * ((Mh - self.hod_params['kappa'] * Mmin) / M1) ** self.hod_params['alpha']
-        # Make sure N_sat is non-negative
-        N_sat = np.where(N_sat > 0, N_sat, 0.0)
+        lambda_sat = self._lambda_sat(logMh)
+        # Compute the mean number of satellite galaxies
+        Ncen = self._Ncen(logMh)
+        N_sat = Ncen * lambda_sat
         return N_sat
 
     def get_ng(self, logMh=None):
@@ -439,7 +433,7 @@ class Gal(GalBase):
         Get the power spectrum P_hh(m_th1, mth2) on the grid of mass thresholds defined
         by the emulator.
         """
-        self.logger.debug("Convertigg the emulated xi_hh(mth1, mth2) to P_hh(mth1, mth2)")
+        self.logger.debug("Converting the emulated xi_hh(mth1, mth2) to P_hh(mth1, mth2)")
         ind = (self.rbins_fine > self.config['r_range'][0]) & (self.rbins_fine < self.config['r_range'][1])
         spl = UnivariateSpline(self.xi_emu.rbins, self.xi_grid[0, 0], k=3, s=self.config['smooth_xihh_r'])
         xi_interp = spl(self.rbins_fine[ind]) 
@@ -479,7 +473,7 @@ class Gal(GalBase):
         # Now we need to take the FFTLog of the xi_hh_m1m2 on the emulated mass_threshold grid
         
         # and calculate on the exact mass grid of logMg X logMh using the finite difference
-        delta = 0.01  # log10 mass step size
+        delta = 0.1  # log10 mass step size
         logm1, logm2 = masses[0], masses[1]
         logm1p, logm1m = logm1 + delta, logm1 - delta
         logm2p, logm2m = logm2 + delta, logm2 - delta
@@ -529,7 +523,7 @@ class Gal(GalBase):
     
     def _pgg_2h_cc(self):
         """
-        Get the 2-halo term for the central-central correlation function (vectorized implementation).
+        Get the 2-halo term for the central-central correlation function 
         """
         # get the p_hh on (M,M') grid
         k, phh_m1m2_mat = self.get_phh_m1m2_matrix_reversed()
@@ -549,10 +543,109 @@ class Gal(GalBase):
 
         # Apply the galaxy-density normalisation
         pgg_cc = (1.0 / self.get_ng()**2) * pgg_cc
-        spl = UnivariateSpline(k, pgg_cc, s=self.config['smooth_phh_k'], k=3)
-        pgg_cc = spl(k)
+        #spl = UnivariateSpline(k, pgg_cc, s=self.config['smooth_phh_k'], k=3)
+        #pgg_cc = spl(k)
         return k, pgg_cc
+
+    def _xigg_2h_cc(self):
+        """
+        Get the 2-halo term for the correlation function
+        """
+        k, pgg_2h = self._pgg_2h_cc()
+        # Convert the power spectrum to the correlation function
+        r, xigg_2h = mcfit.P2xi(k, l=0, lowring=True)(pgg_2h, extrap=True)
+        # Interpolate the correlation function
+        return r, xigg_2h
+
+    def _pgg_2h_cs(self):
+        """
+        Get the 2-halo term for the central-satellite correlation function 
+        TODO: Implement the sattelite displacement kernel
+        """
+        # get the p_hh on (M,M') grid
+        k, phh_m1m2_mat = self.get_phh_m1m2_matrix_reversed()
+        # Set up the mass-dependent arrays
+        # dndm_vals: dn/dlog10M replicated along k
+        dndm_vals = np.tile(self.dndlog_m(self.config['logMh']), (k.size, 1)).T
+        Ncen_vals = np.tile(self._Ncen(self.config['logMh']), (k.size, 1)).T
+        Nsat_vals = np.tile(self._Nsat(self.config['logMh']), (k.size, 1)).T
+        # First integral: integrate over logMh' for each logMh
+        pgg_cs = []
+        for i in range(self.config['logMh'].size):
+            pgg_cs.append(simpson(dndm_vals * Nsat_vals * phh_m1m2_mat[i], x=self.config['logMh'], axis=0))
+        pgg_cs = np.array(pgg_cs)
+        # Second integral: integrate over logMh
+        pgg_cs = simpson(dndm_vals * Ncen_vals * pgg_cs, x=self.config['logMh'], axis=0)
+        # Apply the galaxy-density normalisation
+        pgg_cs = (1.0 / self.get_ng()**2) * pgg_cs
+        #spl = UnivariateSpline(k, pgg_cs, s=self.config['smooth_phh_k'], k=3)
+        #pgg_cs = spl(k)
+        return k, 2*pgg_cs
+
+    def _xigg_2h_cs(self):
+        """
+        Get the 2-halo term for the correlation function
+        """
+        k, pgg_2h = self._pgg_2h_cs()
+        # Convert the power spectrum to the correlation function
+        r, xigg_2h = mcfit.P2xi(k, l=0, lowring=True)(pgg_2h, extrap=True)
+        # Interpolate the correlation function
+        return r, xigg_2h
+
+    def _pgg_2h_ss(self):
+        """
+        Get the 2-halo term for the satellite-satellite correlation function
+        """
+        # get the p_hh on (M,M') grid
+        k, phh_m1m2_mat = self.get_phh_m1m2_matrix_reversed()
+        # Set up the mass-dependent arrays
+        # dndm_vals: dn/dlog10M replicated along k
+        dndm_vals = np.tile(self.dndlog_m(self.config['logMh']), (k.size, 1)).T
+        Nsat_vals = np.tile(self._Nsat(self.config['logMh']), (k.size, 1)).T
+        # First integral: integrate over logMh' for each logMh
+        pgg_ss = []
+        for i in range(self.config['logMh'].size):
+            pgg_ss.append(simpson(dndm_vals * Nsat_vals * phh_m1m2_mat[i], x=self.config['logMh'], axis=0))
+        pgg_ss = np.array(pgg_ss)
+        # Second integral: integrate over logMh
+        pgg_ss = simpson(dndm_vals * Nsat_vals * pgg_ss, x=self.config['logMh'], axis=0)
+        # Apply the galaxy-density normalisation
+        pgg_ss = (1.0 / self.get_ng()**2) * pgg_ss
+        #spl = UnivariateSpline(k, pgg_ss, s=self.config['smooth_phh_k'], k=3)
+        #pgg_ss = spl(k)
+        return k, pgg_ss
+
+    def _xigg_2h_ss(self):
+        """
+        Get the 2-halo term for the correlation function
+        """
+        k, pgg_2h = self._pgg_2h_ss()
+        # Convert the power spectrum to the correlation function
+        r, xigg_2h = mcfit.P2xi(k, l=0, lowring=True)(pgg_2h, extrap=True)
+        # Interpolate the correlation function
+        return r, xigg_2h
+
+    def _pgg_1h(self):
+        """
+        Get the 1-halo term for the spherically averaged power spectrum
+        """
+        dndm_vals = np.tile(self.dndlog_m(self.config['logMh']), (self.k.size, 1)).T
+        Ncen_vals = np.tile(self._Ncen(self.config['logMh']), (self.k.size, 1)).T
+        lam_s_vals = np.tile(self._lambda_sat(self.config['logMh']), (self.k.size, 1)).T
+        pgg_1h = simpson(dndm_vals* lam_s_vals * (2 + lam_s_vals), x=self.config['logMh'], axis=0)
+        # Apply the galaxy-density normalisation
+        pgg_1h = (1.0 / self.get_ng()**2) * pgg_1h
+        return self.k, pgg_1h
     
+    def _xigg_1h(self):
+        """
+        Get the 1-halo term for the correlation function
+        """
+        _, pgg_1h = self._pgg_1h()
+        # Convert the power spectrum to the correlation function
+        r, xigg_1h = mcfit.P2xi(self.k, l=0, lowring=True)(pgg_1h, extrap=True)
+        # Interpolate the correlation function
+        return r, xigg_1h
 
     def get_pk_gg(self):
         """
@@ -572,12 +665,63 @@ class Gal(GalBase):
         P_gg : np.ndarray
             Galaxy power spectrum P_gg(k).
         """
+        # Get the 1-halo term
+        _, pgg_1h = self._pgg_1h()
+        # Get the 2-halo term for the central-central correlation function
+        k, pgg_2h_cc = self._pgg_2h_cc()
+        # Get the 2-halo term for the central-satellite correlation function
+        _, pgg_2h_cs = self._pgg_2h_cs()
+        # Get the 2-halo term for the satellite-satellite correlation function
+        _, pgg_2h_ss = self._pgg_2h_ss()
 
-        pass
+        # Combine all terms to get the total power spectrum P_gg(k)
+        #pgg = pgg_2h_cc + pgg_2h_cs + pgg_2h_ss + pgg_1h
+        #FIXME: Add the 1-hal oterm
+        pgg = pgg_2h_cc + pgg_2h_cs + pgg_2h_ss
 
+        return k, pgg
     
-        
-        
+    def get_xi_gg(self):
+        """
+        Compute the galaxy correlation function xi(r) for the current cosmology and HOD parameters.
+
+        This applies the HOD to the emulated xi_hh(M, M').
+
+        The computation flow is:
+        1. Get dndm for self.Mh.
+        2. Get xi_hh(M, M') on the (self.Mh, self.Mh) grid.
+        3. Compute <N_cen>(M) and <N_sat>(M) for self.Mh.
+        4. Compute the displacement kernels H_off(k,M) and u_s(k,M).
+        5. Integrate the terms P_1c(k), P_2c(k), P_1s(k), and P_2s(k).
+
+        Returns
+        -------
+        xi_gg : np.ndarray
+            Galaxy correlation function xi(r).
+        """
+        k, pgg = self.get_pk_gg()
+        # Convert the power spectrum to the correlation function
+        r, xigg = mcfit.P2xi(k, l=0, lowring=True)(pgg, extrap=True)
+
+        return r, xigg
+
+    def get_wp_gg(self, pi_max = 40):
+        """
+        Get the projected correlation function w_p(r) for the current cosmology and HOD parameters.
+        #NOTE: The 1-halo term is not included yet!
+        """
+        rbins, xigg = self.get_xi_gg()
+        # Build an interpolator for the correlation function
+        xi_spl = UnivariateSpline(rbins, xigg, s=self.config['smooth_xihh_r'], k=3)
+        # Compute the projected correlation function w_p(r)
+        wp = np.zeros_like(rbins)
+        for i, r in enumerate(rbins):
+            integrand = lambda x: xi_spl(np.sqrt(x**2 + r**2))
+            wp[i] = quad(integrand, 0, pi_max)[0]
+        wp = 2 * wp
+        return rbins, wp
+
+
 
 
         
