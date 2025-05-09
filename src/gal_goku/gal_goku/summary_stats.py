@@ -297,7 +297,7 @@ class Xi(BaseSummaryStats):
     """
     Speherically Averaged correlation function
     """
-    def __init__(self, data_dir, fid, narrow=False, MPI=None, logging_level='INFO'):
+    def __init__(self, data_dir, fid, mass_range=(11.0, 12.32), narrow=False, MPI=None, logging_level='INFO'):
         """
         Calling this will load the xi(r, n1, n2) for all the simulations
         Parameters:
@@ -318,11 +318,11 @@ class Xi(BaseSummaryStats):
         # Get the file counts
         if self.narrow:
             self.xi_file = op.join(self.data_dir, self.fid, 'narrow', f'xi_grid_{self.fid}_narrow.hdf5')
-            self.sim_tags, self.rbins, self.xi, self.mass_pairs = self._load_data()
+            self.sim_tags, self.rbins, self.xi, self.mass_pairs = self._load_data(mass_range=mass_range)
             self.sim_nums = [int(f.split('_')[-2]) for f in self.sim_tags]
         else:
             self.xi_file = op.join(self.data_dir, self.fid, f'xi_grid_{self.fid}.hdf5')
-            self.sim_tags, self.rbins, self.xi, self.mass_pairs = self._load_data()
+            self.sim_tags, self.rbins, self.xi, self.mass_pairs = self._load_data(mass_range=mass_range)
             self.sim_nums = [int(f.split('_')[-1]) for f in self.sim_tags]
 
         # Sort the dat based on the sim id
@@ -337,7 +337,7 @@ class Xi(BaseSummaryStats):
         self.mass_pairs = np.around(self.mass_pairs, 2)
         self.mass_bins = np.round(np.unique(self.mass_pairs), 2)
 
-    def _load_data(self):
+    def _load_data(self, mass_range):
         """
         Load the correlation function for a single simulation
         """
@@ -348,6 +348,11 @@ class Xi(BaseSummaryStats):
             mass_pairs = f['mass_pairs'][:]
             for tag in f['sim_tags']:
                 sim_tags.append(tag.decode('utf-8'))
+        
+        ind = (mass_pairs[:,0] >= mass_range[0]) & (mass_pairs[:,0] <= mass_range[1]) & \
+                (mass_pairs[:,1] >= mass_range[0]) & (mass_pairs[:,1] <= mass_range[1])
+        mass_pairs = mass_pairs[ind,:]
+        xi = xi[:, ind, :]
         return sim_tags, rbins, xi, mass_pairs
     
     def get_labels(self):
