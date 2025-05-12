@@ -199,7 +199,7 @@ class Xi(BaseEmulator):
     """
     Trained emulator for the xi(r) correlation function.
     """
-    def __init__(self, loggin_level='INFO'):
+    def __init__(self, leave=34, loggin_level='INFO'):
         """
         Initialize the multifidelity emulator for xi(r).
 
@@ -225,7 +225,7 @@ class Xi(BaseEmulator):
                   2.90060912, 3.69826365, 4.71526961, 6.01194766, 7.66520638, 9.77310384, 
                   12.46066368, 15.88729045, 20.25622426, 25.82659532, 32.9287935, 41.98406441, 
                   53.52949432, 60.52631579])
-
+        self.leave = leave
         self.emu = self.get_emu()
     
     def get_emu(self):
@@ -239,7 +239,7 @@ class Xi(BaseEmulator):
         """
         # TODO: Replace this with the GP trained on the full simulation suite
         emu_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/train_less_massive/'
-        model_file = op.join(emu_dir, 'xi_emu_combined_inducing_500_latents_40_leave2.pkl')
+        model_file = op.join(emu_dir, f'xi_emu_combined_inducing_500_latents_40_leave{np.round(self.leave)}.pkl')
         self.logger.info(f'Loading the xi emulator from {model_file}')
         return self._get_emu(model_file=model_file)
     

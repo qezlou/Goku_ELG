@@ -813,7 +813,7 @@ class HMF(BaseSummaryStats):
     """
     Halo mass function
     """
-    def __init__(self, data_dir, fid, mass_range=(11.1, 12.32), narrow=False, no_merge=True, chi2=False, logging_level='INFO'):
+    def __init__(self, data_dir, fid, mass_range=(11.1, 13.5), narrow=False, no_merge=True, chi2=False, logging_level='INFO'):
         super().__init__(data_dir, logging_level)
         self.fid = fid
         self.no_merge = no_merge

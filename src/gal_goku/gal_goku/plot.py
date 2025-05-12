@@ -717,6 +717,24 @@ class PlotXiEmu(BasePlot):
             fig.tight_layout()
 
 
+            # Plot 1D plots for a few mass bins
+            fig, ax = plt.subplots(1, 2, figsize=(8, 3))
+            frac_errs = np.abs(self.pred[s]/self.truth[s] - 1)
+            for i, n in enumerate([2, 8, 13]):
+                ax[0].plot(self.rbins, np.log10(self.truth[s][n, n]), label='truth', color=f'C{i}')
+                ax[0].plot(self.rbins, np.log10(self.pred[s][n, n]), label='pred', color=f'C{i}', ls='--')
+                ax[1].plot(self.rbins, frac_errs[n,n], label='truth', color=f'C{i}')
+            ax[0].set_xscale('log')
+            ax[0].set_yscale('log')
+            ax[0].set_xlabel('r [Mpc/h]')
+            ax[0].set_ylabel(r'$\xi(r)$')
+            ax[0].grid(which='both', linestyle='--', linewidth=0.5)
+            ax[1].set_xscale('log')
+            ax[1].set_ylim(-0.5, 0.5)
+            ax[1].set_yticks(np.arange(-0.5, 0.6, 0.1))
+            ax[1].grid(which='both', linestyle='--', linewidth=0.5)
+
+
     def cross_valid_1d_errs(self, pred, truth, rbins, mass_bins, loss_history=None):
         """
         Plotting the median and individual cross-validation errors for each simulation.
@@ -1513,6 +1531,7 @@ class HmfCombined(BasePlot):
         self.cosmo_pars = self.emu.X[1]
         self.pred, self.truth, self.loss_history = self.get_loo_pred_truth()
         
+        
     
     def _predict_and_calculate_error(self, s, y_err_th = 1):
         """
@@ -1577,8 +1596,8 @@ class HmfCombined(BasePlot):
             ax[i,0].set_xlabel(r'$M$')
             ax[i,0].set_ylabel(r'$\Phi$')
             ax[i,1].set_ylabel('frac errors')
-            ax[i,1].set_ylim(-1, 1)
-            ax[i,1].set_yticks(np.arange(-1, 1.1, 0.2))
+            ax[i,1].set_ylim(-.2, .2)
+            ax[i,1].set_yticks(np.arange(-.4, .5, 0.1))
             ax[i,0].legend()
         
             ax[i,2].plot(self.loss_history[i], label=f'{i}')
@@ -1596,8 +1615,8 @@ class HmfCombined(BasePlot):
         median_err = np.median(np.abs(self.pred/self.truth - 1), axis=0)
         ax[-1, 1].plot(self.mbins, median_err, color='k', lw=4, alpha=0.5, marker='x', label='Median')
         ax[-1, 1].set_xscale('log')
-        ax[-1, 1].set_ylim(0, 1)
-        ax[-1, 1].set_yticks(np.arange(0, 1, 0.1))
+        ax[-1, 1].set_ylim(-.2, .2)
+        ax[-1, 1].set_yticks(np.arange(-.4, .5, 0.1))
         ax[-1, 1].grid(True)
 
         

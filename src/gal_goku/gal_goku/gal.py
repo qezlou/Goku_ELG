@@ -68,19 +68,19 @@ class Gal(GalBase):
     projected correlation function w_p(r) from halo summary statistics.
     """
 
-    def __init__(self, config=None, logging_level='INFO'):
+    def __init__(self, leave=34, config=None, tag_info=None, logging_level='INFO'):
         super().__init__(logging_level=logging_level, logger_name='gal.XiGal')
         # Load the trained emulator for xi_direct
-        self.xi_emu = emu_cosmo.Xi()
+        self.xi_emu = emu_cosmo.Xi(leave=leave, loggin_level=logging_level)
         self.rbins = self.xi_emu.rbins
         self.logger.debug(f'Emulators mass bins: {self.xi_emu.mass_bins}')
         self.logger.debug(f'Emulators rbins.size: {self.xi_emu.rbins.size}')
         self.rbins_fine = np.linspace(self.rbins[0], self.rbins[-1], 100)
         # Load the emulator for HMF
-        self.hmf_emu = emu_cosmo.Hmf()
-
+        self.hmf_emu = emu_cosmo.Hmf(loggin_level=logging_level)
         self._load_config(config)
         # Set the resolution parameters
+        self.tag_info = tag_info
 
     def _load_config(self, config=None):
         """
@@ -96,10 +96,10 @@ class Gal(GalBase):
                 # The halo mass bins for integrating the HOD model with P_hh, 
                 # defining the halo mass resolution
                 'logMh': np.arange(self.hmf_emu.mbins[0], self.hmf_emu.mbins[-1], 0.05),
-                'smooth_xihh_r': 1e-2,
-                'smooth_phh_k': 1e-2,
+                'smooth_xihh_r': 0,
+                'smooth_phh_k': 0,
                 'smooth_xihh_mass': 0,
-                'r_range': [0, 65]
+                'r_range': [0.1, 50]
                 }
         else:
             self.config = config
@@ -499,7 +499,7 @@ class Gal(GalBase):
         for i in range(len(self.config['logMh'])):
             for j in range(len(self.config['logMh'])):
                 phh = self.get_phh_m1m2_reversed((self.config['logMh'][i], self.config['logMh'][j]))
-                assert not np.any(np.isnan(phh)), f"p_hh_m1m2 returned NaN for masses {self.config['logMh'][i]} and {self.config['logMh'][j]}"
+                assert not np.any(np.isnan(phh)), f"{self.tag_info}, p_hh_m1m2 returned NaN for masses {self.config['logMh'][i]} and {self.config['logMh'][j]}"
                 phh_m1m2_mat[i, j] = phh
                 phh_m1m2_mat[j, i] = phh_m1m2_mat[i, j]
         return self.k, phh_m1m2_mat        
