@@ -170,6 +170,7 @@ class Hmf(BaseEmulator):
         """
         # TODO: Replace this with the GP trained on the full simulation suite
         model_file = '/home/qezlou/HD2/HETDEX/cosmo/data/HMF/train/hmf_emu_combined_inducing_500_latents_20_leave31.pkl'
+        self.logger.info(f'Loading the hmf emulator from {model_file}')
         return self._get_emu(model_file=model_file)
 
     def predict(self, cosmo_pars):
