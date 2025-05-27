@@ -7,6 +7,9 @@ from gal_goku import emu_cosmo
 from scipy.interpolate import make_interp_spline, RectBivariateSpline, UnivariateSpline
 from scipy import special
 from scipy.integrate import quad, simpson
+from gal_goku import halo_tools
+
+
 class GalBase:
     """
     Convert halo summary statistics to galaxy observables such as xi(r) and w_p(r).
@@ -17,10 +20,6 @@ class GalBase:
 
     def __init__(self, logging_level='INFO', logger_name='BaseGal'):
         self.logger = self.configure_logging(logging_level, logger_name)
-
-
-
-
 
     def configure_logging(self, logging_level='INFO', logger_name='BaseGal'):
         """
@@ -132,6 +131,9 @@ class Gal(GalBase):
         self.k, self.p_grid = self.xi_grid_to_p_grid()
         self.xi_hh_mth_bspline = None
         self.p_hh_mth_bspline = None
+
+        # Set the halot_tools for modeling the NFW porfile
+        self.halo_tools = halo_tools.HaloTools(cosmo_pars, self.xi_emu.z)
 
     def dndlog_m(self, logMh):
         """
@@ -396,6 +398,7 @@ class Gal(GalBase):
         spl = UnivariateSpline(k, phh, s= self.config['smooth_phh_k'], k=3)
         phh = spl(k)
         return k, phh.squeeze()
+
 
 
     def _pgg_1h_ss(self):
