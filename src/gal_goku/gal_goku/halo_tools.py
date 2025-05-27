@@ -8,6 +8,7 @@ from mcfit import Hankel
 from colossus.cosmology import cosmology as colossus_cosmology
 from colossus.halo import concentration
 from scipy import special
+from scipy.interpolate import UnivariateSpline
 from colossus.halo import mass_defs
 import camb
 import logging, sys
@@ -182,8 +183,18 @@ class HaloTools:
             The Fourier transform of the NFW profile.
 
         """
+
         c_vir, r_vir = self.get_halo_props_colossus(m_vir, self.z)
         r_vir /= 1000  # Convert to Mpc/h
         self.logger.debug(f"For log_m_vir: {np.log10(m_vir)} M_sol/h, c_vir: {c_vir}, r_vir: {r_vir} Mpc/h")
-        uk = self.analytic_uk(k, c_vir, r_vir)
-        return uk
+
+        # Use a fixed range of k to ensure the Hankel transform is
+        # well-converged on small and large scales.
+        k_long_support = np.linspace(0.05, 30, 200)
+        uk = self.analytic_uk(k_long_support, c_vir, r_vir)
+        # Interpolate the result to the desired k values
+        uk_interp = []
+        for i in range(uk.shape[0]):
+            uk_interp.append(UnivariateSpline(k_long_support, uk[i], k=3)(k))
+        uk_interp = np.array(uk_interp)
+        return uk_interp

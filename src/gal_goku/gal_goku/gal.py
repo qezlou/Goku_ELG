@@ -67,14 +67,15 @@ class Gal(GalBase):
     projected correlation function w_p(r) from halo summary statistics.
     """
 
-    def __init__(self, leave=34, config=None, tag_info=None, logging_level='INFO'):
+    def __init__(self, z=2.5, leave=34, config=None, tag_info=None, logging_level='INFO'):
+        self.z =z
         super().__init__(logging_level=logging_level, logger_name='gal.XiGal')
         # Load the trained emulator for xi_direct
         self.xi_emu = emu_cosmo.Xi(leave=leave, loggin_level=logging_level)
         self.rbins = self.xi_emu.rbins
         self.logger.debug(f'Emulators mass bins: {self.xi_emu.mass_bins}')
         self.logger.debug(f'Emulators rbins.size: {self.xi_emu.rbins.size}')
-        self.rbins_fine = np.linspace(self.rbins[0], self.rbins[-1], 100)
+        self.rbins_fine = np.linspace(self.rbins[0], self.rbins[-1], 400)
         # Load the emulator for HMF
         self.hmf_emu = emu_cosmo.Hmf(loggin_level=logging_level)
         self._load_config(config)
@@ -133,7 +134,8 @@ class Gal(GalBase):
         self.p_hh_mth_bspline = None
 
         # Set the halot_tools for modeling the NFW porfile
-        self.halo_tools = halo_tools.HaloTools(cosmo_pars, self.xi_emu.z)
+        self.htools = halo_tools.HaloTools(cosmo_pars, self.z)
+        self.uk = self.htools.get_uk(self.k, 10**self.config['logMh'])
 
     def dndlog_m(self, logMh):
         """
@@ -217,6 +219,7 @@ class Gal(GalBase):
         f_inc = 1
         N_cen = f_inc * 0.5 * (1 + special.erf((logMh - self.hod_params['logMmin']) / self.hod_params['sig_logM']))
         return N_cen
+    
     def _lambda_sat(self, logMh):
         
         N_cen = self._Ncen(logMh)
@@ -405,14 +408,14 @@ class Gal(GalBase):
         """
         Get the 1-halo term for the central-satellite correlation function
         """
-        integrand = lambda m: self.dndm(m) * 2 *self._Nsat(m)
+        integrand = lambda m: self.dndm(m) * 2 *self._Nsat(m) * self.halo_tools.get_uk(self.k, 10**m)
         return (1/self.get_ng()**2) * quad(integrand, self.config['logMh'][0], self.config['logMh'][-1])[0]
     
     def _pgg_1h_cs(self):
         """
         Get the 1-halo term for the central-satellite correlation function
         """
-        integrand = lambda m: self.dndm(m) * (self._Nsat(m)**2 / self._Ncen(m))
+        integrand = lambda m: self.dndm(m) * (self._Nsat(m)**2 / self._Ncen(m)) * self.halo_tools.get_uk(self.k, 10**m)**2
         return (1/self.get_ng()**2) * quad(integrand, self.config['logMh'][0], self.config['logMh'][-1])[0]
 
     def _interp_p_grid(self):
@@ -635,7 +638,8 @@ class Gal(GalBase):
         dndm_vals = np.tile(self.dndlog_m(self.config['logMh']), (self.k.size, 1)).T
         Ncen_vals = np.tile(self._Ncen(self.config['logMh']), (self.k.size, 1)).T
         lam_s_vals = np.tile(self._lambda_sat(self.config['logMh']), (self.k.size, 1)).T
-        pgg_1h = simpson(dndm_vals* lam_s_vals * (2 + lam_s_vals), x=self.config['logMh'], axis=0)
+        # Sptial distribution of satellite galaxies
+        pgg_1h = simpson(dndm_vals * Ncen_vals * lam_s_vals * self.uk * (2 + lam_s_vals*self.uk), x=self.config['logMh'], axis=0)
         # Apply the galaxy-density normalisation
         pgg_1h = (1.0 / self.get_ng()**2) * pgg_1h
         return self.k, pgg_1h
@@ -680,7 +684,7 @@ class Gal(GalBase):
         # Combine all terms to get the total power spectrum P_gg(k)
         #pgg = pgg_2h_cc + pgg_2h_cs + pgg_2h_ss + pgg_1h
         #FIXME: Add the 1-hal oterm
-        pgg = pgg_2h_cc + pgg_2h_cs + pgg_2h_ss
+        pgg = pgg_2h_cc + pgg_2h_cs + pgg_2h_ss# + pgg_1h
 
         return k, pgg
     
@@ -711,7 +715,6 @@ class Gal(GalBase):
     def get_wp_gg(self, pi_max = 40):
         """
         Get the projected correlation function w_p(r) for the current cosmology and HOD parameters.
-        #NOTE: The 1-halo term is not included yet!
         """
         rbins, xigg = self.get_xi_gg()
         # Build an interpolator for the correlation function
