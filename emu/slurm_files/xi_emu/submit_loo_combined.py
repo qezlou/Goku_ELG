@@ -15,7 +15,7 @@ python run_emu_combined_bins.py --ind_test {i}
 """
 
 # Loop from 0 to num_chunks
-for i in np.arange(0,1):
+for i in np.arange(2, 36):
     print(i)
     filename = f"job_script_{i}.sh"
     with open(filename, "w") as f:

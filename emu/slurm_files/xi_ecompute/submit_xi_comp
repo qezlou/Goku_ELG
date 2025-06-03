@@ -1,0 +1,11 @@
+#!/bin/bash
+#SBATCH -J pk0
+#SBATCH -p skx-dev
+#SBATCH -N 4
+#SBATCH --tasks-per-node=24
+#SBATCH --time=2:00:00
+#SBATCH --output=%x-%j.out
+
+hostname; pwd; date
+
+ibrun python run_xi_train.py --fid 'HF' --narrow 0 --numchunks 21 --chunk 10 --stat_type 'pk_hm'

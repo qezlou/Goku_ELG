@@ -19,6 +19,7 @@ import h5py
 import logging
 import warnings
 from . import mpi_helper
+from scipy.spatial import cKDTree
 warnings.filterwarnings("ignore")
 
 
@@ -179,13 +180,65 @@ class Corr():
                                         "m_ndm":param['m_nu'],
                                         "alpha_s":param['alpha_s']})
         return cosmo
-    def load_halo_cat(self, pig_dir, cosmo):
+    
+    def halo_exclusion(self, pos, mass, ex_radius, boxsize=None):
+        """
+        Perform halo exclusion by removing smaller halos within the ex_radius of more massive halos.
+
+        Parameters
+        ----------
+        pos : ndarray of shape (N, 3)
+            Positions of halos (in Mpc/h).
+        mass : ndarray of shape (N,)
+            Masses of halos (in Msun/h), used to sort halos.
+        ex_radius : ndarray of shape (N,)
+            The radius of exclusion for each halo (in Mpc/h). 
+            Halos within this radius of a more massive halo will be excluded.
+        boxsize : float, optional
+            If given, apply periodic boundary conditions.
+
+        Returns
+        -------
+        keep_mask : ndarray of bool
+            Boolean mask array indicating which halos are kept.
+        """
+
+        N = len(mass)
+        idx_sorted = np.argsort(-mass)  # Sort by decreasing mass
+        pos = pos[idx_sorted]
+        ex_radius = ex_radius[idx_sorted]
+
+        keep_mask = np.ones(N, dtype=bool)
+        tree = cKDTree(pos, boxsize=boxsize)
+
+        for i in range(N):
+            if not keep_mask[i]:
+                continue  # Already excluded
+
+            # Query neighbors within this halo's ex_radius
+            neighbors = tree.query_ball_point(pos[i], ex_radius[i])
+            for j in neighbors:
+                if j <= i:
+                    continue  # Only exclude lower-mass halos
+                keep_mask[j] = False
+
+        # Map keep_mask back to original order
+        inverse_sort = np.argsort(idx_sorted)
+        return keep_mask[inverse_sort]
+
+    def load_halo_cat(self, pig_dir, cosmo, ex_rad_fac = 10):
         """
         Load FOF tables as Nbodykit Halocatalog. It will be used to populate them with HOD models.
         Parameters:
         ------------
         pig_dir: str, 
             The path to the PIG directory
+        cosmo: Nbodykit.cosmology.Cosmology instance
+            output of `get_cosmo()`
+        ex_rad_fac: float, optional
+            The factor by which to multiply the R200 radius of each halo to determine the exclusion radius.
+            If ex_rad_fac > 0, smaller halos within this radius of larger halos will be excluded.
+            If ex_rad_fac <= 0, no exclusion will be performed.
         Returns:
         -----------
         Nbodykit HaloCatalog
@@ -202,45 +255,77 @@ class Corr():
                             velocity='MassCenterVelocity')
         halos.attrs['BoxSize'] /= 1000
         halos['Position'] /= 1000
+        # If exclusion is True, we will exclude smaller halos within the exclusion radius of larger halos
+        if ex_rad_fac > 0:
+            # Gather data to rank 0 for exclusion
+            all_pos = self.nbkit_comm.gather(halos['Position'].compute(), root=0)
+            all_mass = self.nbkit_comm.gather(halos['Mass'].compute(), root=0)
+            all_r200 = self.nbkit_comm.gather(ex_rad_fac*halos['Radius'].compute(), root=0)
+
+            if self.nbkit_rank == 0:
+                pos_concat = np.concatenate(all_pos)
+                mass_concat = np.concatenate(all_mass)
+                r200_concat = np.concatenate(all_r200)
+                keep_mask_all = self.halo_exclusion(pos_concat, mass_concat, r200_concat, boxsize=halos.attrs['BoxSize'])
+            else:
+                keep_mask_all = None
+
+            # Broadcast the final keep mask
+            keep_mask_all = self.nbkit_comm.bcast(keep_mask_all, root=0)
+
+            # Apply the mask on this rank's halos
+            ## Fist, find the cumulative halo count to this rank
+            n_halos_local = len(halos)
+            counts = self.nbkit_comm.allgather(n_halos_local)
+            offset = sum(counts[:self.nbkit_rank])
+            keep_mask = keep_mask_all[offset:offset + len(halos)]
+            halos = halos[keep_mask]
+            self.logger.info(f'Rank {self.nbkit_rank} removed {np.sum(~keep_mask)/len(keep_mask)*100:.2f}% of halos due to exclusion within radius {ex_rad_fac}*R200')
+            if self.nbkit_rank == 0:
+                self.logger.info(f'In total, {np.sum(~keep_mask_all)/len(keep_mask_all)*100:.2f}% of halos were removed due to exclusion within radius {ex_rad_fac}*R200')
+
         return halos
+    
 
-
-    def get_power(self, pig_dir, cosmo, mass_th, z=2.5, mesh_res=0.25, seeds=[42], mode='1d', hod_model=Zheng07Model, model_params={}):
-        """Get the powerspectrum for HOD populated galaxies in a FOF halo catalog.
+    def get_matter_density(self, pig_dir, cosmo, mesh_res=1, compute_mesh=False):
+        """
+        Get the matter density field from the Particle catalog
         Parameters
         ----------
-        pig_dir: str, 
+        pig_dir: str,
             The path to the PIG directory
-        r_egses: array,
-            binning along r
-        seeds : list/array
-            seeds for the HOD model, if len(seeds) > 1, generate different realizations
-            of HOD populated galaxies
-        mode : str
-            mode of the powerspectrum, either '1d', '2d', 'projected', 'angular'
-        hod_model: A class from `Nbodykit.hod`
-            The models defined in `Nbodykit.hod`
+        cosmo: Nbodykit.cosmology.Cosmology instance
+            output of `get_cosmo()`
+        mesh_res: float, optional
+            The resolution of the mesh in Mpc/h, default is 1 Mpc/h
+        compute_mesh: bool, optional
+            If True, compute the density field as a numpy array, otherwise return the Nbodykit Mesh object
         Returns:
         ------------
-        The powerspectrum for different seeds
+        if compute_mesh is False, returns:
+            Nbodykit Mesh object containing the matter density field
+        if compute_mesh is True, returns:
+            the density field as a numpy array
         """
-        # in z-space
-        los = [0, 0, 1]
-        halos = self.load_halo_cat(pig_dir, cosmo=cosmo)
-        # Apply RSD to the galaxies
-        rsd_factor = (1+z) / (100 * cosmo.efunc(z))
-        halos['RSDPosition'] = (halos['Position'] + halos['Velocity'] * los * rsd_factor)%halos.attrs['BoxSize']
-
-        data1 = halos[halos['Mass'] >= mass_th[0]]
-        data2 = halos[halos['Mass'] >= mass_th[1]]
-
-        Nmesh = halos.attrs['BoxSize'][0] / mesh_res
-        power = FFTPower(first=data1, second=data2,  Nmesh=Nmesh, BoxSize=halos.attrs['BoxSize'], los=los, mode='1d')
-        return power.run()[0]
-
-
-    
-    def _get_corr(self, pig_dir, cosmo, mass_th, z=2.5):
+        # Load the particle catalog
+        part_cat = BigFileCatalog(pig_dir, dataset='1')
+        # Set the cosmology with the parameters from the simulation
+        part_cat.attrs['BoxSize'] /= 1000  # Convert from kpc to Mpc
+        part_cat['Position'] /= 1000  # Convert from kpc to Mpc
+        # Create a mesh from the particle catalog
+        Nmesh = int(part_cat.attrs['BoxSize'][0] / mesh_res)
+        mesh = part_cat.to_mesh(position='Position', Nmesh=1000, compensated=True, BoxSize=part_cat.attrs['BoxSize'])
+        if compute_mesh:
+            # Compute the density field as a numpy array
+            density_field = mesh['density'].compute()
+            # Convert the density field to a numpy array
+            density_field = density_field.reshape((Nmesh, Nmesh, Nmesh))
+            return density_field
+        else:
+            # Return the mesh object
+            return mesh
+        
+    def _get_corr(self, pig_dir, cosmo, mass_th, ex_rad_fac=10, z=2.5):
         """Get the correlation function for two halo catalogs with 2 mass thresholds
         Parameters
         ----------
@@ -264,7 +349,8 @@ class Corr():
 
         # in z-space
         los = [0, 0, 1]
-        halos = self.load_halo_cat(pig_dir)
+        halos = self.load_halo_cat(pig_dir, cosmo=cosmo, ex_rad_fac=ex_rad_fac)
+
         # Apply RSD to the galaxies
         rsd_factor = (1+z) / (100 * cosmo.efunc(z))
         halos['RSDPosition'] = (halos['Position'] + halos['Velocity'] * los * rsd_factor)%halos.attrs['BoxSize']
@@ -292,8 +378,7 @@ class Corr():
             self.nbkit_comm.Barrier()
             result = pk_gal_zspace['power'].real
             mbins = pk_gal_zspace['k'].real
-        """
-            
+        """    
         return result, mbins
 
     def _corr_on_grid(self, pig_dir, z=2.5):
@@ -348,6 +433,172 @@ class Corr():
         if self.nbkit_rank ==0:
             self.logger.info(f'{len(bad_sims)} sims could not be opened')
 
+    def _get_power(self, pig_dir, params, mass_th, z, mode='1d', mesh_res=1, ex_rad_fac=0):
+        """Get the powerspectrum for HOD populated galaxies in a FOF halo catalog.
+        Parameters
+        ----------
+        pig_dir: str, 
+            The path to the PIG directory
+        cosmo: Nbodykit.cosmology.Cosmology instance
+            output of `get_cosmo()`
+        mass_th: tuple of floats
+            The mass threshold for the first and second halo samples
+        Returns:
+        ------------
+        The powerspectrum for different seeds
+        """
+        # Set the cosmology with the parameters from the simulation
+        cosmo = self.get_cosmo(params)
+        # in z-space
+        los = [0, 0, 1]
+        halos = self.load_halo_cat(pig_dir, cosmo=cosmo, ex_rad_fac=ex_rad_fac)
+        # Apply RSD to the galaxies
+        rsd_factor = (1+z) / (100 * cosmo.efunc(z))
+        halos['RSDPosition'] = (halos['Position'] + halos['Velocity'] * los * rsd_factor)%halos.attrs['BoxSize']
+
+        data1 = halos[halos['Mass'] >= mass_th[0]]
+        data2 = halos[halos['Mass'] >= mass_th[1]]
+
+        Nmesh = int(halos.attrs['BoxSize'][0] / mesh_res)
+        fund_mode = 2*np.pi/halos.attrs['BoxSize'][0]
+        power = FFTPower(first=data1, second=data2,  Nmesh=Nmesh, BoxSize=halos.attrs['BoxSize'], los=los, mode=mode, dk=0.3*fund_mode)
+        return power.run()[0]
+    
+    def _get_cross_power(self, pig_dir, params, mass_th, z=2.5, mode='1d', mesh_res=1, ex_rad_fac=0):
+        """
+        Get the cross power for halos and matter
+        Parameters
+        ----------
+        pig_dir: str,
+            The path to the PIG directory
+        params: dict,
+            The simulation parameters, output of `get_pig_dirs()`
+        mass_th: float
+            The mass threshold for the halos
+        z: float, not an array
+            redshift of the snapshot
+        mode: str
+            mode of the power spectrum, either '1d', '2d', 'projected', 'angular'
+        mesh_res: float, optional
+            The resolution of the mesh in Mpc/h, default is 1 Mpc/h
+        Returns:
+        ------------
+        The cross power spectrum for halos and matter
+        """
+        # Set the cosmology with the parameters from the simulation
+        cosmo = self.get_cosmo(params)
+        # in z-space
+        los = [0, 0, 1]
+        halos = self.load_halo_cat(pig_dir, cosmo=cosmo, ex_rad_fac=ex_rad_fac)
+        # Apply RSD to the galaxies
+        rsd_factor = (1+z) / (100 * cosmo.efunc(z))
+        halos['RSDPosition'] = (halos['Position'] + halos['Velocity'] * los * rsd_factor)%halos.attrs['BoxSize']
+        # Get the matter density field as a mesh
+        matter_mesh = self.get_matter_density(pig_dir, cosmo=cosmo, mesh_res=mesh_res, compute_mesh=False)
+        # Get the halos with the mass threshold
+        data1 = halos[halos['Mass'] >= mass_th]
+        Nmesh = int(halos.attrs['BoxSize'][0] / mesh_res)
+        # Compute the cross power spectrum
+        pk_hm = FFTPower(first=data1, second=matter_mesh, Nmesh=Nmesh, 
+                         BoxSize=halos.attrs['BoxSize'], los=los, mode=mode, 
+                         dk=0.3*(2*np.pi/halos.attrs['BoxSize'][0]))
+        # Run the power spectrum computation
+        return pk_hm.run()[0]
+
+
+    def _power_on_grid(self, pig_dir, params, z=2.5):
+        """
+        Get the 3D correlation fucntion on a grid with increasing mass thresholds
+        """
+        mbins = np.arange(12.3, 10.9,-0.5 )
+        idx = np.triu_indices(len(mbins), k=0)
+        pairs = np.column_stack((mbins[idx[0]], mbins[idx[1]]))
+        pow_hh = []
+        for i, m_pair in enumerate(pairs):
+            #if i in [0, 10, 25, 50, 100, 150, 200]:
+            if self.nbkit_rank == 0:
+                self.logger.info(f'progress {100*i/len(pairs)} %')
+            pow = self._get_power(pig_dir, params, mass_th=10**m_pair, z=z)
+            k = pow['k']
+            pow_hh.append(pow['power'].real)
+        return k, np.array(pow_hh), mbins, pairs
+    
+    def _cross_power_on_grid(self, pig_dir, params, z=2.5):
+        """
+        Get the cross power spectrum for halos and matter on a grid with increasing mass thresholds
+        """
+        mbins = np.arange(12.3, 10.9,-0.5 )
+        phm = []
+        for i, mth in enumerate(mbins):
+            if self.nbkit_rank == 0:
+                self.logger.info(f'progress {100*i/len(mbins)} %')
+            pk_hm = self._get_cross_power(pig_dir, params, mass_th=10**mth, z=z)
+            k = pk_hm['k']
+            phm.append(pk_hm['power'].real)
+        return k, np.array(phm), mbins
+
+    def get_power_on_grid(self, base_dir, save_dir, chunk, power_type='hh', narrow=False, z=2.5, num_chunks=20):
+        """
+        Get Power spectrum of halo x halo ro halo x matter on larger scales, r > 40 Mpc/h on a grid of mass thresholds
+        Parameters
+        ----------
+        base_dir : str
+            base directory of the simulations, if `narrow`, the
+            narrow sims should be in `/narrow` subdirectory
+        save_dir : str
+            directory to save the power spectrum
+        chunk : int
+            chunk number to process
+        power_type : str
+            type of power spectrum to compute, either 'hh' for halo x halo or 'hm' for halo x matter
+        narrow : bool
+            if True, the narrow sims should be in `/narrow` subdirectory
+        z : float, not an array
+            redshift of the snapshot
+        num_chunks : int
+            number of chunks to split the work
+        """
+        pigs = self.get_pig_dirs(base_dir, z=z, narrow=narrow)
+        num_sims = len(pigs['sim_tags'])
+        per_chunk = num_sims//num_chunks
+        start = chunk*per_chunk
+        if chunk == num_chunks-1:
+            end = num_sims
+        else:
+            end = start + per_chunk
+
+        hmfs, trimmed_bins = [], []
+        bad_sims = []
+        sim_tags = []
+        if self.rank==0:
+            self.logger.info(f'Get power for sim {start} to {end}')
+        for i in range(start, end):
+            save_file = os.path.join(save_dir, 'power_'+pigs["sim_tags"][i]+'.hdf5')
+            if os.path.exists(save_file):
+                if self.nbkit_rank ==0:
+                    self.logger.info(f'skipping {pigs["sim_tags"][i]} since it is already computed')
+            else:
+                if self.nbkit_rank==0:
+                    self.logger.info(f'working on {pigs["sim_tags"][i]}')
+                try:
+                    if power_type == 'hh':
+                        k, power_hh, mbins, pairs = self._power_on_grid(pigs['pig_dirs'][i], pigs['params'][i], z=z)
+                    elif power_type == 'hm':
+                        k, power_hh, mbins = self._cross_power_on_grid(pigs['pig_dirs'][i], pigs['params'][i], z=z)
+                    else:
+                        raise ValueError(f'Unknown power_type: {power_type}. Use "hh" or "hm".')
+                    if self.nbkit_rank ==0:
+                        if power_type == 'hh':
+                            self._save_power_on_grid(k, power_hh, mbins, pairs, pigs['sim_tags'][i], save_file)
+                        elif power_type == 'hm':
+                            self._save_cross_power_on_grid(k, power_hh, mbins, pigs['sim_tags'][i], save_file)    
+                    self.nbkit_comm.Barrier()
+                except FileNotFoundError as e:
+                    self.logger.info(f'{e} for {pigs["pig_dirs"][i]}')
+                    bad_sims.append(pigs['sim_tags'][i])
+        if self.nbkit_rank ==0:
+            self.logger.info(f'{len(bad_sims)} sims could not be opened')
+
     def _save_corr_on_grid(self, corr_hh, mbins, pairs, sim_tag, save_file):
         self.logger.info(f'Writing on {save_file}')
         with h5py.File(save_file, 'w') as fw:
@@ -355,3 +606,20 @@ class Corr():
             fw['mbins'] = mbins
             fw['pairs'] = pairs
             fw['sim_tag'] = sim_tag
+
+    def _save_power_on_grid(self, k, power_hh, mbins, pairs, sim_tag, save_file):
+        self.logger.info(f'Writing on {save_file}')
+        with h5py.File(save_file, 'w') as fw:
+            fw['power'] = power_hh
+            fw['mbins'] = mbins
+            fw['pairs'] = pairs
+            fw['sim_tag'] = sim_tag
+            fw['k'] = k
+    
+    def _save_cross_power_on_grid(self, k, power_hm, mbins, sim_tag, save_file):
+        self.logger.info(f'Writing on {save_file}')
+        with h5py.File(save_file, 'w') as fw:
+            fw['power'] = power_hm
+            fw['mbins'] = mbins
+            fw['sim_tag'] = sim_tag
+            fw['k'] = k

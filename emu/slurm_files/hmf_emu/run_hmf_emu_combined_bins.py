@@ -8,7 +8,7 @@ def run_it(ind_test, num_inducing=500, num_latents=20):
     #data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
     #train_subdir = 'train_hetero'
     data_dir = '/scratch/06536/qezlou/Goku/processed_data/'
-    train_subdir = 'HMF/train'
+    train_subdir = 'HMF/train_less_massive'
     
     emu = emus_multifid.HmfNativeBins(data_dir=data_dir,
                                       num_inducing=num_inducing, 

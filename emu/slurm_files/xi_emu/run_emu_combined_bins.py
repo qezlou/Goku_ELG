@@ -9,7 +9,7 @@ def run_it(ind_test, num_inducing=500, num_latents=40):
     #data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
     #train_subdir = 'train_hetero'
     data_dir = '/scratch/06536/qezlou/Goku/processed_data/xi_bins/'
-    train_subdir = 'train_combined'
+    train_subdir = 'train_combined_less_massive'
     
     emu = emus_multifid.XiNativeBinsFullDimReduc(data_dir=data_dir,
                                                 num_inducing=num_inducing, num_latents=num_latents,
