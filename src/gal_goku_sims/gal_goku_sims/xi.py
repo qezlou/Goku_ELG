@@ -312,9 +312,15 @@ class Corr():
         # Set the cosmology with the parameters from the simulation
         part_cat.attrs['BoxSize'] /= 1000  # Convert from kpc to Mpc
         part_cat['Position'] /= 1000  # Convert from kpc to Mpc
+
+        # Apply RSD to the galaxies
+        z = 1/part_cat.attrs['Time'] - 1
+        rsd_factor = (1+z) / (100 * cosmo.efunc(z))
+        part_cat['RSDPosition'] = (part_cat['Position'] + part_cat['Velocity'] * rsd_factor) % part_cat.attrs['BoxSize']
+        
         # Create a mesh from the particle catalog
         Nmesh = int(part_cat.attrs['BoxSize'][0] / mesh_res)
-        mesh = part_cat.to_mesh(position='Position', Nmesh=1000, compensated=True, BoxSize=part_cat.attrs['BoxSize'])
+        mesh = part_cat.to_mesh(position='RSDPosition', Nmesh=1000, compensated=True, BoxSize=part_cat.attrs['BoxSize'])
         if compute_mesh:
             # Compute the density field as a numpy array
             density_field = mesh['density'].compute()

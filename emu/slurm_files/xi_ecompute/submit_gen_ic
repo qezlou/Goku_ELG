@@ -1,0 +1,13 @@
+#!/bin/bash
+#SBATCH -J GenIC
+#SBATCH -p skx-dev
+#SBATCH -N 4
+#SBATCH --tasks-per-node=1
+#SBATCH --time=2:00:00
+#SBATCH --output=%x-%j.out
+
+hostname; pwd; date
+
+
+
+ibrun -n 1 /scratch/06536/qezlou/Goku/MP-Gadget/genic/MP-GenIC _genic_params.ini

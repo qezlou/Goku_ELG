@@ -8,4 +8,4 @@
 
 hostname; pwd; date
 
-ibrun python run_xi_train.py --fid 'HF' --narrow 0 --numchunks 21 --chunk 10 --stat_type 'pk_hm'
+ibrun python run_xi_train.py --fid 'HF' --narrow 0 --numchunks 21 --chunk 10 --stat_type 'pk_hh'
