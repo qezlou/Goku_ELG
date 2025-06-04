@@ -21,6 +21,61 @@ import warnings
 from . import mpi_helper
 from scipy.spatial import cKDTree
 warnings.filterwarnings("ignore")
+import bigfile
+
+
+class InitialDensity():
+    
+    def __init__(self, pig_dir):
+        temp_dir = '/'+op.join(op.join(*op.normpath(pig_dir).split(os.sep)[:-2]), 'ICS')
+        # Find the directory that ends with '_99'
+        all_ic_dirs = [d for d in os.listdir(temp_dir) if d.endswith('_99') and os.path.isdir(os.path.join(temp_dir, d))]
+        if all_ic_dirs:
+            ic_dir = op.join(temp_dir, all_ic_dirs[0])
+        else:
+            raise FileNotFoundError("The IC mesh is not found, you need to rerun `MP-GenIC`")
+        self.ic_dir = ic_dir
+    
+    def get_dens_mesh(self, mesh_res=1):    
+        """
+        Load the initial density field from the IC mesh file.
+        Parameters
+        ----------
+        mesh_res : float, optional
+            The resolution of the mesh in Mpc/h, default is 1 Mpc/h
+        Returns
+        -------
+        mesh : Nbodykit Mesh object
+        """
+        cat = BigFileCatalog(self.ic_dir, dataset='1')
+        cat['Position'] /= 1000  # Convert from kpc/h to Mpc/h
+        cat.attrs['BoxSize'] /= 1000  # Convert from kpc/h to Mpc/h
+        # Create a mesh from the particle catalog
+        Nmesh = int(cat.attrs['BoxSize'][0] / mesh_res)
+        mesh = cat.to_mesh(Nmesh=Nmesh, BoxSize=cat.attrs['BoxSize'], compensated=True)
+        return mesh
+    
+    def get_power(self, mesh_res=1):
+        """
+        Get the power spectrum of the initial density field.
+        Parameters
+        ----------
+        mesh_res : float, optional
+            The resolution of the mesh in Mpc/h, default is 1 Mpc/h
+        Returns
+        -------
+        k_plin : ndarray
+            Wavenumbers of the power spectrum.
+        p_plin : ndarray
+            Power spectrum values.
+        """
+
+        mesh = self.get_dens_mesh(mesh_res=mesh_res)
+        # Compute the power spectrum
+        plin = FFTPower(mesh, mode='1d').run()[0]
+        k_plin = plin['k']
+        p_plin = plin['power'].real
+        return k_plin, p_plin
 
 
 class Corr():
@@ -285,7 +340,6 @@ class Corr():
                 self.logger.info(f'In total, {np.sum(~keep_mask_all)/len(keep_mask_all)*100:.2f}% of halos were removed due to exclusion within radius {ex_rad_fac}*R200')
 
         return halos
-    
 
     def get_matter_density(self, pig_dir, cosmo, mesh_res=1, compute_mesh=False):
         """
@@ -511,6 +565,31 @@ class Corr():
         # Run the power spectrum computation
         return pk_hm.run()[0]
 
+    def _get_ph_lin(self, pig_dir, params, mass_th, z=2.5, mesh_res=1, mode='1d', ex_rad_fac=0):
+        """
+        """
+        # Set the cosmology with the parameters from the simulation
+        cosmo = self.get_cosmo(params)
+        # in z-space
+        los = [0, 0, 1]
+        halos = self.load_halo_cat(pig_dir, cosmo=cosmo, ex_rad_fac=ex_rad_fac)
+        # Apply RSD to the galaxies
+        rsd_factor = (1+z) / (100 * cosmo.efunc(z))
+        halos['RSDPosition'] = (halos['Position'] + halos['Velocity'] * los * rsd_factor)%halos.attrs['BoxSize']
+        # Get the halos with the mass threshold
+        data1 = halos[halos['Mass'] >= mass_th]
+
+        # Gat a  mesh of the initial density field
+        init = InitialDensity(pig_dir)
+        init_mesh = init.get_dens_mesh(mesh_res=mesh_res)
+
+        # Compute the cross power spectrum
+        Nmesh = int(halos.attrs['BoxSize'][0] / mesh_res)
+        pk_hm = FFTPower(first=data1, second=init_mesh, Nmesh=Nmesh,
+                            BoxSize=halos.attrs['BoxSize'], los=los, mode=mode)
+                            #dk=0.3*(2*np.pi/halos.attrs['BoxSize'][0]))
+        # Run the power spectrum computation
+        return pk_hm.run()[0]
 
     def _power_on_grid(self, pig_dir, params, z=2.5):
         """
@@ -542,6 +621,20 @@ class Corr():
             k = pk_hm['k']
             phm.append(pk_hm['power'].real)
         return k, np.array(phm), mbins
+    
+    def _ph_lin_on_grid(self, pig_dir, params, z=2.5):
+        """
+        Get the linear power spectrum of halos on a grid with increasing mass thresholds
+        """
+        mbins = np.arange(12.3, 10.9,-0.5 )
+        ph_lin = []
+        for i, mth in enumerate(mbins):
+            if self.nbkit_rank == 0:
+                self.logger.info(f'progress {100*i/len(mbins)} %')
+            pk_hm = self._get_ph_lin(pig_dir, params, mass_th=10**mth, z=z)
+            k = pk_hm['k']
+            ph_lin.append(pk_hm['power'].real)
+        return k, np.array(ph_lin), mbins
 
     def get_power_on_grid(self, base_dir, save_dir, chunk, power_type='hh', narrow=False, z=2.5, num_chunks=20):
         """
@@ -588,16 +681,19 @@ class Corr():
                     self.logger.info(f'working on {pigs["sim_tags"][i]}')
                 try:
                     if power_type == 'hh':
-                        k, power_hh, mbins, pairs = self._power_on_grid(pigs['pig_dirs'][i], pigs['params'][i], z=z)
+                        k, pk, mbins, pairs = self._power_on_grid(pigs['pig_dirs'][i], pigs['params'][i], z=z)
                     elif power_type == 'hm':
-                        k, power_hh, mbins = self._cross_power_on_grid(pigs['pig_dirs'][i], pigs['params'][i], z=z)
+                        k, pk, mbins = self._cross_power_on_grid(pigs['pig_dirs'][i], pigs['params'][i], z=z)
+                    elif power_type == 'hlin':
+                        k, pk, mbins = self._ph_lin_on_grid(pigs['pig_dirs'][i], pigs['params'][i], z=z)
                     else:
-                        raise ValueError(f'Unknown power_type: {power_type}. Use "hh" or "hm".')
+                        raise ValueError(f'Unknown power_type: {power_type}. Use "hh", "hm" or "hlin".')
                     if self.nbkit_rank ==0:
                         if power_type == 'hh':
-                            self._save_power_on_grid(k, power_hh, mbins, pairs, pigs['sim_tags'][i], save_file)
-                        elif power_type == 'hm':
-                            self._save_cross_power_on_grid(k, power_hh, mbins, pigs['sim_tags'][i], save_file)    
+                            self._save_power_on_grid(k, pk, mbins, pairs, pigs['sim_tags'][i], save_file)
+                        elif power_type == 'hm' or power_type == 'hlin':
+                            # For cross power or linear power
+                            self._save_cross_power_on_grid(k, pk, mbins, pigs['sim_tags'][i], save_file)    
                     self.nbkit_comm.Barrier()
                 except FileNotFoundError as e:
                     self.logger.info(f'{e} for {pigs["pig_dirs"][i]}')

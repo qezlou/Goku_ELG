@@ -25,6 +25,10 @@ def run_it(fid, narrow, num_chunks, chunk, stat_type):
         save_dir = f'/scratch/06536/qezlou/Goku/processed_data/power_hm_bins/{fid}'
     elif narrow == 1 and stat_type == 'pk_hm':
         save_dir = f'/scratch/06536/qezlou/Goku/processed_data/power_hm_bins/{fid}/narrow'
+    elif narrow == 0 and stat_type == 'pk_hlin':
+        save_dir = f'/scratch/06536/qezlou/Goku/processed_data/power_hlin_bins/{fid}'
+    elif narrow == 1 and stat_type == 'pk_hlin':
+        save_dir = f'/scratch/06536/qezlou/Goku/processed_data/power_hlin_bins/{fid}/narrow'
     else:
         raise ValueError(f"Unexpected combination of narrow={narrow} and stat_type={stat_type}")
 
@@ -37,6 +41,8 @@ def run_it(fid, narrow, num_chunks, chunk, stat_type):
         corr.get_power_on_grid(base_dir=basedir, save_dir=save_dir, narrow=narrow, power_type='hh', chunk=chunk, num_chunks=num_chunks)
     elif stat_type == 'pk_hm':
         corr.get_power_on_grid(base_dir=basedir, save_dir=save_dir, narrow=narrow, power_type='hm', chunk=chunk, num_chunks=num_chunks)
+    elif stat_type == 'pk_hlin':
+        corr.get_power_on_grid(base_dir=basedir, save_dir=save_dir, narrow=narrow, power_type='hlin', chunk=chunk, num_chunks=num_chunks)
 
 if __name__ == '__main__':
 
@@ -45,7 +51,7 @@ if __name__ == '__main__':
     parser.add_argument('--narrow', required=False, default=0, type=int, help='')
     parser.add_argument('--numchunks', required=False, default=20, type=int, help='')
     parser.add_argument('--chunk', required=True, type=int, help='')
-    parser.add_argument('--stat_type', required=False, default='xi_hh', type=str, help='To compute "xi_hh", "pk_hh" or "pk_hm"')
+    parser.add_argument('--stat_type', required=False, default='xi_hh', type=str, help='To compute "xi_hh", "pk_hh", "pk_hm" or "pk_hlin"')
     
 
     args = parser.parse_args()
