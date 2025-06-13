@@ -567,6 +567,30 @@ class Corr():
 
     def _get_ph_lin(self, pig_dir, params, mass_th, z=2.5, mesh_res=1, mode='1d', ex_rad_fac=0):
         """
+        Geet the cross power spectrum for halos and initial density field
+        Parameters
+        ----------
+        pig_dir: str,
+            The path to the PIG directory
+        params: dict,
+            The simulation parameters, output of `get_pig_dirs()`
+        mass_th: float
+            The mass threshold for the halos
+        z: float, not an array
+            redshift of the snapshot
+        mesh_res: float, optional
+            The resolution of the mesh in Mpc/h, default is 1 Mpc/h
+        mode: str
+            mode of the power spectrum, either '1d', '2d', 'projected', 'angular'
+        ex_rad_fac: float, optional
+            The factor by which to multiply the R200 radius of each halo to determine the exclusion radius.
+            If ex_rad_fac > 0, smaller halos within this radius of larger halos will be excluded.
+            If ex_rad_fac <= 0, no exclusion will be performed.
+        Returns:
+        ------------
+        pwoe, Nbodykit's BinnedStatistics
+        The cross power spectrum for halos and initial density field,
+        use the keys 'k' and 'power' to get the wavenumbers and power spectrum values
         """
         # Set the cosmology with the parameters from the simulation
         cosmo = self.get_cosmo(params)
@@ -590,12 +614,45 @@ class Corr():
                             #dk=0.3*(2*np.pi/halos.attrs['BoxSize'][0]))
         # Run the power spectrum computation
         return pk_hm.run()[0]
+    
+    def _get_initial_power(self, pig_dir, params, mode='1d', z=2.5, mesh_res=1):
+        """
+        Get the initial power spectrum of the matter density field
+        Parameters
+        ----------
+        pig_dir: str,
+            The path to the PIG directory
+        params: dict,
+            The simulation parameters, output of `get_pig_dirs()`
+        z: float, not an array
+            redshift of the snapshot
+        mesh_res: float, optional
+            The resolution of the mesh in Mpc/h, default is 1 Mpc/h
+        Returns:
+        ------------
+        """
+        if self.nbkit_rank == 0:
+            self.logger.info(f'Get initial power for {pig_dir} at z={z} with mesh_res={mesh_res} cMpc/h')
+        # along z-space
+        los = [0, 0, 1]
+        # Gat a  mesh of the initial density field
+        init = InitialDensity(pig_dir)
+        init_mesh = init.get_dens_mesh(mesh_res=mesh_res)
+
+        # Compute the cross power spectrum
+        Nmesh = int(init_mesh.attrs['BoxSize'][0] / mesh_res)
+        fftpow = FFTPower(first=init_mesh, Nmesh=Nmesh,
+                         BoxSize=init_mesh.attrs['BoxSize'], 
+                         los=los, mode=mode) 
+        pk = fftpow.run()[0]
+        return pk['k'], pk['power'].real
+        
 
     def _power_on_grid(self, pig_dir, params, z=2.5):
         """
         Get the 3D correlation fucntion on a grid with increasing mass thresholds
         """
-        mbins = np.arange(12.3, 10.9,-0.5 )
+        mbins = np.arange(12.3, 10.95,-0.1 )
         idx = np.triu_indices(len(mbins), k=0)
         pairs = np.column_stack((mbins[idx[0]], mbins[idx[1]]))
         pow_hh = []
@@ -626,7 +683,9 @@ class Corr():
         """
         Get the linear power spectrum of halos on a grid with increasing mass thresholds
         """
-        mbins = np.arange(12.3, 10.9,-0.5 )
+        mbins = np.arange(13, 10.95,-0.1 )
+        if self.nbkit_rank == 0:
+            self.logger.info(f'mass bins are {mbins}')
         ph_lin = []
         for i, mth in enumerate(mbins):
             if self.nbkit_rank == 0:
@@ -685,15 +744,19 @@ class Corr():
                     elif power_type == 'hm':
                         k, pk, mbins = self._cross_power_on_grid(pigs['pig_dirs'][i], pigs['params'][i], z=z)
                     elif power_type == 'hlin':
-                        k, pk, mbins = self._ph_lin_on_grid(pigs['pig_dirs'][i], pigs['params'][i], z=z)
+                        k_hlin, pk_hlin, mbins = self._ph_lin_on_grid(pigs['pig_dirs'][i], pigs['params'][i], z=z)
+                        # For the linitial density field:
+                        k_init, pk_init = self._get_initial_power(pigs['pig_dirs'][i], pigs['params'][i], z=z)
                     else:
                         raise ValueError(f'Unknown power_type: {power_type}. Use "hh", "hm" or "hlin".')
                     if self.nbkit_rank ==0:
                         if power_type == 'hh':
                             self._save_power_on_grid(k, pk, mbins, pairs, pigs['sim_tags'][i], save_file)
-                        elif power_type == 'hm' or power_type == 'hlin':
+                        elif power_type == 'hm':
                             # For cross power or linear power
                             self._save_cross_power_on_grid(k, pk, mbins, pigs['sim_tags'][i], save_file)    
+                        elif power_type == 'hlin':
+                            self._save_pk_hlin_on_grid(k_hlin, k_init, pk_hlin, pk_init, mbins, pigs['sim_tags'][i], save_file)
                     self.nbkit_comm.Barrier()
                 except FileNotFoundError as e:
                     self.logger.info(f'{e} for {pigs["pig_dirs"][i]}')
@@ -725,3 +788,14 @@ class Corr():
             fw['mbins'] = mbins
             fw['sim_tag'] = sim_tag
             fw['k'] = k
+    
+    def _save_pk_hlin_on_grid(self, k_hlin, k_init, power_hlin, power_init, mbins, sim_tag, save_file):
+        self.logger.info(f'Writing on {save_file}')
+        with h5py.File(save_file, 'w') as fw:
+            fw['power_hlin'] = power_hlin
+            fw['power_init'] = power_init
+            fw['mbins'] = mbins
+            fw['sim_tag'] = sim_tag
+            fw['k_hlin'] = k_hlin
+            fw['k_init'] = k_init
+
