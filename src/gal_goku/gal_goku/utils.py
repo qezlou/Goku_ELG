@@ -1,7 +1,7 @@
 import logging
 import numpy as np
 #mport pymc3 as pm
-from scipy.interpolate import BSpline, splev, generate_knots # Requires scipy>=1.15.0 on python>=3.10
+from scipy.interpolate import BSpline # Requires scipy>=1.15.0 on python>=3.10
 from scipy.optimize import minimize
 
 """

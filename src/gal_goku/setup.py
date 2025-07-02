@@ -22,9 +22,9 @@ setuptools.setup(
     ],
     packages=setuptools.find_packages(where="."),
     package_dir={"": "."},  # Explicitly tell setuptools that packages are inside 'src/'
-    python_requires=">=3.12",
+    python_requires=">=3.9",
     install_requires=[
-    "scipy==1.15.1",
+    "scipy",
     "numpy",
     "h5py",
     "mcfit",

@@ -1,5 +1,6 @@
 """
-Tools for standard cosmological calculations.
+Tools for standard cosmological calculations,
+using Colossus and CAMB.
 Mostly taking care of the halo calculations, 
 like NFW profile, concentration, etc.
 """
@@ -9,8 +10,10 @@ from colossus.cosmology import cosmology as colossus_cosmology
 from colossus.halo import concentration
 from scipy import special
 from scipy.interpolate import UnivariateSpline
+from scipy.integrate import simps
 from colossus.halo import mass_defs
 import camb
+from . import init_power
 import logging, sys
 
 class HaloTools:
@@ -92,7 +95,7 @@ class HaloTools:
                   }
         cosmo = colossus_cosmology.setCosmology('myCosmo', **params)
         return cosmo
-
+     
     def get_sigma8(self):
         """"
         Get the sigma8 value from the cosmology usin CAMB.
@@ -112,11 +115,58 @@ class HaloTools:
         
         pars.InitPower.set_params(ns=self.cosmo_pars[4],
                                   As=self.cosmo_pars[3])
-        
-        pars.set_matter_power(redshifts=[self.z], kmax=2.0)
+        pars.set_matter_power(redshifts=[self.z], kmax=5.0)
         results = camb.get_results(pars)
         sigma8 = results.get_sigma8()
         return sigma8
+
+    def get_zeldovich_displacement_camb_power(self):
+        """
+        Calculate the Zeldovich displacement for the cosmology and redshift
+        set in the constructor.
+        """
+        pars = camb.CAMBparams()
+        pars.set_cosmology(H0=self.cosmo_pars[2]*100,  # Hubble parameter in km/s/Mpc
+                           ombh2=self.cosmo_pars[1] * self.cosmo_pars[2]**2,  # Baryon density
+                           omch2=self.cosmo_pars[0] * self.cosmo_pars[2]**2,  # Cold dark matter density
+                           omk=0,
+                           #nu_mass_numbers = self.cosmo_pars[7],
+                           mnu=self.cosmo_pars[9])
+        
+        pars.InitPower.set_params(ns=self.cosmo_pars[4],
+                                  As=self.cosmo_pars[3])
+        k = np.logspace(-4, 1, 500)  # You can increase resolution
+        PK = camb.get_matter_power_interpolator(pars, hubble_units=True, k_hunit=True, kmax=10.0, nonlinear=False)
+        P_lin = PK.P(self.z, k)  
+        sigma_d_squared = (1.0 / (6.0 * np.pi**2)) * simps(P_lin, k)
+        sigma_d = np.sqrt(sigma_d_squared)
+        return sigma_d
+    
+    def get_zeldovich_displacement(self, k, pk):
+        """
+        Calculate the Zeldovich displacement for a given power spectrum.
+        Parameters
+        ----------
+        k : array_like
+            Wavenumber(s) [h/Mpc]
+        pk : array_like
+            Power spectrum values at the given wavenumbers [Mpc/h]^3
+        Returns
+        -------
+        sigma_d : float
+            The Zeldovich displacement in Mpc/h.
+        """
+        k = np.atleast_1d(k)
+        pk = np.atleast_1d(pk)
+
+        # Ensure k and pk are 1D arrays
+        if k.ndim > 1 or pk.ndim > 1:
+            raise ValueError("k and pk must be 1D arrays.")
+
+        # Calculate the Zeldovich displacement
+        sigma_d_squared = (1.0 / (6.0 * np.pi**2)) * simps(pk, k)
+        sigma_d = np.sqrt(sigma_d_squared)
+        return sigma_d
 
     def analytic_uk(self, k, c, rvir):
         """

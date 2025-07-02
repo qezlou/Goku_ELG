@@ -8,6 +8,7 @@ from scipy.interpolate import make_interp_spline, RectBivariateSpline, Univariat
 from scipy import special
 from scipy.integrate import quad, simpson
 from gal_goku import halo_tools
+from . import init_power
 
 
 class GalBase:
@@ -57,6 +58,34 @@ class GalBase:
         logger.addHandler(console_handler)
         
         return logger
+    
+    def get_init_linear_power(self, box, npart, cosmo_pars, k, nu_acc=1e-5, redshifts=[99]):
+        """
+        Get the initial linear power spectrum for the cosmology
+        set in the constructor. Using `classylss`
+        Parameters
+        ----------
+        k : np.ndarray
+            Wavenumbers in units of h/Mpc.
+        z : float, optional
+            Redshift at which to evaluate the power spectrum. If None, uses the redshift set in the constructor.
+        
+        Returns
+        -------
+        np.ndarray
+            The linear power spectrum at the specified redshift and wavenumbers.
+        """
+
+        sim_ics = init_power.SimulationICs(box=box, npart=npart, redshifts=redshifts,
+                                           omega0=cosmo_pars[0], omegab=cosmo_pars[1],
+                                           hubble= cosmo_pars[2], scalar_amp= cosmo_pars[3],
+                                           ns=cosmo_pars[4], w0_fld=cosmo_pars[5],
+                                           wa_fld=cosmo_pars[6], N_ur=cosmo_pars[7],
+                                           alpha_s=cosmo_pars[8], m_nu= cosmo_pars[9],
+                                           nu_acc=nu_acc
+                                           )
+        all_ks, all_pks_lin = sim_ics.cambfile()
+        return all_ks, all_pks_lin
     
 
 class Gal(GalBase):

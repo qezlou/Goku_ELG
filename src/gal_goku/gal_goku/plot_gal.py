@@ -39,11 +39,37 @@ class PlotGal():
           'smooth_phh_k': 0,
           'smooth_xihh_mass': 0,
           'r_range': [0.1, 50]}
+        
                 
         self.g = gal.Gal(logging_level=logging_level, config=config)
         self.g.reset_hod()
         self.cosmo_mid = self.g.xi_emu.cosmo_min + (self.g.xi_emu.cosmo_max - self.g.xi_emu.cosmo_min)/2
 
+        # Define the refrence cosmology to get the ratio to
+        self.cosmo_ref = [0.31, 0.048, 0.68, 
+                          2.1e-9, 0.97, -1,    
+                          0,   3.08, 0, 
+                          0.1
+                          ]
+        # Interesting results from DESI etc. to also plot
+        
+        cosmo_bounds = [[0.053, 0.193], # m_nu: arxiv:2503.14744 
+                                        #The upper 95th bound, one from DESI-DR1 BAO 
+                                        # and DESI-DR1BAO+Full-shape+BAO
+                        ]
+        # The parameters to plot the sensitivity for
+        self.plot_range= {}
+        for i, param in enumerate(self.params):
+            if param == 'w0_fld':
+                # For w0_fld, we use a range from -1.15 to -0.5
+                start = -1.15
+                end = 0
+            else:
+                # For all other parameters, we use the range from the emulator
+                start = self.g.xi_emu.cosmo_min[i]
+                end = self.g.xi_emu.cosmo_max[i]
+            param_range = end - start
+            self.plot_range[param] = [start + f * param_range for f in np.linspace(0.1, 0.9, 9)]
 
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level."""
@@ -76,22 +102,25 @@ class PlotGal():
         cmap = plt.cm.viridis
         colors = [cmap(j) for j in np.linspace(0.1, 0.9, 9)]
 
+        # get the reference correlation function, i.e. Planck18 cosmology
+        self.g.reset_cosmo(np.copy(self.cosmo_ref))
+        rvals, ref = self.g.get_xi_gg()
+
         for i in range(10):
             r = i // 2
             c = i % 2
             self.logger.info(f'Plotting {self.params[i]}')
-            # 10 percentiles for the parameter
-            param_range = self.g.xi_emu.cosmo_max[i] - self.g.xi_emu.cosmo_min[i]
-            values = [self.g.xi_emu.cosmo_min[i] + f * param_range for f in np.linspace(0.1, 0.9, 9)]
             xi_curves = []
-            for val in values:
-                cosmo_tmp = np.copy(self.cosmo_mid)
+            for val in self.plot_range[self.params[i]]:
+                cosmo_tmp = np.copy(self.cosmo_ref)
                 cosmo_tmp[i] = val
                 self.g.reset_cosmo(cosmo_tmp)
                 rvals, xi = self.g.get_xi_gg()
                 xi_curves.append(xi)
-            ref = xi_curves[len(xi_curves)//2]
-            for xi, color, val in zip(xi_curves, colors, values):
+            # We don't use the median comosology as the reference here anymore
+            #ref = xi_curves[len(xi_curves)//2]
+            
+            for xi, color, val in zip(xi_curves, colors, self.plot_range[self.params[i]]):
                 label = self._set_param_label(i, val)
                 ax[r, c].plot(rvals, xi / ref - 1, label=label, color=color, lw=1.5)
             # Only show y-labels on first column
@@ -130,25 +159,27 @@ class PlotGal():
         cmap = plt.cm.viridis
         colors = [cmap(j) for j in np.linspace(0.1, 0.9, 9)]
 
+        # get the reference power spectrum, i.e. Planck18 cosmology
+        self.g.reset_cosmo(np.copy(self.cosmo_ref))
+        k, ref = self.g.get_pk_gg()
+
         for i in range(10):
             r = i // 2
             c = i % 2
             self.logger.info(f'Plotting {self.params[i]}')
 
-            param_range = self.g.xi_emu.cosmo_max[i] - self.g.xi_emu.cosmo_min[i]
-            values = [self.g.xi_emu.cosmo_min[i] + f * param_range for f in np.linspace(0.1, 0.9, 9)]
-
             pk_curves = []
-            for val in values:
-                cosmo_tmp = np.copy(self.cosmo_mid)
+            for val in self.plot_range[self.params[i]]:
+                cosmo_tmp = np.copy(self.cosmo_ref)
                 cosmo_tmp[i] = val
                 self.g.reset_cosmo(cosmo_tmp)
                 k, pk = self.g.get_pk_gg()
                 pk_curves.append(pk)
 
-            ref = pk_curves[len(pk_curves)//2]
+            # We don't use the median comosology as the reference here anymore
+            #ref = pk_curves[len(pk_curves)//2]
 
-            for pk, color, val in zip(pk_curves, colors, values):
+            for pk, color, val in zip(pk_curves, colors, self.plot_range[self.params[i]]):
                 label = self._set_param_label(i, val)
                 ax[r, c].plot(k, pk / ref - 1, label=label, color=color, lw=1.5)
 
@@ -200,26 +231,28 @@ class PlotGal():
         cmap = plt.cm.viridis
         # 10 colors for 10 percentiles (from 10% to 90%)
         colors = [cmap(j) for j in np.linspace(0.1, 0.9, 9)]
+
+         # Evaluate HMF over a fine grid of halo masses
+        logMh = np.arange(11.1, 12.5, 0.01)
+        # get the reference halo mass function, i.e. Planck18 cosmology
+        self.g.reset_cosmo(np.copy(self.cosmo_ref))       
+        ref = self.g.dndlog_m(logMh)
         for i in range(10):
             # Determine subplot row and column
             r = i // 2
             c = i % 2
             self.logger.info(f'Plotting {self.params[i]}')
-            # Sample 10 values for the i-th cosmology parameter, spanning the allowed range
-            param_range = self.g.xi_emu.cosmo_max[i] - self.g.xi_emu.cosmo_min[i]
-            values = [self.g.xi_emu.cosmo_min[i] + f * param_range for f in np.linspace(0.1, 0.9, 9)]
-            # Evaluate HMF over a fine grid of halo masses
-            logMh = np.arange(11.1, 12.5, 0.01)
             dndlogm_curves = []
-            for val in values:
+            for val in self.plot_range[self.params[i]]:
                 # For each sampled parameter value, update cosmology and compute HMF
-                cosmo_tmp = np.copy(self.cosmo_mid)
+                cosmo_tmp = np.copy(self.cosmo_ref)
                 cosmo_tmp[i] = val
                 self.g.reset_cosmo(cosmo_tmp)
                 dndlogm_curves.append(self.g.dndlog_m(logMh))
-            # Use the median curve as the reference for ratios
-            ref = dndlogm_curves[len(dndlogm_curves)//2]
-            for dndlogm, color, val in zip(dndlogm_curves, colors, values):
+            # We don't use the median comosology as the reference here anymore
+            # ref = dndlogm_curves[len(dndlogm_curves)//2]
+
+            for dndlogm, color, val in zip(dndlogm_curves, colors, self.plot_range[self.params[i]]):
                 # Plot fractional difference relative to the median curve
                 label = self._set_param_label(i, val)
                 ax[r, c].plot(10**logMh, dndlogm / ref - 1, label=label, color=color, lw=1.5)

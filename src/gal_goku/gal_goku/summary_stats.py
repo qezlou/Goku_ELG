@@ -9,9 +9,11 @@ import os.path as op
 import logging
 import json
 import re
-from scipy.interpolate import BSpline, LSQBivariateSpline, make_lsq_spline, make_splrep, UnivariateSpline, bisplrep
+#from scipy.interpolate import BSpline, LSQBivariateSpline, make_lsq_spline, make_splrep, UnivariateSpline, bisplrep
+from scipy.optimize import curve_fit
 from matplotlib import pyplot as plt
 from . import utils
+from . import halo_tools
 import sys
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
@@ -49,9 +51,9 @@ class BaseSummaryStats:
             self.pref = 'Box250_Part750'
         self.narrow = narrow
     
-    def configure_logging(self, logging_level='INFO'):
+    def configure_logging(self, logging_level='INFO', logger_name='summary_stats'):
         """Sets up logging based on the provided logging level in an MPI environment."""
-        logger = logging.getLogger('summary_stats')
+        logger = logging.getLogger(logger_name)
         logger.setLevel(logging_level)
 
         # Create a console handler with flushing
@@ -199,7 +201,146 @@ class BaseSummaryStats:
         """Get the cosmological parameters as an array"""
         params_dict = self.get_cosmo_params()
         return np.array([[cp[p] for p in self.param_names] for cp in params_dict])
+   
+class Propagator(BaseSummaryStats):
+    """
+    Class to prepare the propagator for the emulator.
+    """
+
+    def __init__(self, data_dir, z, max_k=0.5,  fid='HF', logging_level='INFO'):
+        """
+        Initialize the Propagator class.
+
+        Parameters
+        ----------
+        basedir : str
+            Base directory where the data files are located.
+        """
+        self.basedir = op.join(data_dir, 'power_hlin', fid)
+        self.fid = fid
+        self.z = z
+        self.max_k = max_k
+        self.fnames = glob(op.join(self.basedir, 'power*.hdf5'))
+        self.rank = 0
+        super().__init__(data_dir, fid, logging_level)
+        self.logger.info(f'Found {len(self.fnames)} files in {self.basedir}')
+        self.gk, self.k, self.mbins, self.sim_tags, _, _, _ = self.get_powers()
+        self.params = self.get_params_array()
+        self.coeffs, self.fit_gk = self.get_fit_gk()
+
+    def get_labels(self):
+        """It is just the simulation tags"""
+        if self.sim_tags is None:
+            raise ValueError('The simulation tags are not loaded yet, call `load()` first')
+        return self.sim_tags
+
+    def get_powers(self):
+        """
+        Get the computed propagator computed for each simulation.
+        It is:
+            G(k, m) = P_hlin(k, m) / P_init(k, m)
+            where P_hlin is the cross correlation of the halos 
+            and the initial power spectrum,
+            P_init is the initial power spectrum,
+            k and m are the wavenumber and mass bins respectively.
+        """
+        all_ratios = []
+        sim_tags = []
+        fluctuating_sims = []
+        all_phlin = []
+        all_pinit= []
+        for fn in self.fnames:
+            with h5py.File(fn, 'r') as f:
+                ratio = f['power_hlin'][:,:] / f['power_init'][:]
+                phlin = f['power_hlin'][:,:]
+                pinit = f['power_init'][:]
+                k = f['k_hlin'][:]
+                mbins = f['mbins'][:]
+                # The first k bin is nan, so we remove it
+                k = k [1:]
+                ratio = ratio[:, 1:]
+                phlin = phlin[:, 1:]
+                pinit = pinit[1:]
+                # place a cap on k
+                ind = np.where(k <= self.max_k)
+                k = k[ind]
+                ratio = ratio[:, ind]
+                phlin = phlin[:, ind]
+                pinit = pinit[ind]
+                # Finding the sims with too much fluctuation
+                if np.any(ratio < 0.1):
+                    fluctuating_sims.append(f['sim_tag'])
+                    print(f'Simulation {f["sim_tag"][()]} has too much fluctuation')
+                sim_tags.append(f['sim_tag'][()].decode('utf-8'))
+                all_ratios.append(ratio.squeeze())
+                all_phlin.append(phlin.squeeze())
+                all_pinit.append(pinit.squeeze())
+        all_ratios = np.array(all_ratios)
+        all_phlin = np.array(all_phlin)
+        all_pinit = np.array(all_pinit)
+        return all_ratios, k, mbins, sim_tags, all_phlin, all_pinit, fluctuating_sims
+
+    def model(self, k, sigma_d, g0, g2, g4):
+        """
+        The model for the propagator G(k) = P_hm / P_lin
+        G(k) = (g_0 + g_2 k^2 + g_4 k^4) exp(- sigma_d^2_lin k^2 / 2 )
+        where sigma_d is the Zeldovich displacement.
+        Returns:
+        -------
+        G(k): np.ndarray, shape=(n_sims, n_mbins)
+            The propagator G(k) for each simulation and mass bin.
+        """
+        return (g0 + g2 * k**2 + g4 * k**4) * np.exp(-1 * sigma_d**2 * k**2 / 2)
     
+    def get_fit_gk(self):
+        """
+        Fit the equation below to G(k) = P_hm / P_lin
+        G(k) = (g_0 + g_2 k^2 + g_4 k^4) exp(- sigma_d^2_lin k^2 / 2 )
+        where sigma_d is the Zeldovich displacement.
+        
+        # TODO: Replace sigma_d with `halotools.get_zeldovich_displacement()` which
+        in turn needs the p_lin at observed redshift, i.e. z=0.99. For now, we comoute using
+        CAMB's output for p_lin(z). This could be off from what we get from CLASS. 
+
+        Returns:
+        -------
+        coeffs: np.ndarray, shape=(n_sims, n_mbins, 3)
+        The coefficients g_0, g_2, g_4 and sigma_d for each simulation and mass bin.
+        fit_gks: np.ndarray, shape=(n_sims, n_mbins, n_k)
+        The fitted G(k) for each simulation and mass bin.
+        """
+        # stores the coefficients g_0, g_2, g_4 for each simulation and mass bin
+        coeffs = np.full((self.gk.shape[0], self.gk.shape[1], 4), np.nan)
+        fit_gks = np.zeros_like(self.gk)
+
+        # iterate over the simulations
+        for i in range(len(self.fnames)):
+            htools = halo_tools.HaloTools(self.params[i], self.z)
+            sigma_d = htools.get_zeldovich_displacement_camb_power()
+            self.logger.debug(f'sigma_d = {sigma_d}')
+            # iterate over the mass bins
+            for m in range(self.gk.shape[1]):
+                func = lambda k, g0, g2, g4: self.model(k, sigma_d, g0, g2, g4)
+                popt, _ = curve_fit(func, self.k, self.gk[i,m])
+                coeffs[i, m, 0:3] = popt
+                coeffs[i, m, -1] = sigma_d
+                fit_gks[i, m] = self.model(self.k, sigma_d, *popt)
+        return coeffs, fit_gks
+    
+    def get_fit_phh(self):
+
+        fit_phh = np.zeros_like(self.gk)
+        for i in range(self.gk.shape[0]):
+            htools = halo_tools.HaloTools(self.params[i], 99)
+            # Get the linear power interpolator at z=99
+            p_lin = htools.get_linear_power(z=99)
+            for m in range(self.gk.shape[1]):
+                fit_phh[i, m] = self.gk[i, m] * p_lin.P(99, self.k)    
+        return fit_phh
+            
+
+       
+
 class ProjCorr(BaseSummaryStats):
     """Projected correlation function, w_p"""
     def __init__(self, data_dir, fid, logging_level='INFO'):
