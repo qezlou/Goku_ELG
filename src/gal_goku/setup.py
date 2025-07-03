@@ -52,6 +52,9 @@ class CustomInstallCommand(install):
         # Install classylss
         subprocess.check_call(['python', '-m', 'pip', 'install', classylss_repo])
 
+        # Install multi_fidelity_gpflow
+        subprocess.check_call(['python', '-m', 'pip', 'install', 'https://github.com/jibanCat/multi_fidelity_gpflow.git'])
+
 
 class CustomDevelopCommand(develop):
     """Custom develop command - same as custom install."""
