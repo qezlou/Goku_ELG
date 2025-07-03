@@ -53,7 +53,7 @@ class CustomInstallCommand(install):
         subprocess.check_call(['python', '-m', 'pip', 'install', classylss_repo])
 
         # Install multi_fidelity_gpflow
-        subprocess.check_call(['python', '-m', 'pip', 'install', 'https://github.com/jibanCat/multi_fidelity_gpflow.git'])
+        subprocess.check_call(['python', '-m', 'pip', 'install', 'git+https://github.com/qezlou/multi_fidelity_gpflow.git'])
 
 
 class CustomDevelopCommand(develop):
@@ -93,13 +93,17 @@ setuptools.setup(
     python_requires=">=3.9",
     install_requires=[
         "scipy",
-        "numpy",
+        "scikit-learn",
+        "matplotlib",
         "h5py",
         "mcfit",
         "cython",
         "gpflow",
-        "tensorflow~=2.10.0",
-        "tensorflow-probability~=0.18.0"
+        "tensorflow~=2.19.0",
+        "tensorflow-probability~=0.25.0",
+        "colossus",
+        "camb",
+        "configobj"
     ],
     cmdclass={
         'install': CustomInstallCommand,  # This will automatically trigger during installation
