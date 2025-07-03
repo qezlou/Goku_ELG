@@ -119,6 +119,22 @@ class HaloTools:
         results = camb.get_results(pars)
         sigma8 = results.get_sigma8()
         return sigma8
+    
+    def get_power_camb(self, k=None):
+        
+        pars = camb.CAMBparams()
+        pars.set_cosmology(H0=self.cosmo_pars[2]*100,  # Hubble parameter in km/s/Mpc
+                           ombh2=self.cosmo_pars[1] * self.cosmo_pars[2]**2,  # Baryon density
+                           omch2=self.cosmo_pars[0] * self.cosmo_pars[2]**2,  # Cold dark matter density
+                           omk=0,
+                           #nu_mass_numbers = self.cosmo_pars[7],
+                           mnu=self.cosmo_pars[9])
+        
+        pars.InitPower.set_params(ns=self.cosmo_pars[4],
+                                  As=self.cosmo_pars[3])
+        PK = camb.get_matter_power_interpolator(pars, hubble_units=True, k_hunit=True, kmax=10.0, nonlinear=False)
+        p_lin = PK.P(self.z, k)
+        return k, p_lin
 
     def get_zeldovich_displacement_camb_power(self):
         """

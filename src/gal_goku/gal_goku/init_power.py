@@ -38,8 +38,6 @@ class SimulationICs(object):
 
     Init parameters:
     ----
-    box        - Box size in comoving Mpc/h
-    npart      - Cube root of number of particles
     redshifts   - redshifts at which to generate ICs
     omegab     - baryon density. Note that if we do not have gas particles,
         still set omegab, but set separate_gas = False
@@ -58,7 +56,6 @@ class SimulationICs(object):
         If false, just DM.
     """
     def __init__(self, *,
-            box: int,  npart: int,
             seed :         int   = 9281110,      redshifts: float = 99,
             redend:        float = 0,            omega0:   float = 0.288, 
             omegab:        float = 0.0472,       hubble:   float = 0.7,
@@ -72,12 +69,6 @@ class SimulationICs(object):
         #Check that input is reasonable and set parameters
         #In Mpc/h
         print("__init__: initializing parameters...", datetime.datetime.now())
-        assert box  < 20000
-        self.box      = box
-
-        #Cube root
-        assert npart > 1 and npart < 16000
-        self.npart    = int(npart)
 
         #Physically reasonable
         assert omega0 <= 1 and omega0 > 0
@@ -174,7 +165,7 @@ class SimulationICs(object):
 
 
 
-    def cambfile(self) -> Tuple[np.ndarray, np.ndarray]:
+    def cambfile(self, maxk=0.5) -> Tuple[np.ndarray, np.ndarray]:
         """
         Generate the IC power spectrum using classylss.
         
@@ -258,7 +249,8 @@ class SimulationICs(object):
         #Initial cosmology
         pre_params.update(gparams)
 
-        maxk        = 2 * math.pi / self.box * self.npart * 8
+        #maxk        = 2 * math.pi / self.box * self.npart * 8
+        maxk = maxk
         powerparams = {'output': 'dTk vTk mPk', 'P_k_max_h/Mpc' : maxk, 
             "z_max_pk" : 99 + 1}
         pre_params.update(powerparams)

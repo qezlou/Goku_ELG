@@ -226,7 +226,7 @@ class Propagator(BaseSummaryStats):
         self.logger.info(f'Found {len(self.fnames)} files in {self.basedir}')
         self.gk, self.k, self.mbins, self.sim_tags, _, _, _ = self.get_powers()
         self.params = self.get_params_array()
-        self.coeffs, self.fit_gk = self.get_fit_gk()
+        self.coeffs = self._fit_gk()
 
     def get_labels(self):
         """It is just the simulation tags"""
@@ -280,7 +280,7 @@ class Propagator(BaseSummaryStats):
         all_pinit = np.array(all_pinit)
         return all_ratios, k, mbins, sim_tags, all_phlin, all_pinit, fluctuating_sims
 
-    def model(self, k, sigma_d, g0, g2, g4):
+    def model(self, k, g0, g2, g4, sigma_d):
         """
         The model for the propagator G(k) = P_hm / P_lin
         G(k) = (g_0 + g_2 k^2 + g_4 k^4) exp(- sigma_d^2_lin k^2 / 2 )
@@ -292,7 +292,7 @@ class Propagator(BaseSummaryStats):
         """
         return (g0 + g2 * k**2 + g4 * k**4) * np.exp(-1 * sigma_d**2 * k**2 / 2)
     
-    def get_fit_gk(self):
+    def _fit_gk(self):
         """
         Fit the equation below to G(k) = P_hm / P_lin
         G(k) = (g_0 + g_2 k^2 + g_4 k^4) exp(- sigma_d^2_lin k^2 / 2 )
@@ -309,10 +309,8 @@ class Propagator(BaseSummaryStats):
         fit_gks: np.ndarray, shape=(n_sims, n_mbins, n_k)
         The fitted G(k) for each simulation and mass bin.
         """
-        # stores the coefficients g_0, g_2, g_4 for each simulation and mass bin
+        # stores the coefficients g_0, g_2, g_4 and sigma_d for each simulation and mass bin
         coeffs = np.full((self.gk.shape[0], self.gk.shape[1], 4), np.nan)
-        fit_gks = np.zeros_like(self.gk)
-
         # iterate over the simulations
         for i in range(len(self.fnames)):
             htools = halo_tools.HaloTools(self.params[i], self.z)
@@ -320,26 +318,26 @@ class Propagator(BaseSummaryStats):
             self.logger.debug(f'sigma_d = {sigma_d}')
             # iterate over the mass bins
             for m in range(self.gk.shape[1]):
-                func = lambda k, g0, g2, g4: self.model(k, sigma_d, g0, g2, g4)
+                func = lambda k, g0, g2, g4: self.model(k, g0, g2, g4, sigma_d)
                 popt, _ = curve_fit(func, self.k, self.gk[i,m])
                 coeffs[i, m, 0:3] = popt
                 coeffs[i, m, -1] = sigma_d
-                fit_gks[i, m] = self.model(self.k, sigma_d, *popt)
-        return coeffs, fit_gks
+        return coeffs
     
-    def get_fit_phh(self):
-
-        fit_phh = np.zeros_like(self.gk)
+    def get_model_gk(self, k):
+        """
+        Get the propagator G(k) = P_hm / P_lin at arbitrary k values.
+        Returns:
+        -------
+        gk: np.ndarray, shape=(n_sims, n_mbins, n_k)
+        """
+        assert hasattr(self, 'coeffs'), 'Coefficients not computed yet, call `_fit_gk()` first'
+        gk = np.zeros((self.gk.shape[0], self.gk.shape[1], k.shape[0]))
         for i in range(self.gk.shape[0]):
-            htools = halo_tools.HaloTools(self.params[i], 99)
-            # Get the linear power interpolator at z=99
-            p_lin = htools.get_linear_power(z=99)
             for m in range(self.gk.shape[1]):
-                fit_phh[i, m] = self.gk[i, m] * p_lin.P(99, self.k)    
-        return fit_phh
-            
-
-       
+                g0, g2, g4, sigma_d = self.coeffs[i, m]
+                gk[i, m] = self.model(k, g0, g2, g4, sigma_d)
+        return gk
 
 class ProjCorr(BaseSummaryStats):
     """Projected correlation function, w_p"""

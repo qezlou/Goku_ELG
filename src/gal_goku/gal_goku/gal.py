@@ -4,7 +4,7 @@ import sys
 import numpy as np
 import mcfit
 from gal_goku import emu_cosmo
-from scipy.interpolate import make_interp_spline, RectBivariateSpline, UnivariateSpline
+from scipy.interpolate import make_interp_spline, RectBivariateSpline, UnivariateSpline, interp1d
 from scipy import special
 from scipy.integrate import quad, simpson
 from gal_goku import halo_tools
@@ -59,14 +59,12 @@ class GalBase:
         
         return logger
     
-    def get_init_linear_power(self, box, npart, cosmo_pars, k, nu_acc=1e-5, redshifts=[99]):
+    def get_init_linear_power(self, cosmo_pars, nu_acc=1e-5, redshifts=[99]):
         """
         Get the initial linear power spectrum for the cosmology
         set in the constructor. Using `classylss`
         Parameters
         ----------
-        k : np.ndarray
-            Wavenumbers in units of h/Mpc.
         z : float, optional
             Redshift at which to evaluate the power spectrum. If None, uses the redshift set in the constructor.
         
@@ -76,7 +74,7 @@ class GalBase:
             The linear power spectrum at the specified redshift and wavenumbers.
         """
 
-        sim_ics = init_power.SimulationICs(box=box, npart=npart, redshifts=redshifts,
+        sim_ics = init_power.SimulationICs(redshifts=redshifts,
                                            omega0=cosmo_pars[0], omegab=cosmo_pars[1],
                                            hubble= cosmo_pars[2], scalar_amp= cosmo_pars[3],
                                            ns=cosmo_pars[4], w0_fld=cosmo_pars[5],
@@ -84,9 +82,45 @@ class GalBase:
                                            alpha_s=cosmo_pars[8], m_nu= cosmo_pars[9],
                                            nu_acc=nu_acc
                                            )
-        all_ks, all_pks_lin = sim_ics.cambfile()
-        return all_ks, all_pks_lin
+        # We set maxk=0.5 to significantly save on the computing time
+        all_ks, all_pks_lin = sim_ics.cambfile(maxk=0.5)
+        return all_ks.squeeze(), all_pks_lin.squeeze()
+
+class LargeScaleGal(GalBase):
+    """
+    Compute large-scale galaxy correlation functions at large scales, r > 40 Mpc/h.
     
+    NOTE: Maybe merge with `Gal` class in the future.
+    """
+    def __init__(self, z):
+        """
+        Parameters
+        ----------
+        z : float
+            Redshift at which to compute the large-scale galaxy correlation functions.
+        
+        """
+        self.z = z
+        # From experience this range and spacing is good 
+        # enough for BAO at z=2.5
+        self.k = np.logspace(np.log10(7e-3), np.log10(0.5), num=500)
+    
+    def reset_cosmo(self, cosmo_pars, gk):
+        """
+        Reset the cosmology by re-evaluating the emulator for G(k), the propagator, and 
+        the linear power spectrum at z=99. One would get P_ab = G_a * G_b * P_lin(k), where 
+        a and b are two samples of the galaxies. 
+
+        NOTE: For now, we don't have an emulator for G(k), so we pass G(k) directly.
+        """
+        self.gk = gk
+        k_init, p_init = self.get_init_linear_power(cosmo_pars=cosmo_pars)
+
+        # Resample p_init to the logarithmicaly space self.k
+        self.p_init = interp1d(k_init, np.copy(p_init), axis=-1, 
+                               bounds_error=False, 
+                               fill_value="extrapolate")(self.k)
+        pass
 
 class Gal(GalBase):
     """
