@@ -93,7 +93,10 @@ setuptools.setup(
         "numpy",
         "h5py",
         "mcfit",
-        "cython"
+        "cython",
+        "gpflow",
+        "tensorflow~=2.10.0",
+        "tensorflow-probability~=0.18.0"
     ],
     cmdclass={
         'install': CustomInstallCommand,  # This will automatically trigger during installation
