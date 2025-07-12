@@ -10,6 +10,7 @@ import logging
 import json
 import re
 #from scipy.interpolate import BSpline, LSQBivariateSpline, make_lsq_spline, make_splrep, UnivariateSpline, bisplrep
+from scipy.interpolate import interp1d
 from scipy.optimize import curve_fit
 from matplotlib import pyplot as plt
 from . import utils
@@ -201,7 +202,154 @@ class BaseSummaryStats:
         """Get the cosmological parameters as an array"""
         params_dict = self.get_cosmo_params()
         return np.array([[cp[p] for p in self.param_names] for cp in params_dict])
-   
+
+class MatterPower(BaseSummaryStats):
+    """
+    Class to prepare the propagator for the emulator.
+    """
+
+    def __init__(self, data_dir, z, max_k=0.5, log_k_interp=None, fid='HF', logging_level='INFO'):
+        """
+        Initialize the Propagator class.
+
+        Parameters
+        ----------
+        basedir : str
+            Base directory where the data files are located.
+        """
+        self.basedir = op.join(data_dir, 'power_matter', fid)
+        self.fid = fid
+        self.z = z
+        self.max_k = max_k
+        self.log_k_interp = log_k_interp
+        self.fnames = glob(op.join(self.basedir, 'power*.txt'))
+        self.rank = 0
+        super().__init__(data_dir, fid, logging_level)
+        self.logger.info(f'Found {len(self.fnames)} files in {self.basedir}')
+        if len(self.fnames) != 0:
+            self.k, self.pk, self.sim_tags = self.get_powers()
+
+    def get_labels(self):
+        """It is just the simulation tags"""
+        if self.sim_tags is None:
+            raise ValueError('The simulation tags are not loaded yet, call `load()` first')
+        return self.sim_tags
+
+    def get_powers(self):
+        """
+        Loading the matter power spectrum for each simulation.
+        The saved files are in plain ascii format, with the first line
+        being the header and the rest being the k and P_m values.
+        """
+        all_pk = []
+        sim_tags = []
+        for i, fn in enumerate(self.fnames):
+            with open(fn, 'r') as f:
+                lines = f.readlines()
+            p_m = []
+            k = []
+            for line in lines[1:]:
+                if line.startswith('#'):
+                    continue
+                parts = line.split()
+                k.append(float(parts[0]))
+                p_m.append(float(parts[1]))
+            p_m = np.array(p_m)
+            all_pk.append(p_m)
+            sim_tags.append(fn[-40:-4])
+        all_pk = np.array(all_pk)
+        k = np.array(k)
+        # apply max_k cut
+        ind = np.where(k <= self.max_k)
+        k = k[ind]
+        all_pk = all_pk[:,ind]
+
+        # interpolate the power spectrum if log_k_interp is provided
+        if self.log_k_interp is not None:
+            all_pk = interp1d(np.log10(k), all_pk, axis=-1, bounds_error=False,
+                            fill_value='extrapolate')(self.log_k_interp)
+            k = 10** self.log_k_interp
+
+        # Sort based on the simulation number:
+        sorted_indices = np.argsort([int(str(x)[-4:]) for x in sim_tags])
+        all_pk = all_pk[sorted_indices]
+        sim_tags = [sim_tags[i] for i in sorted_indices]
+        return k, all_pk, sim_tags
+
+class HaloHaloPower(BaseSummaryStats):
+    """
+    Class to prepare the propagator for the emulator.
+    """
+
+    def __init__(self, data_dir, z, max_k=0.5, log_k_interp=None,  fid='HF', logging_level='INFO'):
+        """
+        Initialize the Propagator class.
+
+        Parameters
+        ----------
+        basedir : str
+            Base directory where the data files are located.
+        """
+        self.basedir = op.join(data_dir, 'power_bins', fid)
+        self.fid = fid
+        self.z = z
+        self.max_k = max_k
+        self.log_k_interp = log_k_interp
+        self.fnames = glob(op.join(self.basedir, 'power*.hdf5'))
+        self.rank = 0
+        super().__init__(data_dir, fid, logging_level)
+        self.logger.info(f'Found {len(self.fnames)} files in {self.basedir}')
+        if len(self.fnames) != 0:
+            self.k, self.pk, self.sim_tags, self.mbins, self.mpairs = self.get_powers()
+
+    def get_labels(self):
+        """It is just the simulation tags"""
+        if self.sim_tags is None:
+            raise ValueError('The simulation tags are not loaded yet, call `load()` first')
+        return self.sim_tags
+
+    def get_powers(self):
+        """
+        Loading the matter power spectrum for each simulation.
+        The saved files are in plain ascii format, with the first line
+        being the header and the rest being the k and P_m values.
+        """
+        all_pk = []
+        sim_tags = []
+        for i, fn in enumerate(self.fnames):
+            with h5py.File(fn, 'r') as f:
+                k = f['k'][:]
+                mbins = f['mbins'][:]
+                mpairs = f['pairs'][:]
+                all_pk.append(f['power'][:])
+                sim_tags.append(f['sim_tag'][()].decode('utf-8'))
+        
+        all_pk = np.array(all_pk)
+        # Mask the nans and k=0
+        mask = ~np.isnan(k)
+        all_pk = all_pk[:,:,mask]
+        k = k[mask]
+        mask = k > 0
+        all_pk = all_pk[:,:,mask]
+        k = k[mask]
+
+        # apply the max_k limit
+        ind = np.where(k <= self.max_k)
+        k = k[ind]
+        all_pk = all_pk[:,:,ind]
+
+        # Sort based on the simulation number:
+        sorted_indices = np.argsort([int(str(x)[-4:]) for x in sim_tags])
+        all_pk = all_pk[sorted_indices].squeeze()
+        sim_tags = [sim_tags[i] for i in sorted_indices]
+
+        # interpolate the power spectrum if log_k_interp is provided
+        if self.log_k_interp is not None:
+            all_pk = interp1d(np.log10(k), all_pk, axis=-1, bounds_error=False,
+                            fill_value='extrapolate')(self.log_k_interp)
+            k = 10** self.log_k_interp
+        return k, all_pk, sim_tags, mbins, mpairs
+
 class Propagator(BaseSummaryStats):
     """
     Class to prepare the propagator for the emulator.
@@ -278,6 +426,14 @@ class Propagator(BaseSummaryStats):
         all_ratios = np.array(all_ratios)
         all_phlin = np.array(all_phlin)
         all_pinit = np.array(all_pinit)
+
+        # Sort based on the simulation number:
+        sorted_indices = np.argsort([int(str(x)[-4:]) for x in sim_tags])
+        all_ratios = all_ratios[sorted_indices]
+        all_phlin = all_phlin[sorted_indices]
+        all_pinit = all_pinit[sorted_indices]
+        sim_tags = [sim_tags[i] for i in sorted_indices]
+
         return all_ratios, k, mbins, sim_tags, all_phlin, all_pinit, fluctuating_sims
 
     def model(self, k, g0, g2, g4, sigma_d):
