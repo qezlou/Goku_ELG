@@ -4,6 +4,101 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
+import os
+
+
+# --- Data Normalizer ---
+class SpectrumNormalizer:
+    """
+    Normalizes 1D data with multiple features such as flux, sky spectrum, and noise.
+
+    Methods:
+        fit(x): Computes per-feature mean and std from input tensor.
+        transform(x): Applies normalization using stored stats.
+        inverse_transform(x): Reverts normalization to original scale.
+
+    Args:
+        eps (float): Small constant to avoid division by zero.
+    """
+    def __init__(self, eps=1e-8):
+        self.eps = eps
+        self.means = None
+        self.stds = None
+
+    def fit(self, x):
+        """
+        Compute mean and std for each feature (channel).
+
+        Args:
+            x (Tensor): Input of shape [batch_size, seq_len, num_features]
+        """
+        if isinstance(x, np.ndarray):
+            x = torch.tensor(x)
+        flat = x.view(-1, x.size(-1))  # collapse batch and sequence
+        self.means = flat.mean(dim=0)
+        self.stds = flat.std(dim=0)
+
+    def transform(self, x):
+        """
+        Normalize input using stored mean and std.
+
+        Args:
+            x (Tensor): Input of shape [batch_size, seq_len, num_features]
+
+        Returns:
+            Tensor: Normalized input, same shape.
+        """
+        if self.means is None or self.stds is None:
+            raise RuntimeError("Call fit() before transform().")
+        x = (x - self.means) / (self.stds + self.eps)
+        return x.float()
+
+    def inverse_transform(self, x):
+        """
+        Revert normalization.
+
+        Args:
+            x (Tensor): Normalized tensor.
+
+        Returns:
+            Tensor: Original-scale tensor.
+        """
+        return x * (self.stds + self.eps) + self.means
+
+# --- Positional Encoding ---
+class PositionalEncoding(nn.Module):
+    """
+    Applies sinusoidal positional encoding to represent the position of each spectral bin.
+
+    Args:
+        d_model (int): Dimension of embedding.
+        max_len (int): Maximum length of the sequence.
+
+    Inputs:
+        x (Tensor): Shape (batch_size, seq_len, d_model)
+
+    Returns:
+        Tensor: Same shape as input with position information added.
+    """
+    def __init__(self, d_model, max_len=2048):
+        super().__init__()
+        # Create positional encodings for each spectral bin (wavelength position) using sinusoids of varying frequencies.
+        # This encodes the relative position of each point in the 1D spectrum (important for transformer models).
+        pe = torch.zeros(max_len, d_model)  # [seq_len, d_model]
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        # Store the positional encodings as a non-trainable buffer so they move with the model across devices.
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        # Add position encoding to input embeddings: [batch, seq_len, emb_dim].
+        # Each spectral bin now contains both the original information and its relative position.
+        return x + self.pe[:x.size(1)]
+
 
 class LowFidelityMassAwareTransformer(nn.Module):
     """
