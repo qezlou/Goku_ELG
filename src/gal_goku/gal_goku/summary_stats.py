@@ -1111,6 +1111,10 @@ class HMF(BaseSummaryStats):
     def __init__(self, data_dir, fid, mass_range=(11.1, 13.5), narrow=False, no_merge=True, chi2=False, logging_level='INFO'):
         super().__init__(data_dir, logging_level)
         self.fid = fid
+        if fid == 'HF':
+            self.vbox = 1000**3  # Volume of the box in Mpc^3/h^3
+        elif fid == 'L2':
+            self.vbox = 250**3  
         self.no_merge = no_merge
         self.sim_tags = None
         self.narrow = narrow
@@ -1192,16 +1196,45 @@ class HMF(BaseSummaryStats):
         hmfs, mbins = self.load()
         full_bins = np.arange(self.mass_range[0], self.mass_range[1]+0.01, 0.1)
         log_hmfs = -7*np.ones((len(hmfs), full_bins.size-1))
-        hmf_errs = np.ones_like(log_hmfs)*1e2
+        log_hmf_errs = np.ones_like(log_hmfs)*5
         for i, (h, b) in enumerate(zip(hmfs, mbins)):
             ind = np.digitize(mbins[i], full_bins)-1
             log_hmfs[i,ind] = np.log10(h)
-            hmf_errs[i,ind] = 0
+            log_hmf_errs[i,ind] = self._get_errs(log_hmf=np.log10(h), mbins=b)
         del hmfs
         del mbins
         full_mbins = 0.5*(full_bins[1:] + full_bins[:-1])
-        return full_mbins, log_hmfs, hmf_errs, self.get_params_array(), np.array(self.sim_tags)
+        return full_mbins, log_hmfs, log_hmf_errs, self.get_params_array(), np.array(self.sim_tags)
 
+    def _get_errs(self, log_hmf, mbins):
+        """
+        Get realtistic errorbars for the input halo mass function
+        \Delta log10(f(M)) = \sqrt{1/N_h} + higer order terms
+        where f(M) is the halo mass function in units of 1/h^3 Mpc^3 / dex
+
+        Where $N_h$ is the number of halos in the bin:
+        N_h = f(M) * \Delta log10(M) * V_{box}
+
+        Parameters:
+        --------------
+        hmf: np.ndarray
+            The halo mass function to compute the errors for
+        mbins: np.ndarray
+            The mass bins corresponding to the hmf
+        Returns:
+        --------------
+        errs: np.ndarray
+            The errors for the hmf
+        """
+        # The width of the mass bins in log10(M)
+        dlogM = np.diff(mbins)[0]
+        # The number of halos in the bin
+        N_h = 10**log_hmf * dlogM * self.vbox
+        # The errors in log10(f(M))
+        errs = np.sqrt(1/N_h)
+        # Avoid division by zero
+        errs[N_h == 0] = 1e2
+        return errs
 
     def _do_fits(self, ind=None, delta_r=None, *kwargs):
         """

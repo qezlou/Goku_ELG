@@ -10,7 +10,7 @@ from colossus.cosmology import cosmology as colossus_cosmology
 from colossus.halo import concentration
 from scipy import special
 from scipy.interpolate import UnivariateSpline
-from scipy.integrate import simps
+#from scipy.integrate import simps
 from colossus.halo import mass_defs
 import camb
 from . import init_power
