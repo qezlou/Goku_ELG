@@ -20,7 +20,7 @@ Example usage:
 
 from .emu_nn import HMFNet
 from .data import DataNormalizer, CosmologyDataset, TrainingData
-from .training import NNTrainer, weighted_mse_loss, create_emu_config
+from .training import NNTrainer, weighted_mse_loss, save_config, create_emu_config
 
 __all__ = [
     'HMFNet',
@@ -29,6 +29,7 @@ __all__ = [
     'TrainingData',
     'NNTrainer',
     'weighted_mse_loss',
+    'save_config',
     'create_emu_config'
 ]
 

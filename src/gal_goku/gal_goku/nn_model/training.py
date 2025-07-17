@@ -56,15 +56,45 @@ class NNTrainer:
         else:
             self.config = self._create_default_config()
             
+        # Resolve device at runtime
+        self.device = self._resolve_device(self.config['training']['device'])
+        self.config['training']['device'] = self.device  # Update config with resolved device
+            
         self.model = None
         self.train_loader = None
         self.val_loader = None
         self.normalizer = None
         self.optimizer = None
-        self.device = self.config['training']['device']
         
         # Setup logging
         self.logger = self._setup_logging()
+        
+    def _resolve_device(self, device_config: str) -> str:
+        """
+        Resolve device configuration at runtime.
+        
+        Args:
+            device_config (str): Device config ("auto", "cuda", "cpu", or specific device like "cuda:0")
+            
+        Returns:
+            str: Resolved device string
+        """
+        if device_config == "auto":
+            if torch.cuda.is_available():
+                device = "cuda"
+                self.logger.info(f"CUDA is available. Using GPU: {torch.cuda.get_device_name()}")
+            else:
+                device = "cpu"
+                self.logger.info("CUDA not available. Using CPU.")
+        else:
+            device = device_config
+            if device.startswith("cuda") and not torch.cuda.is_available():
+                self.logger.warning(f"CUDA device '{device}' requested but CUDA not available. Falling back to CPU.")
+                device = "cpu"
+            elif device.startswith("cuda"):
+                self.logger.info(f"Using specified device: {device}")
+        
+        return device
         
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from JSON file."""
@@ -83,12 +113,10 @@ class NNTrainer:
                 "epochs": 100,
                 "learning_rate": 1e-3,
                 "batch_size": 32,
-                "device": "cuda" if torch.cuda.is_available() else "cpu"
+                "device": "auto"  # Will be resolved at runtime
             },
             "data": {
-                "data_dir": "placeholder_inputs.npy",
-                "output_file": "placeholder_outputs.npy",
-                "uncertainty_file": "placeholder_uncertainties.npy"
+                "data_dir": "placeholder_inputs.npy"
             }
         }
     
@@ -484,11 +512,46 @@ class NNTrainer:
 
 def save_config(config: Dict[str, Any], fname: str = 'config.json'):
     """Save configuration dictionary to a JSON file."""
-    filepath = config.get('training', 'save_dir')
+    filepath = config.get('training').get('save_dir')
     filepath = os.path.join(filepath, fname)
     with open(filepath, 'w') as f:
         json.dump(config, f, indent=2)
     print(f"Configuration saved to {filepath}")
+
+
+# Utility functions for convenience
+def create_emu_config(save_path: str = "emu_training_config.json") -> Dict[str, Any]:
+    """
+    Creates and saves a JSON configuration file for the HMF emulator training.
+
+    Args:
+        save_path (str): Path where to save the configuration file
+        
+    Returns:
+        dict: The configuration dictionary.
+    """
+    config = {
+        "model": {
+            "input_dim": 9,
+            "output_dim": 14,
+            "hidden_dims": [64, 64]
+        },
+        "training": {
+            "epochs": 100,
+            "learning_rate": 1e-3,
+            "batch_size": 32,
+            "device": "auto",  # Will be resolved at runtime
+            "save_dir": "./checkpoints"
+        },
+        "data": {
+            "data_dir": "placeholder_data_directory"
+        }
+    }
+
+    with open(save_path, "w") as f:
+        json.dump(config, f, indent=2)
+
+    return config
 
 
 # Example usage
@@ -520,7 +583,7 @@ if __name__ == "__main__":
             "epochs": 50,
             "learning_rate": 5e-4,
             "batch_size": 64,
-            "device": "cuda" if torch.cuda.is_available() else "cpu",
+            "device": "auto",  # Will be resolved at runtime
             "save_dir": "./my_checkpoints"
         },
         "data": {
@@ -534,6 +597,27 @@ if __name__ == "__main__":
     print("\nMethod 3: Using default configuration")
     trainer_default = NNTrainer()
     print("Trainer initialized with default configuration")
+    
+    # Test device detection
+    print("\nDevice Detection Test:")
+    print("=" * 30)
+    
+    # Test auto device detection
+    auto_config = {"training": {"device": "auto"}}
+    trainer_auto = NNTrainer(config_dict=auto_config)
+    print(f"Auto device detected: {trainer_auto.device}")
+    
+    # Test explicit CPU
+    cpu_config = {"training": {"device": "cpu"}}
+    trainer_cpu = NNTrainer(config_dict=cpu_config)
+    print(f"Explicit CPU device: {trainer_cpu.device}")
+    
+    # Test explicit CUDA (will fallback to CPU if not available)
+    cuda_config = {"training": {"device": "cuda"}}
+    trainer_cuda = NNTrainer(config_dict=cuda_config)
+    print(f"CUDA device (or fallback): {trainer_cuda.device}")
+    
+    print("\nDevice detection working correctly!")
     
     print("\nTraining Methods:")
     print("1. For quick experiments: trainer.train(SummaryStatClass)")

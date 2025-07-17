@@ -14,7 +14,11 @@ from scipy.interpolate import interp1d
 from scipy.optimize import curve_fit
 from matplotlib import pyplot as plt
 from . import utils
-from . import halo_tools
+try:
+    from . import halo_tools
+except ImportError:
+    halo_tools = None
+    print("halo_tools not available, won't be able to use propagator.")
 import sys
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
