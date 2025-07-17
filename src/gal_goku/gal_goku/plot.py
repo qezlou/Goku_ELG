@@ -1529,7 +1529,7 @@ class HmfCombined(BasePlot):
         self.mbins = 10**self.emu.mbins
         self.sim_tags = self.emu.labels[1]
         self.cosmo_pars = self.emu.X[1]
-        self.pred, self.truth, self.loss_history = self.get_loo_pred_truth()
+        self.pred, self.truth = self.get_loo_pred_truth()
         
         
     
@@ -1547,9 +1547,9 @@ class HmfCombined(BasePlot):
         ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
         self.emu.Y[1][s][ind_bad_bins] = np.nan
         truth = self.emu.Y[1][s]
-        loss_history = np.array(self.emu.model_attrs['loss_history'])
+        #loss_history = np.array(self.emu.model_attrs['loss_history'])
 
-        return 10**mean_pred.numpy().squeeze(), 10**truth.squeeze(), loss_history
+        return 10**mean_pred.numpy().squeeze(), 10**truth.squeeze()#, loss_history
 
         
     def get_loo_pred_truth(self, sims=None):
@@ -1571,11 +1571,11 @@ class HmfCombined(BasePlot):
         # Run predictions in parallel
         with Pool(num_cores) as pool:
             results = pool.map(self._predict_and_calculate_error, sims)
-            pred = [p for p, t, l in results]
-            truth = [t for p, t, l in results]
-            loss_hist = [l for p, t, l in results]
+            pred = [p for p, t in results]
+            truth = [t for p, t in results]
+            #loss_hist = [l for p, t in results]
         del results
-        return np.array(pred), np.array(truth), loss_hist
+        return np.array(pred), np.array(truth)#, loss_hist
 
     def pred_vs_trtuh(self):
         """
@@ -1600,7 +1600,7 @@ class HmfCombined(BasePlot):
             ax[i,1].set_yticks(np.arange(-.4, .5, 0.1))
             ax[i,0].legend()
         
-            ax[i,2].plot(self.loss_history[i], label=f'{i}')
+            #ax[i,2].plot(self.loss_history[i], label=f'{i}')
             ax[i,2].set_ylabel('loss')
             ax[i,3].scatter(np.arange(len(self.latex_labels)), 
                             self.cosmo_pars[i], marker = 's', s=30)
