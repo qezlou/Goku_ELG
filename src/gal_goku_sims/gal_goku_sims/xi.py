@@ -281,7 +281,7 @@ class Corr():
         inverse_sort = np.argsort(idx_sorted)
         return keep_mask[inverse_sort]
 
-    def load_halo_cat(self, pig_dir, cosmo, ex_rad_fac = 10):
+    def load_halo_cat(self, pig_dir, cosmo, ex_rad_fac = 0):
         """
         Load FOF tables as Nbodykit Halocatalog. It will be used to populate them with HOD models.
         Parameters:
