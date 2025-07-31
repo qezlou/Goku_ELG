@@ -102,7 +102,7 @@ class Hmf(xi.Corr):
         for i in range(num_sims):
             vol = pigs['params'][i]['box']**3
             try:
-                h, tbins = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, params=pigs['params'][i], bins=bins, merge=merge)
+                h, tbins = self.get_fof_hmf(pigs['pig_dirs'][i], vol=vol, param=pigs['params'][i], bins=bins, merge=merge)
                 if h.size < 4:
                     raise FileNotFoundError(f'Not enough bins!')
                 hmfs.append(h)
