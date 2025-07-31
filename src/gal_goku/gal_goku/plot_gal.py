@@ -8,21 +8,30 @@ from gal_goku import gal
 import logging
 from colossus.cosmology import cosmology as col_cosmology
 from colossus.lss import mass_function as col_mass_function
-
+import json
 class PlotGal():
     """
     Class to plot the Galaxy emulator
     """
 
-    def __init__(self, logging_level='INFO'):
+    def __init__(self, nbins_params=10, ref='mid', logging_level='INFO'):
         """
         Plotting routines for the Galaxy X Galaxy clustering emulator
         Parameters
         ----------
+        nbins_params : int
+            The number of bins to evaluate the model at for each parameter.
+            Default is 10, which means the model will be evaluated at 10 percentiles
+            (10% to 90%) for each parameter.
+        ref : str
+            The reference cosmology to use for the sensitivity plots. Options are 'mid' or 'planck18'.
+            'mid' uses the median cosmology from the emulator, while 'planck18' uses the Planck18 cosmology.
+            Default is 'mid'.
         logging_level : str
             The logging level to use. Options are 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'.
         """
-
+        # Set the number of bins to evaluate the model at
+        self.nbins_params = nbins_params
         self.logger = self.configure_logging(logging_level)
         self.latex_labels = {'omega0': r'$\Omega_m$', 'omegab': r'$\Omega_b$', 
             'hubble': r'$h$', 'scalar_amp': r'$A_s$', 'ns': r'$n_s$', 
@@ -46,11 +55,14 @@ class PlotGal():
         self.cosmo_mid = self.g.xi_emu.cosmo_min + (self.g.xi_emu.cosmo_max - self.g.xi_emu.cosmo_min)/2
 
         # Define the refrence cosmology to get the ratio to
-        self.cosmo_ref = [0.31, 0.048, 0.68, 
-                          2.1e-9, 0.97, -1,    
-                          0,   3.08, 0, 
-                          0.1
-                          ]
+        if ref == 'Planck18':
+            self.cosmo_ref = [0.31, 0.048, 0.68, 
+                            2.1e-9, 0.97, -1,    
+                            0,   3.08, 0, 
+                            0.1
+                            ]
+        elif ref == 'mid':
+            self.cosmo_ref = self.cosmo_mid
         # Interesting results from DESI etc. to also plot
         
         cosmo_bounds = [[0.053, 0.193], # m_nu: arxiv:2503.14744 
@@ -69,7 +81,7 @@ class PlotGal():
                 start = self.g.xi_emu.cosmo_min[i]
                 end = self.g.xi_emu.cosmo_max[i]
             param_range = end - start
-            self.plot_range[param] = [start + f * param_range for f in np.linspace(0.1, 0.9, 9)]
+            self.plot_range[param] = [start + f * param_range for f in np.linspace(0.1, 0.9, self.nbins_params)]
 
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level."""
@@ -81,7 +93,7 @@ class PlotGal():
         logger.addHandler(console_handler)
         return logger
 
-    def xi_gg_cosmo_sensitivity(self, savefig_dir=None):
+    def xi_gg_cosmo_sensitivity(self, savefig_dir=None, save_data=False):
         """
         Plot the sensitivity of the galaxy correlation function emulator to cosmological parameters.
         Uses 10 percentiles (10% to 90%) for each parameter, ratio curves only, compact 5x2 layout,
@@ -105,22 +117,27 @@ class PlotGal():
         # get the reference correlation function, i.e. Planck18 cosmology
         self.g.reset_cosmo(np.copy(self.cosmo_ref))
         rvals, ref = self.g.get_xi_gg()
-
+        xi_curves = {}
+        # Loop over each parameter to plot sensitivity
+        # We will plot 10 parameters, so we need 5 rows and 2 columns
+        # Each row will have 2 subplots, one for each parameter
+        # We will use the viridis colormap to color the curves
+        # We will use the 10 percentiles (10% to 90%) for each parameter
         for i in range(10):
             r = i // 2
             c = i % 2
             self.logger.info(f'Plotting {self.params[i]}')
-            xi_curves = []
+            xi_curves[self.params[i]] = []
             for val in self.plot_range[self.params[i]]:
                 cosmo_tmp = np.copy(self.cosmo_ref)
                 cosmo_tmp[i] = val
                 self.g.reset_cosmo(cosmo_tmp)
                 rvals, xi = self.g.get_xi_gg()
-                xi_curves.append(xi)
+                xi_curves[self.params[i]].append(xi)
             # We don't use the median comosology as the reference here anymore
             #ref = xi_curves[len(xi_curves)//2]
-            
-            for xi, color, val in zip(xi_curves, colors, self.plot_range[self.params[i]]):
+
+            for xi, color, val in zip(xi_curves[self.params[i]], colors, self.plot_range[self.params[i]]):
                 label = self._set_param_label(i, val)
                 ax[r, c].plot(rvals, xi / ref - 1, label=label, color=color, lw=1.5)
             # Only show y-labels on first column
@@ -138,8 +155,23 @@ class PlotGal():
         fig.tight_layout(rect=[0, 0, 0.8, 1])
         if savefig_dir is not None:
             fig.savefig(os.path.join(savefig_dir, 'xi_gg_cosmo_sensitivity.pdf'))
+        if save_data:
+            # Save the data for each parameter's curves
+            data = {}
+            data['rvals'] = rvals.tolist()
+            data['xi_ref_vals'] = ref.tolist()
+            for i in range(10):
+                param_name = self.params[i]
+                data[self.latex_labels[param_name]] = {
+                    'param_vals': self.plot_range[param_name],
+                    'xi_vals': [curve.tolist() for curve in xi_curves[param_name]],
+                    'ratio': [(curve / ref - 1).tolist() for curve in xi_curves[param_name]]
+                }
+            with open(os.path.join(savefig_dir, 'xi_gg_cosmo_sensitivity_data.json'), 'w') as f:
+                json.dump(data, f, indent=4)
 
-    def pk_gg_cosmo_sensitivity(self, savefig_dir=None):
+
+    def pk_gg_cosmo_sensitivity(self, savefig_dir=None, save_data=False):
         """
         Plot the sensitivity of the power spectrum emulator to cosmological parameters
         using ratio plots and compact layout for paper-quality figures.
@@ -162,24 +194,24 @@ class PlotGal():
         # get the reference power spectrum, i.e. Planck18 cosmology
         self.g.reset_cosmo(np.copy(self.cosmo_ref))
         k, ref = self.g.get_pk_gg()
-
+        pk_curves = {}
         for i in range(10):
             r = i // 2
             c = i % 2
             self.logger.info(f'Plotting {self.params[i]}')
 
-            pk_curves = []
+            pk_curves[self.params[i]] = []
             for val in self.plot_range[self.params[i]]:
                 cosmo_tmp = np.copy(self.cosmo_ref)
                 cosmo_tmp[i] = val
                 self.g.reset_cosmo(cosmo_tmp)
                 k, pk = self.g.get_pk_gg()
-                pk_curves.append(pk)
+                pk_curves[self.params[i]].append(pk)
 
             # We don't use the median comosology as the reference here anymore
             #ref = pk_curves[len(pk_curves)//2]
 
-            for pk, color, val in zip(pk_curves, colors, self.plot_range[self.params[i]]):
+            for pk, color, val in zip(pk_curves[self.params[i]], colors, self.plot_range[self.params[i]]):
                 label = self._set_param_label(i, val)
                 ax[r, c].plot(k, pk / ref - 1, label=label, color=color, lw=1.5)
 
@@ -197,6 +229,21 @@ class PlotGal():
         fig.tight_layout(rect=[0, 0, 0.8, 1])
         if savefig_dir is not None:
             fig.savefig(os.path.join(savefig_dir, 'pk_gg_cosmo_sensitivity.pdf'))
+        if save_data:
+            # Save the data for each parameter's curves
+            data = {}
+            data['k'] = k.tolist()
+            data['pk_ref_vals'] = ref.tolist()
+            for i in range(10):
+                param_name = self.params[i]
+                data[self.latex_labels[param_name]] = {
+                    'param_vals': self.plot_range[param_name],
+                    'pk_vals': [curve.tolist() for curve in pk_curves[param_name]],
+                    'ratio': [(curve / ref - 1).tolist() for curve in pk_curves[param_name]]
+                }
+            with open(os.path.join(savefig_dir, 'pk_gg_cosmo_sensitivity_data.json'), 'w') as f:
+                json.dump(data, f, indent=4)
+
 
     def _set_param_label(self, i, val):
         """
@@ -210,7 +257,7 @@ class PlotGal():
             label = rf'{latex} = {val:.3f}'
         return label
     
-    def hmf_cosmo_sensitivity(self, savefig_dir=None):
+    def hmf_cosmo_sensitivity(self, savefig_dir=None, save_data=False):
         """
         Plot the sensitivity of the halo mass function emulator to cosmological parameters
         """
@@ -237,22 +284,23 @@ class PlotGal():
         # get the reference halo mass function, i.e. Planck18 cosmology
         self.g.reset_cosmo(np.copy(self.cosmo_ref))       
         ref = self.g.dndlog_m(logMh)
-        for i in range(10):
+        dndlogm_curves = {}
+        for i in range(len(self.params)):
             # Determine subplot row and column
             r = i // 2
             c = i % 2
             self.logger.info(f'Plotting {self.params[i]}')
-            dndlogm_curves = []
+            dndlogm_curves[self.params[i]] = []
             for val in self.plot_range[self.params[i]]:
                 # For each sampled parameter value, update cosmology and compute HMF
                 cosmo_tmp = np.copy(self.cosmo_ref)
                 cosmo_tmp[i] = val
                 self.g.reset_cosmo(cosmo_tmp)
-                dndlogm_curves.append(self.g.dndlog_m(logMh))
+                dndlogm_curves[self.params[i]].append(self.g.dndlog_m(logMh))
             # We don't use the median comosology as the reference here anymore
             # ref = dndlogm_curves[len(dndlogm_curves)//2]
 
-            for dndlogm, color, val in zip(dndlogm_curves, colors, self.plot_range[self.params[i]]):
+            for dndlogm, color, val in zip(dndlogm_curves[self.params[i]], colors, self.plot_range[self.params[i]]):
                 # Plot fractional difference relative to the median curve
                 label = self._set_param_label(i, val)
                 ax[r, c].plot(10**logMh, dndlogm / ref - 1, label=label, color=color, lw=1.5)
@@ -273,7 +321,23 @@ class PlotGal():
         fig.tight_layout(rect=[0, 0, 0.8, 1])
         # Save figure if directory is provided
         if savefig_dir is not None:
+            self.logger.info(f'Saving figure to {os.path.join(savefig_dir, "hmf_cosmo_sensitivity.pdf")}')
             fig.savefig(os.path.join(savefig_dir, 'hmf_cosmo_sensitivity.pdf'))
+        if save_data:
+            # Save the data for each parameter's curves
+            data = {}
+            data['logMh'] = logMh.tolist()
+            data['hmf_ref_vals'] = ref.tolist()
+            for i in range(10):
+                param_name = self.params[i]
+                data[self.latex_labels[param_name]] = {
+                    'param_vals': self.plot_range[param_name],
+                    'hmf_vals': [curve.tolist() for curve in dndlogm_curves[self.params[i]]],
+                    'ratio': [(curve / ref - 1).tolist() for curve in dndlogm_curves[self.params[i]]]
+                }
+            with open(os.path.join(savefig_dir, 'hmf_cosmo_sensitivity_data.json'), 'w') as f:
+                json.dump(data, f, indent=4)
+
 
 
     def dndm_planck18(self):

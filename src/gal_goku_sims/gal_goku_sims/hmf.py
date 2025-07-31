@@ -79,7 +79,7 @@ class Hmf(xi.Corr):
             An array of mass bins to compute HMF in
         Returns: Array
             Halo mass function, log10(dn/log(M)) in units of
-            dex^-1 hMpc^-1
+            dex^-1 h^3Mpc^-3
         """
         cosmo = self.get_cosmo(param)
         halos = self.load_halo_cat(pig_dir, cosmo)

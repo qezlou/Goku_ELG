@@ -1622,3 +1622,48 @@ class HmfCombined(BasePlot):
         
         fig.suptitle(f'num_latents = {self.num_latents}, num_inducing = {self.num_inducing}')
         fig.tight_layout()
+
+        # plot the percentile of the errors
+        err = np.percentile(np.abs(self.pred/self.truth - 1), [50, 68, 80, 95], axis=0)
+        fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+        num_sims = len(self.cosmo_pars)
+        ax.plot(self.mbins, err[0], color='k', lw=4, alpha=0.5, marker='x', label=f'50th p, {np.round(0.5 *num_sims)} sims')
+        ax.plot(self.mbins, err[1], color='C0', lw=4, alpha=0.5, marker='x', label=f'68th p, {np.round(0.68 *num_sims)} sims')
+        ax.plot(self.mbins, err[2], color='C1', lw=4, alpha=0.5, marker='x', label=f'80th p, {np.round(0.8 *num_sims)} sims')
+        ax.set_xscale('log')
+        ax.set_ylim(0, .5)
+        ax.set_ylabel('Fractional Error')
+        ax.set_xlabel(r'$M$')
+        ax.legend()
+
+
+        # Remove the sims within the edge of the prior
+        cutoff = 0.48
+        assert np.all(self.cosmo_pars <=1.1) and np.all(self.cosmo_pars >= 0), "Cosmological parameters should be in [0, 1]"
+        ind_keep = np.where(np.all(np.abs(self.cosmo_pars-0.5) < cutoff, axis=1))[0]
+        self.logger.info(f'Keeping {len(ind_keep)} sims among {self.pred.shape[0]}')
+        num_sims = len(ind_keep)
+        
+        fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+        ## percentile errors
+        err = np.percentile(np.abs(self.pred[ind_keep]/self.truth[ind_keep] - 1), [50, 68, 80, 95], axis=0)
+        ax.plot(self.mbins, err[0], color='k', lw=4, alpha=0.5, marker='x', label=f'50th p, {np.round(0.5 *num_sims)} sims')
+        ax.plot(self.mbins, err[1], color='C0', lw=4, alpha=0.5, marker='x', label=f'68th p, {np.round(0.68 *num_sims)} sims')
+        ax.plot(self.mbins, err[2], color='C1', lw=4 , alpha=0.5, marker='x', label=f'80th p, {np.round(0.8 *num_sims)} sims')
+        ax.plot(self.mbins, err[3], color='C2', lw=4 , alpha=0.5, marker='x', label=f'95th p, {np.round(0.95 *num_sims)} sims')
+        ax.set_title(f'{len(ind_keep)} sims among all {len(self.cosmo_pars)} sims')
+        ax.set_xscale('log')
+        ax.set_ylim(0, .5)
+        ax.set_ylabel('Fractional Error')
+        ax.set_xlabel(r'$M$')
+        ax.legend()
+
+        # plot error vs distance from the mid prior range
+        fig, ax = plt.subplots(self.cosmo_pars.shape[1], 1, figsize=(8, 4* self.cosmo_pars.shape[1]))
+        for i in range(self.cosmo_pars.shape[1]):
+            dist = np.abs(self.cosmo_pars[:, i] - 0.5)
+            ax[i].scatter(dist, np.abs(self.pred[:, i]/self.truth[:, i] - 1), alpha=0.5)
+            ax[i].set_xlabel(f'Distance from mid prior range for {self.latex_labels[list(self.latex_labels.keys())[i]]}')
+            ax[i].set_ylabel('Fractional Error')
+            ax[i].set_ylim(0, 0.5)
+            ax[i].grid()
