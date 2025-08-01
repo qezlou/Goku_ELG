@@ -63,12 +63,20 @@ class PlotGal():
                             ]
         elif ref == 'mid':
             self.cosmo_ref = self.cosmo_mid
-        # Interesting results from DESI etc. to also plot
         
-        cosmo_bounds = [[0.053, 0.193], # m_nu: arxiv:2503.14744 
-                                        #The upper 95th bound, one from DESI-DR1 BAO 
-                                        # and DESI-DR1BAO+Full-shape+BAO
-                        ]
+        # existing constraitns from literature
+        lit_constraints = {
+            'omega0':{'DESI-DR2, w0waCDM-BAO': [0.352-0.018, 0.352+0.041]},# On the higher side
+                      'Planck+18, TT+TE+EE+lowE+lensing, DES':[0.3040 - 0.0006, 0.3040 + 0.0006],# The tightest constraints
+            'A_s': {'Planck+18, TT,TE,EE+lowE+lensing+BAO':np.exp(np.array([3.047 - 0.014 , 3.047 + 0.014]))*1e-10},
+            'm_nu': {#'DESI-DR1, BAO+FS, CMB': [None, 0.193], # m_nu: arxiv:2503.14744
+                     #'DESI-DR2, BAO, CMB - W0Wa': [None, 0.163], # m_nu: arxiv:2503.14744
+                     'Planck+18, TT+lowE': [None, 0.54],
+                     #'Planck+18, TT+TE+EE+lowE+BAO+lensing': [None, 0.12],
+                     'Oscillation': [0.059, None]},
+            'N_ur':{'Planck+18, TT+TE+EE+lowE+BAO+lensing+BAO':[None, 3.34]}
+
+        }
         # The parameters to plot the sensitivity for
         self.plot_range= {}
         for i, param in enumerate(self.params):
