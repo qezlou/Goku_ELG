@@ -441,9 +441,15 @@ class Corr():
         """    
         return result, mbins
 
-    def _corr_on_grid(self, pig_dir, z=2.5):
+    def _corr_on_grid(self, pig_dir, cosmo, z=2.5):
         """
         Get the 3D correlation fucntion on a grid with increasing mass thresholds
+        Parameters
+        ----------
+        pig_dir: str,
+            The path to the PIG directory
+        cosmo: Nbodykit.cosmology.Cosmology instance
+            output of `get_cosmo()`
         """
         mbins = np.arange(13, 10.9,-0.1 )
         idx = np.triu_indices(len(mbins), k=0)
@@ -453,7 +459,7 @@ class Corr():
             if i in [0, 10, 25, 50, 100, 150, 200]:
                 if self.nbkit_rank == 0:
                     self.logger.info(f'progress {100*i/len(pairs)} %')
-            corr_fof, mbins = self._get_corr(pig_dir,mass_th=10**m_pair)
+            corr_fof, mbins = self._get_corr(pig_dir, cosmo=cosmo, mass_th=10**m_pair)
             corr_hh.append(corr_fof)
         return np.array(corr_hh), mbins, pairs
 
@@ -483,7 +489,8 @@ class Corr():
                 if self.nbkit_rank==0:
                     self.logger.info(f'working on {pigs["sim_tags"][i]}')
                 try:
-                    corr_hh, mbins, pairs = self._corr_on_grid(pigs['pig_dirs'][i], z=z)
+                    cosmo = self.get_cosmo(pigs['params'][i])
+                    corr_hh, mbins, pairs = self._corr_on_grid(pigs['pig_dirs'][i], cosmo=cosmo, z=z)
                     if self.nbkit_rank ==0:
                         self._save_corr_on_grid(corr_hh, mbins, pairs, pigs['sim_tags'][i], save_file)
                     self.nbkit_comm.Barrier()
