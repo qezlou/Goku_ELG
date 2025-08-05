@@ -473,14 +473,11 @@ class Corr():
 
         # Do not recomoute the ones with output saved
         for i in range(len(pigs['sim_tags'])):
-            save_file = os.path.join(save_dir, pigs["sim_tags"][i]+'z{z}.hdf5')
+            save_file = os.path.join(save_dir, pigs["sim_tags"][i]+f'z{z}.hdf5')
             if os.path.exists(save_file):
-                if self.nbkit_rank == 0:
-                    if self.nbkit_rank == 0:
-                        self.logger.info(f'skipping {pigs["sim_tags"][i]} since it is already computed')
-                    for k in list(pigs.keys()):
-                        pigs[k].pop(i)
-        
+                for k in list(pigs.keys()):
+                    pigs[k].pop(i)
+
         num_sims = len(pigs['sim_tags'])
         per_chunk = num_sims//num_chunks
         start = chunk*per_chunk
@@ -495,7 +492,7 @@ class Corr():
         if self.rank==0:
             self.logger.info(f'Gert corr for sim {start} to {end} from {num_sims} sims')
         for i in range(start, end):
-            save_file = os.path.join(save_dir, pigs["sim_tags"][i]+'z{z}.hdf5')
+            save_file = os.path.join(save_dir, pigs["sim_tags"][i]+f'z{z}.hdf5')
             if self.nbkit_rank==0:
                 self.logger.info(f'working on {pigs["sim_tags"][i]}')
             try:
