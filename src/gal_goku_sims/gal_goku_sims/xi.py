@@ -385,7 +385,7 @@ class Corr():
             # Return the mesh object
             return mesh
         
-    def _get_corr(self, pig_dir, cosmo, mass_th, ex_rad_fac=10, z=2.5):
+    def _get_corr(self, pig_dir, cosmo, mass_th, ex_rad_fac=0, z=2.5):
         """Get the correlation function for two halo catalogs with 2 mass thresholds
         Parameters
         ----------
@@ -441,7 +441,7 @@ class Corr():
         """    
         return result, mbins
 
-    def _corr_on_grid(self, pig_dir, cosmo, z=2.5):
+    def _corr_on_grid(self, pig_dir, cosmo, ex_rad_fac=0, z=2.5):
         """
         Get the 3D correlation fucntion on a grid with increasing mass thresholds
         Parameters
@@ -459,7 +459,9 @@ class Corr():
             if i in [0, 10, 25, 50, 100, 150, 200]:
                 if self.nbkit_rank == 0:
                     self.logger.info(f'progress {100*i/len(pairs)} %')
-            corr_fof, mbins = self._get_corr(pig_dir, cosmo=cosmo, mass_th=10**m_pair)
+            corr_fof, mbins = self._get_corr(pig_dir, cosmo=cosmo, 
+                                             mass_th=10**m_pair, 
+                                             ex_rad_fac=ex_rad_fac, z=z)
             corr_hh.append(corr_fof)
         return np.array(corr_hh), mbins, pairs
 
