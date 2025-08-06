@@ -472,10 +472,14 @@ class Corr():
         pigs = self.get_pig_dirs(base_dir, z=z, narrow=narrow)
 
         # Do not recomoute the ones with output saved
-        for i in range(len(pigs['sim_tags'])):
+        sims_done = []
+        num_sims = len(pigs['sim_tags'])
+        for i in range(num_sims):
             save_file = os.path.join(save_dir, pigs["sim_tags"][i]+f'z{z}.hdf5')
             if os.path.exists(save_file):
-                for k in list(pigs.keys()):
+                sims_done.append(i)
+        for i in sims_done:
+            for k in list(pigs.keys()):
                     pigs[k].pop(i)
 
         num_sims = len(pigs['sim_tags'])
