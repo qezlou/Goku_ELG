@@ -195,7 +195,7 @@ class Corr():
             snap_id = snaps[:,0].astype(int)
             snap_z  = 1/snaps[:,1] - 1
             # mask for the redshift
-            mask = (snap_z > z-0.1)  * (snap_z < z+0.1)
+            mask = (snap_z > z-0.04)  * (snap_z < z+0.04)
             pigs['pig_dirs'].append(os.path.join(sd, 'output', f"PIG_{str(snap_id[mask][0]).rjust(3,'0')}"))
 
             # add the param file
@@ -516,8 +516,8 @@ class Corr():
                 except FileNotFoundError as e:
                     self.logger.info(f'{e} for {pigs["pig_dirs"][i]}')
                     bad_sims.append(pigs['sim_tags'][i])
-            if self.nbkit_rank ==0:
-                self.logger.info(f'{len(bad_sims)} sims could not be opened')
+        if self.nbkit_rank ==0:
+            self.logger.info(f'{len(bad_sims)} sims could not be opened')
 
     def _get_power(self, pig_dir, params, mass_th, z, mode='1d', mesh_res=1, ex_rad_fac=0):
         """Get the powerspectrum for HOD populated galaxies in a FOF halo catalog.
