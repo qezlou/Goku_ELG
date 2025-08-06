@@ -195,7 +195,7 @@ class Corr():
             snap_id = snaps[:,0].astype(int)
             snap_z  = 1/snaps[:,1] - 1
             # mask for the redshift
-            mask = (snap_z > z-0.04)  * (snap_z < z+0.04)
+            mask = (snap_z > z-0.01)  * (snap_z < z+0.01)
             pigs['pig_dirs'].append(os.path.join(sd, 'output', f"PIG_{str(snap_id[mask][0]).rjust(3,'0')}"))
 
             # add the param file
