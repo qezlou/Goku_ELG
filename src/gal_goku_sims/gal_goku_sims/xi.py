@@ -497,20 +497,27 @@ class Corr():
             self.logger.info(f'Gert corr for sim {start} to {end} from {num_sims} sims')
         for i in range(start, end):
             save_file = os.path.join(save_dir, pigs["sim_tags"][i]+f'z{z}.hdf5')
-            if self.nbkit_rank==0:
-                self.logger.info(f'working on {pigs["sim_tags"][i]}')
-            try:
-                cosmo = self.get_cosmo(pigs['params'][i])
-                corr_hh, mbins, pairs = self._corr_on_grid(pigs['pig_dirs'][i], cosmo=cosmo, 
-                                                            ex_rad_fac=ex_rad_fac, z=z)
-                if self.nbkit_rank ==0:
-                    self._save_corr_on_grid(corr_hh, mbins, pairs, pigs['sim_tags'][i], save_file)
-                self.nbkit_comm.Barrier()
-            except FileNotFoundError as e:
-                self.logger.info(f'{e} for {pigs["pig_dirs"][i]}')
-                bad_sims.append(pigs['sim_tags'][i])
-        if self.nbkit_rank ==0:
-            self.logger.info(f'{len(bad_sims)} sims could not be opened')
+            # This check is needed again only if we have added
+            # new simulations to the directory
+            if os.path.exists(save_file):
+                if self.nbkit_rank==0:
+                    self.logger.info(f'Already computed {pigs["sim_tags"][i]}')
+                continue
+            else:
+                if self.nbkit_rank==0:
+                    self.logger.info(f'working on {pigs["sim_tags"][i]}')
+                try:
+                    cosmo = self.get_cosmo(pigs['params'][i])
+                    corr_hh, mbins, pairs = self._corr_on_grid(pigs['pig_dirs'][i], cosmo=cosmo, 
+                                                                ex_rad_fac=ex_rad_fac, z=z)
+                    if self.nbkit_rank ==0:
+                        self._save_corr_on_grid(corr_hh, mbins, pairs, pigs['sim_tags'][i], save_file)
+                    self.nbkit_comm.Barrier()
+                except FileNotFoundError as e:
+                    self.logger.info(f'{e} for {pigs["pig_dirs"][i]}')
+                    bad_sims.append(pigs['sim_tags'][i])
+            if self.nbkit_rank ==0:
+                self.logger.info(f'{len(bad_sims)} sims could not be opened')
 
     def _get_power(self, pig_dir, params, mass_th, z, mode='1d', mesh_res=1, ex_rad_fac=0):
         """Get the powerspectrum for HOD populated galaxies in a FOF halo catalog.
