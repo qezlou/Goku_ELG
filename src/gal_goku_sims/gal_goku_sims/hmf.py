@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline as ius
 import h5py
@@ -115,14 +116,43 @@ class Hmf(xi.Corr):
         
         self.logger.info(f'{len(bad_sims)} sims could not be opened')
         
-        with h5py.File(save_file, 'w') as fw:
-            dtype = h5py.special_dtype(vlen=hmfs[0].dtype)
-            dset = fw.create_dataset('hmfs_coarse', (len(hmfs),), dtype=dtype)
-            for i, data in enumerate(hmfs):
-                dset[i] = data
-            dtype = h5py.special_dtype(vlen=trimmed_bins[0].dtype)
-            dset = fw.create_dataset('bins_coarse', (len(trimmed_bins),), dtype=dtype)
-            for i, data in enumerate(trimmed_bins):
-                dset[i] = data
-            fw['sim_tags'] = sim_tags   
-            fw['bad_sims'] = bad_sims
+        if not os.path.exists(save_file):
+            with h5py.File(save_file, 'w') as fw:
+                dtype = h5py.special_dtype(vlen=hmfs[0].dtype)
+                dset = fw.create_dataset('hmfs_coarse', (len(hmfs),), dtype=dtype)
+                for i, data in enumerate(hmfs):
+                    dset[i] = data
+                dtype = h5py.special_dtype(vlen=trimmed_bins[0].dtype)
+                dset = fw.create_dataset('bins_coarse', (len(trimmed_bins),), dtype=dtype)
+                for i, data in enumerate(trimmed_bins):
+                    dset[i] = data
+                fw['sim_tags'] = sim_tags   
+                fw['bad_sims'] = bad_sims
+        else:
+            with h5py.File(save_file, 'r') as fr:
+                old_hmfs = [fr['hmfs_coarse'][i] for i in range(len(fr['hmfs_coarse']))]
+                old_bins = [fr['bins_coarse'][i] for i in range(len(fr['bins_coarse']))]
+                old_sim_tags = list(fr['sim_tags'][()])
+                old_bad_sims = list(fr['bad_sims'][()])
+            # Only add new entries with new sim_tags
+            new_entries = [(h, b, t) for h, b, t in zip(hmfs, trimmed_bins, sim_tags) if t not in old_sim_tags]
+            if new_entries:
+                hmfs_all = old_hmfs + [h for h, _, _ in new_entries]
+                bins_all = old_bins + [b for _, b, _ in new_entries]
+                sim_tags_all = old_sim_tags + [t for _, _, t in new_entries]
+            else:
+                hmfs_all = old_hmfs
+                bins_all = old_bins
+                sim_tags_all = old_sim_tags
+            bad_sims_all = list(set(old_bad_sims + bad_sims))
+            with h5py.File(save_file, 'w') as fw:
+                dtype = h5py.special_dtype(vlen=hmfs_all[0].dtype)
+                dset = fw.create_dataset('hmfs_coarse', (len(hmfs_all),), dtype=dtype)
+                for i, data in enumerate(hmfs_all):
+                    dset[i] = data
+                dtype = h5py.special_dtype(vlen=bins_all[0].dtype)
+                dset = fw.create_dataset('bins_coarse', (len(bins_all),), dtype=dtype)
+                for i, data in enumerate(bins_all):
+                    dset[i] = data
+                fw['sim_tags'] = sim_tags_all
+                fw['bad_sims'] = bad_sims_all
