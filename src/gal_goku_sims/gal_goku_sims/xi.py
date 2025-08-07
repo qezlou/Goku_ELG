@@ -478,9 +478,11 @@ class Corr():
             save_file = os.path.join(save_dir, pigs["sim_tags"][i]+f'z{z}.hdf5')
             if os.path.exists(save_file):
                 sims_done.append(i)
-        for i in sims_done:
-            for k in list(pigs.keys()):
-                    pigs[k].pop(i)
+         
+        for k in list(pigs.keys()):
+            pigs[k] = np.array(pigs[k])
+            #print(f'k = {k}, {len(pigs[k])}', flush=True)
+            pigs[k] = np.delete(pigs[k], sims_done)
 
         num_sims = len(pigs['sim_tags'])
         per_chunk = num_sims//num_chunks

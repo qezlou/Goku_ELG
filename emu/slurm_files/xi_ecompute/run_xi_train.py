@@ -6,7 +6,7 @@ import os
 import os.path as op
 import argparse
 
-def run_it(fid, narrow, num_chunks, chunk, stat_type):
+def run_it(fid, narrow, num_chunks, chunk, stat_type, z):
     
     comm_size = MPI.COMM_WORLD.Get_size()
     corr = xi.Corr(ranks_for_nbkit=comm_size)
@@ -36,13 +36,13 @@ def run_it(fid, narrow, num_chunks, chunk, stat_type):
         raise ValueError(f"Save directory {save_dir} does not exist. Please create it before running the script.")
 
     if stat_type == 'xi_hh':
-        corr.get_corr_on_grid(base_dir=basedir, save_dir=save_dir, narrow=narrow, chunk=chunk, num_chunks=num_chunks)
+        corr.get_corr_on_grid(base_dir=basedir, save_dir=save_dir, narrow=narrow, chunk=chunk, num_chunks=num_chunks, z=z)
     elif stat_type == 'pk_hh':
-        corr.get_power_on_grid(base_dir=basedir, save_dir=save_dir, narrow=narrow, power_type='hh', chunk=chunk, num_chunks=num_chunks)
+        corr.get_power_on_grid(base_dir=basedir, save_dir=save_dir, narrow=narrow, power_type='hh', chunk=chunk, num_chunks=num_chunks, z=z)
     elif stat_type == 'pk_hm':
-        corr.get_power_on_grid(base_dir=basedir, save_dir=save_dir, narrow=narrow, power_type='hm', chunk=chunk, num_chunks=num_chunks)
+        corr.get_power_on_grid(base_dir=basedir, save_dir=save_dir, narrow=narrow, power_type='hm', chunk=chunk, num_chunks=num_chunks, z=z)
     elif stat_type == 'pk_hlin':
-        corr.get_power_on_grid(base_dir=basedir, save_dir=save_dir, narrow=narrow, power_type='hlin', chunk=chunk, num_chunks=num_chunks)
+        corr.get_power_on_grid(base_dir=basedir, save_dir=save_dir, narrow=narrow, power_type='hlin', chunk=chunk, num_chunks=num_chunks, z=z)
 
 if __name__ == '__main__':
 
@@ -52,7 +52,7 @@ if __name__ == '__main__':
     parser.add_argument('--numchunks', required=False, default=20, type=int, help='')
     parser.add_argument('--chunk', required=True, type=int, help='')
     parser.add_argument('--stat_type', required=False, default='xi_hh', type=str, help='To compute "xi_hh", "pk_hh", "pk_hm" or "pk_hlin"')
-    
+    parser.add_argument('--z', required=False, default=2.5, type=float, help='Redshift of interest, should match an existing snapshot within +- 0.1')
 
     args = parser.parse_args()
-    run_it(args.fid, args.narrow, args.numchunks, args.chunk, stat_type=args.stat_type)
+    run_it(args.fid, args.narrow, args.numchunks, args.chunk, stat_type=args.stat_type, z=args.z)
