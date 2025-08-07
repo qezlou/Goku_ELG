@@ -4,8 +4,8 @@ from gal_goku_sims import hmf as halo_mass_func
 narrow= False
 merge = False
 z = 0.5
-for fid in ['L2']:
-    save_File = f'/scratch/06536/qezlou/Goku/processed_data/HMF/{np.round(z,1)}/{fid}_hmfs'
+for fid in ['HF', 'L2']:
+    save_File = f'/scratch/06536/qezlou/Goku/processed_data/HMF/{fid}_hmfs_{np.round(z,1)}'
     if narrow:
         base_dir = f'/scratch/06536/qezlou/Goku/FOF/{fid}/'
         save_File += '_narrow'
