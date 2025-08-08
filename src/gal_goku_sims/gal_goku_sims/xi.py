@@ -798,7 +798,10 @@ class Corr():
             fw['corr'] = corr_hh
             fw['mbins'] = mbins
             fw['pairs'] = pairs
-            fw['sim_tag'] = np.string_(sim_tag) 
+            try:
+                fw['sim_tag'] = np.string_(sim_tag) 
+            except:
+                fw['sim_tag'] = sim_tag.encode('utf-8')
 
     def _save_power_on_grid(self, k, power_hh, mbins, pairs, sim_tag, save_file):
         self.logger.info(f'Writing on {save_file}')
