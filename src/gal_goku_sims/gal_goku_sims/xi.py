@@ -798,7 +798,7 @@ class Corr():
             fw['corr'] = corr_hh
             fw['mbins'] = mbins
             fw['pairs'] = pairs
-            fw['sim_tag'] = sim_tag
+            fw['sim_tag'] = np.string_(sim_tag) 
 
     def _save_power_on_grid(self, k, power_hh, mbins, pairs, sim_tag, save_file):
         self.logger.info(f'Writing on {save_file}')
@@ -806,7 +806,7 @@ class Corr():
             fw['power'] = power_hh
             fw['mbins'] = mbins
             fw['pairs'] = pairs
-            fw['sim_tag'] = sim_tag
+            fw['sim_tag'] =  np.string_(sim_tag) 
             fw['k'] = k
     
     def _save_cross_power_on_grid(self, k, power_hm, mbins, sim_tag, save_file):
@@ -814,7 +814,7 @@ class Corr():
         with h5py.File(save_file, 'w') as fw:
             fw['power'] = power_hm
             fw['mbins'] = mbins
-            fw['sim_tag'] = sim_tag
+            fw['sim_tag'] =  np.string_(sim_tag) 
             fw['k'] = k
     
     def _save_pk_hlin_on_grid(self, k_hlin, k_init, power_hlin, power_init, mbins, sim_tag, save_file):
@@ -823,7 +823,7 @@ class Corr():
             fw['power_hlin'] = power_hlin
             fw['power_init'] = power_init
             fw['mbins'] = mbins
-            fw['sim_tag'] = sim_tag
+            fw['sim_tag'] =  np.string_(sim_tag) 
             fw['k_hlin'] = k_hlin
             fw['k_init'] = k_init
 

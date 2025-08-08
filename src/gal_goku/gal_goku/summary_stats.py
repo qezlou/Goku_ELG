@@ -1112,9 +1112,10 @@ class HMF(BaseSummaryStats):
     """
     Halo mass function
     """
-    def __init__(self, data_dir, fid, mass_range=(11.1, 12.5), narrow=False, no_merge=True, chi2=False, logging_level='INFO'):
+    def __init__(self, data_dir, fid, z=2.5, mass_range=(11.1, 12.5), narrow=False, no_merge=True, chi2=False, logging_level='INFO'):
         super().__init__(data_dir, logging_level)
         self.fid = fid
+        self.z = np.round(z, 1)
         if fid == 'HF':
             self.vbox = 1000**3  # Volume of the box in Mpc^3/h^3
         elif fid == 'L2':
@@ -1140,12 +1141,12 @@ class HMF(BaseSummaryStats):
         """
         if self.narrow:
             if self.no_merge:
-                save_file = f'{self.fid}_hmfs_narrow_no_merge.hdf5'
+                save_file = f'{self.fid}_hmfs_{self.z}_narrow_no_merge.hdf5'
             else:
                 save_file = f'{self.fid}_hmfs_narrow.hdf5'
         else:
             if self.no_merge:
-                save_file = f'{self.fid}_hmfs_no_merge.hdf5'
+                save_file = f'{self.fid}_hmfs_{self.z}_no_merge.hdf5'
             else:
                 save_file = f'{self.fid}_hmfs.hdf5'
         if self.rank==0:

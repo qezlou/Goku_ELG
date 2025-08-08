@@ -7,7 +7,7 @@ import os
 import h5py
 import numpy as np
 import pickle
-from scipy.interpolate import BSpline
+from scipy.interpolate import make_interp_spline
 from matplotlib import pyplot as plt
 from matplotlib.colors import BoundaryNorm
 from scipy.ndimage import gaussian_filter1d as gf1d
@@ -1114,18 +1114,21 @@ class PlotHMF(BasePlot):
             else:
                 common_nums = np.intersect1d(common_nums, sim_nums)
         self.logger.info(f'Found {len(common_nums)} common pairs')
-        
+
         for fd in ['HF','L2']:
             sim_nums = halo_funcs[fd]._sim_nums()
             ind = np.where(np.isin(sim_nums, common_nums))[0]
             # sort based on the sim # for consistency
             argsort = np.argsort(sim_nums[ind])
             remained_sim_num[fd] = sim_nums[ind][argsort]
-            hmfs[fd] = hmfs[fd][ind][argsort]
-            bins[fd] = bins[fd][ind][argsort]
+            hmfs_ind = [hmfs[fd][i] for i in ind]
+            hmfs[fd] = [hmfs_ind[i] for i in argsort]
+            bins_ind = [bins[fd][i] for i in ind]
+            bins[fd] = [bins_ind[i] for i in argsort]
+            del hmfs_ind, bins_ind
             
             #mbins[fd] = mbins[fd][ind][argsort]
-            smoothed_temp = halo_funcs[fd].get_smoothed(x, ind=ind, delta_r=delta_r)
+            smoothed_temp = [make_interp_spline(bins[fd][i], hmfs[fd][i], k=3) for i in range(len(hmfs[fd]))]
             smoothed[fd] = []
             for i in argsort:
                 smoothed[fd].append(smoothed_temp[i])
@@ -1163,12 +1166,13 @@ class PlotHMF(BasePlot):
     def _plot_smoothed(self, hmfs, bins, smoothed, x, title=None, ax_tilte=None, per_panel=10, fig=None, ax=None, style=None, *kwargs):
 
         ## Find the number of rows and columns for the plot
-        sim_nums = hmfs.shape[0]
+        sim_nums = len(hmfs)
         rows, columns = self._setup_panels(sim_nums, per_panel=per_panel)
-        mbins = 0.5 * (bins[0][1:] + bins[0][:-1])
+        
         if fig is None:
             fig, ax = plt.subplots(rows, columns, figsize=(columns*3, rows*3))
-        for j in range(hmfs.shape[0]):
+        for j in range(len(hmfs)):
+            mbins = 0.5 * (bins[j][1:] + bins[j][:-1])
             p = np.floor(j/per_panel).astype(int)
             ax_indx, ax_indy =  np.floor(p/columns).astype(int), int(p%columns)
             mbins = 0.5 * (bins[j][1:] + bins[j][:-1])
