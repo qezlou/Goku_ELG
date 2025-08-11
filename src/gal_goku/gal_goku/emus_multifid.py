@@ -304,7 +304,7 @@ class BaseMFCoregEmu():
     `LatentMFCoregionalizationSVGP` which allows each output to have a different
     observational (simualtion quality) uncertainty.
     """
-    def __init__(self, DataLoader, data_dir, num_latents, num_inducing, emu_type={'wide_and_narrow':True}, logging_level='INFO'):
+    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, emu_type={'wide_and_narrow':True}, logging_level='INFO'):
         """
         Parameters
         ----------
@@ -340,7 +340,7 @@ class BaseMFCoregEmu():
         fids = ['L2', 'HF']
         for fd in fids:
             # Goku-wide sims
-            data_loader = DataLoader(data_dir=data_dir, fid = fd,  narrow=False, no_merge=True, logging_level=logging_level)
+            data_loader = DataLoader(data_dir=data_dir, fid =fd, z=z, narrow=False, no_merge=True, logging_level=logging_level)
             # Load xi((m1, m2), r) for wide
             self.mbins, Y_wide, err_wide, X_wide, labels_wide = data_loader.get_wt_err()
             self.wide_array= np.append(self.wide_array, np.ones(Y_wide.shape[0]))
@@ -354,7 +354,7 @@ class BaseMFCoregEmu():
             # Use both Goku-wide and narrow
             else:
                 # Goku-narrow sims
-                data_loader = DataLoader(data_dir=data_dir, fid = fd,  narrow=True, no_merge=True, logging_level=logging_level)
+                data_loader = DataLoader(data_dir=data_dir, fid = fd, z=z, narrow=True, no_merge=True, logging_level=logging_level)
                 # Load xi((m1, m2), r) for wide
                 _, Y_narrow, err_narrow, X_narrow, labels_narrow = data_loader.get_wt_err()
                 self.wide_array= np.append(self.wide_array, np.zeros(Y_narrow.shape[0]))

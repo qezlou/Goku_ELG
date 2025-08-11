@@ -11,7 +11,7 @@ template = """#!/bin/bash
 
 hostname; pwd; date
 export LD_LIBRARY_PATH=/work2/06536/qezlou/stampede3/miniconda3/envs/py3.12/lib:$LD_LIBRARY_PATH
-python run_hmf_emu_combined_bins.py --ind_test {i}
+python run_hmf_emu_combined_bins.py --ind_test {i} --z 0.5
 """
 
 # Loop from 0 to num_chunks

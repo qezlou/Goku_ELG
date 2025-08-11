@@ -53,14 +53,14 @@ class PlotGal():
         self.g = gal.Gal(logging_level=logging_level, config=config)
         self.g.reset_hod()
         self.cosmo_mid = self.g.xi_emu.cosmo_min + (self.g.xi_emu.cosmo_max - self.g.xi_emu.cosmo_min)/2
-
-        # Define the refrence cosmology to get the ratio to
-        if ref == 'Planck18':
-            self.cosmo_ref = [0.31, 0.048, 0.68, 
+        self.planck18_pars = [0.31, 0.048, 0.68, 
                             2.1e-9, 0.97, -1,    
                             0,   3.08, 0, 
                             0.1
                             ]
+        # Define the refrence cosmology to get the ratio to
+        if ref == 'Planck18':
+            self.cosmo_ref = self.planck18_pars
         elif ref == 'mid':
             self.cosmo_ref = self.cosmo_mid
         

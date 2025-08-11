@@ -32,6 +32,18 @@ class BasePlot():
                 'w0_fld': r'$w_0$', 'wa_fld': r'$w_a$', 'N_ur': r'$N_{ur}$', 
                 'alpha_s': r'$\alpha_s$', 'm_nu': r'$m_{\nu}$'}
 
+        # Using Planck 2018 as reference cosmology
+        self.planck18_pars = {'mean': [0.3111, 0.048, 
+                                       0.6766, 2.105e-9, 0.9665, 
+                                       -1, 0,  3.08, 3., 
+                                       0., 0.1
+                                       ],
+                            'sigma': [0.0056, 0., 
+                                      0.0042, 0.030e-9, 0.0038, 
+                                      0., 0.0, 0.0, 0.0, 
+                                      0.0
+                                      ]}
+
     def _setup_panels(self, sim_nums, per_panel=10):
         """
         Find the number of rows and columns for the subplots
