@@ -335,7 +335,7 @@ class BaseMFCoregEmu():
         # Keeping the id for good HF sims
         self.good_sim_ids = []
         # Fix a few features of the emulator
-        emu_type.update({'multi-fid':True, 'single-bin':False, 'linear':True, 'mf-svgp':True})
+        #emu_type.update({'multi-fid':True, 'single-bin':False, 'linear':True, 'mf-svgp':True})
         self.emu_type = emu_type
         fids = ['L2', 'HF']
         for fd in fids:
@@ -594,10 +594,10 @@ class HmfNativeBins(BaseMFCoregEmu):
     observational (simualtion quality) uncertainty.
     """
 
-    def __init__(self, data_dir, num_latents, num_inducing, emu_type={ 'wide_and_narrow': True }, logging_level='INFO'):
+    def __init__(self, data_dir, z, num_latents, num_inducing, emu_type={ 'wide_and_narrow': True }, logging_level='INFO'):
         
         DataLoader = summary_stats.HMF
-        super().__init__(DataLoader, data_dir, num_latents, num_inducing, emu_type, logging_level)
+        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, emu_type, logging_level)
 
 
 class XiNativeBinsFullDimReduc():

@@ -1184,6 +1184,7 @@ class HMF(BaseSummaryStats):
             ind = np.where((mbin >= self.mass_range[0]) & (mbin <= self.mass_range[1]))[0]
             masked_mbins.append(mbin[ind])
             masked_hmfs.append(h[ind])
+        self.logger.info(f'loading from {save_file}')
         return masked_hmfs, masked_mbins
 
     def get_wt_err(self):

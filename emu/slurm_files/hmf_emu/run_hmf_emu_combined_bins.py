@@ -5,12 +5,13 @@ from gal_goku import emus_multifid
 
 
 def run_it(ind_test, z, num_inducing=500, num_latents=20):
-    #data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
-    #train_subdir = 'train_hetero'
-    data_dir = '/scratch/06536/qezlou/Goku/processed_data/'
-    train_subdir = 'HMF/train_less_massive'
+    data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/'
+    train_subdir = 'train_z0.5'
+    #data_dir = '/scratch/06536/qezlou/Goku/processed_data/'
+    #train_subdir = 'HMF/train_less_massive'
     z = np.round(z, 1)
     emu = emus_multifid.HmfNativeBins(data_dir=data_dir,
+                                      z=z,
                                       num_inducing=num_inducing, 
                                       num_latents=num_latents,
                                       logging_level='DEBUG')
@@ -37,4 +38,4 @@ if __name__ == '__main__':
     parser.add_argument('--z', default=2.5, type=float, help='Redshift')
 
     args = parser.parse_args()
-    run_it(args.ind_test, num_latents=args.z)
+    run_it(args.ind_test, z=args.z)
