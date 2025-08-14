@@ -38,10 +38,10 @@ class BasePlot():
                                        -1, 0,  3.08, 3., 
                                        0., 0.1
                                        ],
-                            'sigma': [0.0056, 0., 
+                            'sigma': [0.0056, 1, 
                                       0.0042, 0.030e-9, 0.0038, 
-                                      0., 0.0, 0.0, 0.0, 
-                                      0.0
+                                      1., 1., 1.0, 1.0, 
+                                      1.0
                                       ]}
 
     def _setup_panels(self, sim_nums, per_panel=10):
@@ -478,12 +478,19 @@ class PlotXiEmu(BasePlot):
         # Load the emualtor, mainly the data
         self.emu = emus_multifid.XiNativeBinsFullDimReduc(data_dir=self.data_dir, num_inducing=500, num_latents=40, logging_level='ERROR')
         self.cosmo_pars = self.emu.X[1]
+        # Cosmo parameters in the original scale
+        self.cosmo_pars_unscaled = self.emu.X[1] * (self.emu.X_max - self.emu.X_min) + self.emu.X_min
+
+        # Get the distance from Planck 2018
+        self.dist_planck = np.zeros((self.emu.X[1].shape[0], self.emu.X[1].shape[1]))
+        for s in range(self.emu.X[1].shape[0]):
+            self.dist_planck[s] = np.array([ (self.cosmo_pars_unscaled[s,p] - self.planck18_pars['mean'][p])/self.planck18_pars['sigma'][p] for p in range(self.emu.X[1].shape[1])])
+
         self.sim_tags = self.emu.labels[1]
         self.rbins = np.unique(self.emu.mbins[:, 2])
         self.pred, self.truth, self.loss_hist = self.get_loo_pred_truth()
         self.frac_errs = np.abs(self.pred/self.truth - 1)
         
-    
     def loo_diagnose(self, mass_pair, logging_level='ERROR'):
         """
         A diganose plot for the leave one out cross validation of Xi(r;m1,m2)
@@ -1534,13 +1541,14 @@ class HmfCombined(BasePlot):
     Class to  plot HMF emulator build using Heteroscedastic Likelihood
     of LinearMFCoregionzalization emulator
     """
-    def __init__(self, data_dir, train_subdir, num_latents=5, num_inducing=500, logging_level='INFO'):
+    def __init__(self, data_dir, train_subdir, z=2.5, num_latents=5, num_inducing=500, logging_level='INFO'):
         super().__init__(logging_level)
         self.data_dir = data_dir
         self.train_subdir = train_subdir
+        self.z = z
         self.num_latents = num_latents
         self.num_inducing = num_inducing
-        self.emu = emus_multifid.HmfNativeBins(data_dir=self.data_dir, num_latents= self.num_latents, 
+        self.emu = emus_multifid.HmfNativeBins(data_dir=self.data_dir, z=self.z, num_latents= self.num_latents, 
                                     num_inducing=self.num_inducing, logging_level='ERROR')
         self.mbins = 10**self.emu.mbins
         self.sim_tags = self.emu.labels[1]

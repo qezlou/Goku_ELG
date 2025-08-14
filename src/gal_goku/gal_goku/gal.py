@@ -130,18 +130,35 @@ class Gal(GalBase):
     projected correlation function w_p(r) from halo summary statistics.
     """
 
-    def __init__(self, z=2.5, leave=34, config=None, tag_info=None, logging_level='INFO'):
+    def __init__(self, z=2.5, leave=18, config=None, tag_info=None, logging_level='INFO'):
+        """
+        Initialize the Gal class with cosmology, redshift, and HOD model parameters.
+        Parameters
+        ----------
+        z : float, optional
+            Redshift at which to compute the galaxy correlation functions (default is 2.5).
+        leave : int, optional
+            Number of simulations to leave out for cross-validation (default is, sim 522 which the 
+            truth is not good either).
+        """
         self.z =z
         super().__init__(logging_level=logging_level, logger_name='gal.XiGal')
-        # Load the trained emulator for xi_direct
-        self.xi_emu = emu_cosmo.Xi(leave=leave, loggin_level=logging_level)
-        self.rbins = self.xi_emu.rbins
-        self.logger.debug(f'Emulators mass bins: {self.xi_emu.mass_bins}')
-        self.logger.debug(f'Emulators rbins.size: {self.xi_emu.rbins.size}')
-        self.rbins_fine = np.linspace(self.rbins[0], self.rbins[-1], 400)
         # Load the emulator for HMF
         self.hmf_emu = emu_cosmo.Hmf(loggin_level=logging_level)
         self._load_config(config)
+        # Load the trained emulator for xi_direct
+        self.xi_emu = emu_cosmo.Xi(leave=leave, loggin_level=logging_level)
+        self.rbins = self.xi_emu.rbins
+        # We will only use the prediciton within r_range
+        self.xi_emu_r_mask = ((self.rbins > self.config['r_range'][0]) & 
+                              (self.rbins < self.config['r_range'][1]))
+        self.rbins = self.rbins[self.xi_emu_r_mask]
+
+        self.logger.debug(f'Emulators mass bins: {self.xi_emu.mass_bins}')
+        self.logger.debug(f'Emulators rbins.size: {self.xi_emu.rbins.size}')
+        self.rbins_fine = np.linspace(self.rbins[0], self.rbins[-1], 400)
+        
+        
         # Set the resolution parameters
         self.tag_info = tag_info
 
@@ -162,7 +179,12 @@ class Gal(GalBase):
                 'smooth_xihh_r': 0,
                 'smooth_phh_k': 0,
                 'smooth_xihh_mass': 0,
-                'r_range': [0.1, 50]
+                'r_range': [0.5, 50], # We need this cut to ensure stable Hankel transform
+                                      # small scales and large scales are both fluctuating
+                                      # small scales should be overriden by the 1-halo term in
+                                      # future. large scales are fluctuating since we are 
+                                      # in log-scale
+                'dm': 0.01,  # log10 mass step size for finite difference
                 }
         else:
             self.config = config
@@ -189,6 +211,8 @@ class Gal(GalBase):
         
         # Recompute the P_hh(M, M') for the given cosmology
         self.xi_grid, _ = self.xi_emu.predict(cosmo_pars)
+        print(f"xi_grid shape: {self.xi_grid.shape}")
+        self.xi_grid = self.xi_grid[ :, :, self.xi_emu_r_mask].squeeze()
         # TODO: Implement the tree-level correlation function and stitching between the two
         self.xi_grid = self.xi_grid.squeeze()
         # get the power on the grid of mass thresholds defined by the emulator
@@ -196,7 +220,7 @@ class Gal(GalBase):
         self.xi_hh_mth_bspline = None
         self.p_hh_mth_bspline = None
 
-        # Set the halot_tools for modeling the NFW porfile
+        # Set the halot_tools for modeling the NFW profile
         self.htools = halo_tools.HaloTools(cosmo_pars, self.z)
         self.uk = self.htools.get_uk(self.k, 10**self.config['logMh'])
 
@@ -413,10 +437,10 @@ class Gal(GalBase):
             3D correlation function xi(r) at the exact halo masses.
         """
         # Use finite difference to compute correlation function at exact masses
-        delta = 0.01  # log10 mass step size
+        delta_m_deriv = self.config['dm']  # log10 mass step size for finite difference
         logm1, logm2 = masses[0], masses[1]
-        logm1p, logm1m = logm1 + delta, logm1 - delta
-        logm2p, logm2m = logm2 + delta, logm2 - delta
+        logm1p, logm1m = logm1 + self.delta_m_deriv, logm1 - self.delta_m_deriv
+        logm2p, logm2m = logm2 + self.delta_m_deriv, logm2 - self.delta_m_deriv
 
         d1p = self.mth_to_dens(logm1p)
         d1m = self.mth_to_dens(logm1m)
@@ -433,7 +457,7 @@ class Gal(GalBase):
         xi_exact_mass = numer / denom
 
         #spl = make_interp_spline(self.xi_emu.rbins, xi_exact_mass, k=3)
-        spl = UnivariateSpline(self.xi_emu.rbins, xi_exact_mass, s=self.config['smooth_xihh_r'], k=3)
+        spl = UnivariateSpline(self.rbins, xi_exact_mass, s=self.config['smooth_xihh_r'], k=3)
         xi_exact_mass = spl(self.rbins_fine)
 
         return xi_exact_mass
@@ -503,18 +527,20 @@ class Gal(GalBase):
         by the emulator.
         """
         self.logger.debug("Converting the emulated xi_hh(mth1, mth2) to P_hh(mth1, mth2)")
-        ind = (self.rbins_fine > self.config['r_range'][0]) & (self.rbins_fine < self.config['r_range'][1])
-        spl = UnivariateSpline(self.xi_emu.rbins, self.xi_grid[0, 0], k=3, s=self.config['smooth_xihh_r'])
-        xi_interp = spl(self.rbins_fine[ind]) 
-        k, _ = mcfit.xi2P(self.rbins_fine[ind], l=0, lowring=True)(xi_interp, extrap=True)
+        print(self.rbins.shape, self.xi_grid.shape)
+        spl = UnivariateSpline(self.rbins, self.xi_grid[0, 0], k=3, s=self.config['smooth_xihh_r'])
+        xi_interp = spl(self.rbins_fine) 
+        k, _ = mcfit.xi2P(self.rbins_fine, l=0, lowring=True)(xi_interp, extrap=True)
 
         # placehoder for the full grid of power at mass thresholds
         p_grid = np.full((len(self.xi_emu.mass_bins), len(self.xi_emu.mass_bins), k.size), np.nan)
         for i in range(len(self.xi_emu.mass_bins)):
             for j in range(len(self.xi_emu.mass_bins)):
-                spl = UnivariateSpline(self.xi_emu.rbins, self.xi_grid[i, j], k=3, s=self.config['smooth_xihh_r'])
-                xi_interp = spl(self.rbins_fine[ind])
-                _, p_grid[i,j] = mcfit.xi2P(self.rbins_fine[ind], l=0, lowring=True)(xi_interp, extrap=True)
+                # We don't use NaN values in the xi_grid, so we need to mask them
+                ind_finite = np.where(np.isfinite(self.xi_grid[i, j]))[0]
+                spl = UnivariateSpline(self.rbins[ind_finite], self.xi_grid[i, j][ind_finite], k=3, s=self.config['smooth_xihh_r'])
+                xi_interp = spl(self.rbins_fine)
+                _, p_grid[i,j] = mcfit.xi2P(self.rbins_fine, l=0, lowring=True)(xi_interp, extrap=True)
         return k, p_grid
 
     def get_p_hh_mth(self, logm1, logm2):
@@ -736,7 +762,7 @@ class Gal(GalBase):
             Galaxy power spectrum P_gg(k).
         """
         # Get the 1-halo term
-        _, pgg_1h = self._pgg_1h()
+        #_, pgg_1h = self._pgg_1h()
         # Get the 2-halo term for the central-central correlation function
         k, pgg_2h_cc = self._pgg_2h_cc()
         # Get the 2-halo term for the central-satellite correlation function
