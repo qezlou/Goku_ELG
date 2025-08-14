@@ -607,7 +607,7 @@ class XiNativeBinsFullDimReduc():
     `LatentMFCoregionalizationSVGP` which allows each output to have a different
     observational (simualtion quality) uncertainty.
     """
-    def __init__(self, data_dir, num_latents, num_inducing, emu_type={'wide_and_narrow':True}, logging_level='INFO'):
+    def __init__(self, data_dir, num_latents, num_inducing, use_rho=True, emu_type={'wide_and_narrow':True}, logging_level='INFO'):
         """
         Parameters
         ----------
@@ -629,6 +629,7 @@ class XiNativeBinsFullDimReduc():
         self.data_dir = data_dir
         self.num_latents = num_latents
         self.num_inducing = num_inducing
+        self.use_rho = use_rho
         # Laod the data
         self.X = []
         self.Y = []
@@ -730,10 +731,8 @@ class XiNativeBinsFullDimReduc():
             X_normalized.append((X[i]-X_min)/(X_max-X_min))
         Y_normalized = []
         # The zeros row is the LF
-        mean_func =  np.nanmean(Y[0], axis=0)
-        Y_normalized.append(Y[0] -mean_func)
-        # Don't subtract the mean for the HF, The MF GP will match
-        # the HF mean
+        lf_median_func =  np.nanmedian(Y[0], axis=0)
+        Y_normalized.append(Y[0] - lf_median_func)
         Y_normalized.append(Y[1])
 
         return X_normalized, Y_normalized, X_min, X_max
@@ -750,12 +749,18 @@ class XiNativeBinsFullDimReduc():
         """
         if ind_train is None:
             ind_train = np.arange(self.X[1].shape[0])
+
+        # Also subtract median from HF sims, I had noticed the f_HF - f_LF
+        # is < 3% for all 36 LF-HF pairs, it gets slightly larger 
+        # closer to r =60 CMpc/h, but still similar for all smulations
+        self.hf_median_func = np.nanmedian(self.Y[1][ind_train], axis=0)
+
         # Add the fidelity indocators, 0 for L2 and 1 for HF
         X_l2_aug = np.hstack([self.X[0], np.zeros((self.X[0].shape[0], 1), dtype=np.float64)])
         X_hf_aug = np.hstack([self.X[1][ind_train], np.ones((ind_train.size, 1), dtype=np.float64)])
         # Stack the L2 and HF data vertically
         X_train = np.vstack([X_l2_aug, X_hf_aug])
-        Y_train = np.vstack([self.Y[0], self.Y[1][ind_train]])
+        Y_train = np.vstack([self.Y[0], self.Y[1][ind_train] - self.hf_median_func])
         Y_err = np.vstack([self.Y_err[0], self.Y_err[1][ind_train]])
         Y_train = np.concatenate((Y_train, Y_err), axis=1) # shape becomes [N, 2*P]
         self.logger.debug(f'X_train: {X_train.shape}, Y_train: {Y_train.shape}')
@@ -772,7 +777,7 @@ class XiNativeBinsFullDimReduc():
         self.emu = LatentMFCoregionalizationSVGP(
             X_train, Y_train[:,0:P], kernel_L, kernel_delta,
             num_latents=self.num_latents, num_inducing=self.num_inducing,
-            num_outputs=self.output_dim, heterosed=True)
+            num_outputs=self.output_dim, heterosed=True, use_rho=self.use_rho)
         
         model_file = op.join(self.data_dir, train_subdir, model_file)
         if op.exists(model_file):
@@ -869,6 +874,11 @@ class XiNativeBinsFullDimReduc():
             The mean and variance of the predicted 
             log10(xi(r)) for the test sims.
         """
+        # Get the median function for the HF sims used for training
+        if not hasattr(self, 'hf_median_func'):
+            mask = np.ones(self.Y[1].shape[0], dtype=bool)
+            mask[ind_test] = False
+            self.hf_median_func = np.nanmedian(self.Y[1], axis=0)
         try:
             with open(op.join(self.data_dir, train_subdir, f'{model_file}.attrs'), 'rb') as f:
                 self.model_attrs = pickle.load(f)
@@ -883,6 +893,7 @@ class XiNativeBinsFullDimReduc():
         # Add the fidelity indocators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float64)
         mean_pred, var_pred = self.emu.predict_f(X_test)
+        mean_pred += self.hf_median_funcs
         xi = summary_stats.Xi(data_dir=self.data_dir, fid = 'HF', MPI=None, logging_level=self.logging_level)
         
         return mean_pred, var_pred
