@@ -464,7 +464,7 @@ class PlotXiEmu(BasePlot):
     """
     Plot routines for the 3D correlation function xi(r) computed on the sims
     """
-    def __init__(self, data_dir, train_subdir='train', logging_level='INFO'):
+    def __init__(self, data_dir, train_subdir='train', use_rho=True, logging_level='INFO'):
         self.latex_labels = {'omega0': r'$\Omega_m$', 'omegab': r'$\Omega_b$', 
                         'hubble': r'$h$', 'scalar_amp': r'$A_s$', 'ns': r'$n_s$', 
                         'w0_fld': r'$w_0$', 'wa_fld': r'$w_a$', 'N_ur': r'$N_{ur}$', 
@@ -476,7 +476,11 @@ class PlotXiEmu(BasePlot):
         # Relieve the memory load
         del self.xi.xi
         # Load the emualtor, mainly the data
-        self.emu = emus_multifid.XiNativeBinsFullDimReduc(data_dir=self.data_dir, num_inducing=500, num_latents=40, logging_level='ERROR')
+        self.emu = emus_multifid.XiNativeBinsFullDimReduc(data_dir=self.data_dir, 
+                                                          num_inducing=500, 
+                                                          num_latents=40, 
+                                                          use_rho=use_rho,
+                                                          logging_level='ERROR')
         self.cosmo_pars = self.emu.X[1]
         # Cosmo parameters in the original scale
         self.cosmo_pars_unscaled = self.emu.X[1] * (self.emu.X_max - self.emu.X_min) + self.emu.X_min
@@ -488,7 +492,7 @@ class PlotXiEmu(BasePlot):
 
         self.sim_tags = self.emu.labels[1]
         self.rbins = np.unique(self.emu.mbins[:, 2])
-        self.pred, self.truth, self.loss_hist = self.get_loo_pred_truth()
+        self.pred, self.truth, self.loss_hist = self.get_loo_pred_truth(use_rho=use_rho)
         self.frac_errs = np.abs(self.pred/self.truth - 1)
         
     def loo_diagnose(self, mass_pair, logging_level='ERROR'):
@@ -579,7 +583,7 @@ class PlotXiEmu(BasePlot):
         return 10**mean_pred.squeeze(), 10**truth.squeeze(), loss_history
 
 
-    def get_loo_pred_truth(self):
+    def get_loo_pred_truth(self, use_rho=True):
         """
         Use multiprocessing to get the prediction and truth values for all 36 HF sims.
         Returns:
@@ -720,7 +724,7 @@ class PlotXiEmu(BasePlot):
             # plot the loss history
             fig, ax = plt.subplots(1, 2, figsize=(8, 3))
             ax[0].plot(np.log10(self.loss_hist[s]))
-            #ax[0].set_ylim(6.665, 6.680)
+            ax[0].set_ylim(np.min(np.log10(self.loss_hist[s])), np.min(np.log10(self.loss_hist[s]))+0.1)
             ax[0].set_xlabel('Epochs')
             ax[0].set_ylabel('log10(Loss)')
             ax[0].grid(True, linestyle='--', alpha=0.7)
@@ -740,8 +744,8 @@ class PlotXiEmu(BasePlot):
             fig, ax = plt.subplots(1, 2, figsize=(8, 3))
             frac_errs = np.abs(self.pred[s]/self.truth[s] - 1)
             for i, n in enumerate([2, 8, 13]):
-                ax[0].plot(self.rbins, np.log10(self.truth[s][n, n]), label='truth', color=f'C{i}')
-                ax[0].plot(self.rbins, np.log10(self.pred[s][n, n]), label='pred', color=f'C{i}', ls='--')
+                ax[0].plot(self.rbins, self.truth[s][n, n], label='truth', color=f'C{i}')
+                ax[0].plot(self.rbins, self.pred[s][n, n], label='pred', color=f'C{i}', ls='--')
                 ax[1].plot(self.rbins, frac_errs[n,n], label='truth', color=f'C{i}')
             ax[0].set_xscale('log')
             ax[0].set_yscale('log')

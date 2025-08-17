@@ -753,14 +753,21 @@ class XiNativeBinsFullDimReduc():
         # Also subtract median from HF sims, I had noticed the f_HF - f_LF
         # is < 3% for all 36 LF-HF pairs, it gets slightly larger 
         # closer to r =60 CMpc/h, but still similar for all smulations
-        self.hf_median_func = np.nanmedian(self.Y[1][ind_train], axis=0)
+
+        # We subtract the median of the HF sims for training if use_rho is False
+        if not self.use_rho:
+            self.hf_median_func = np.nanmedian(self.Y[1][ind_train], axis=0)
 
         # Add the fidelity indocators, 0 for L2 and 1 for HF
         X_l2_aug = np.hstack([self.X[0], np.zeros((self.X[0].shape[0], 1), dtype=np.float64)])
         X_hf_aug = np.hstack([self.X[1][ind_train], np.ones((ind_train.size, 1), dtype=np.float64)])
         # Stack the L2 and HF data vertically
         X_train = np.vstack([X_l2_aug, X_hf_aug])
-        Y_train = np.vstack([self.Y[0], self.Y[1][ind_train] - self.hf_median_func])
+        if self.use_rho:
+            Y_train = np.vstack([self.Y[0], self.Y[1][ind_train]])
+        else:
+            # We subtract the median of the HF sims for training if use_rho is False
+            Y_train = np.vstack([self.Y[0], self.Y[1][ind_train] - self.hf_median_func])
         Y_err = np.vstack([self.Y_err[0], self.Y_err[1][ind_train]])
         Y_train = np.concatenate((Y_train, Y_err), axis=1) # shape becomes [N, 2*P]
         self.logger.debug(f'X_train: {X_train.shape}, Y_train: {Y_train.shape}')
@@ -878,7 +885,7 @@ class XiNativeBinsFullDimReduc():
         if not hasattr(self, 'hf_median_func'):
             mask = np.ones(self.Y[1].shape[0], dtype=bool)
             mask[ind_test] = False
-            self.hf_median_func = np.nanmedian(self.Y[1], axis=0)
+            self.hf_median_func = np.nanmedian(self.Y[1][mask], axis=0)
         try:
             with open(op.join(self.data_dir, train_subdir, f'{model_file}.attrs'), 'rb') as f:
                 self.model_attrs = pickle.load(f)
@@ -893,7 +900,7 @@ class XiNativeBinsFullDimReduc():
         # Add the fidelity indocators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float64)
         mean_pred, var_pred = self.emu.predict_f(X_test)
-        mean_pred += self.hf_median_funcs
-        xi = summary_stats.Xi(data_dir=self.data_dir, fid = 'HF', MPI=None, logging_level=self.logging_level)
+        if not self.use_rho:
+            mean_pred += self.hf_median_func
         
         return mean_pred, var_pred
