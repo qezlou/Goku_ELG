@@ -922,8 +922,31 @@ class Xi(BaseSummaryStats):
             #all_splines.append(spline)
         self.logger.debug(f'{self.fid}, narrow= {self.narrow}, Found {bad_sims_mask.sum()} sims with less than {100*alpha_bad:.0f}% of valid data points')
         return rbins, log_corr, eval_splines, bad_sims_mask
+
+    def remove_sims(self, sim_id):
+        """
+        get the indices to the simulations to remove
+        Parameters:
+        -----------
+        sim_id: list
+            List of simulation IDs to remove
+        Returns:
+        --------
+        keep_sims: np.ndarray
+            Indices of the simulations to keep
+        """
+        ind_bad_sims = []
+        sim_id = [str(s).rjust(4, '0') for s in sim_id]
+
+        for i, s in enumerate(self.sim_tags):
+            for r in sim_id:
+                if r in s:
+                    ind_bad_sims.append(i)
+        keep_sims = np.setdiff1d(np.arange(len(self.sim_tags)), np.array(ind_bad_sims))
+        return keep_sims
+
     
-    def get_wt_err(self, rcut=(0.2, 61), alpha_bad=0.35):
+    def get_wt_err(self, rcut=(0.2, 61), remove_sims=None):
         """
         Return the correlation function for all the simulations
         and the corresponding uncertainties. NOT: For now we assign very large
@@ -982,7 +1005,16 @@ class Xi(BaseSummaryStats):
         ## Get the simulation labels for each data point
         #sim_labels = np.repeat(self.sim_tags, log_corr.shape[1])
 
-        return bins, log_corr, corr_err, params, self.sim_tags
+        sim_tags = self.sim_tags
+
+        if remove_sims is not None:
+            keep_sims = self.remove_sims(remove_sims)
+            log_corr = log_corr[keep_sims]
+            corr_err = corr_err[keep_sims]
+            params = params[keep_sims]
+            sim_tags = self.sim_tags[keep_sims]
+
+        return bins, log_corr, corr_err, params, sim_tags
 
     def unconcatenate(self, corr, bins):
         """

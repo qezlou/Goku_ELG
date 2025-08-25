@@ -5,17 +5,18 @@ from gal_goku import emus_multifid
 importlib.reload(emus_multifid)
 
 
-def run_it(ind_test, use_rho, num_inducing=500, num_latents=40):
+def run_it(ind_test, use_rho, num_inducing=500, num_latents=40, remove_sims=None):
     #data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
     #train_subdir = 'train_hetero'
     data_dir = '/scratch/06536/qezlou/Goku/processed_data/xi_bins/'
     #train_subdir = 'train_combined_less_massive'
-    train_subdir = 'train_combined_additive'
+    train_subdir = 'train_remove_bad_sims'
     
     emu = emus_multifid.XiNativeBinsFullDimReduc(data_dir=data_dir,
                                                 num_inducing=num_inducing, 
                                                 num_latents=num_latents,
                                                 use_rho=bool(use_rho),
+                                                remove_sims=remove_sims,
                                                 logging_level='DEBUG')
     if ind_test is None:
         ind_train = None
@@ -38,7 +39,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Get the correlation function of the galaxies in the PIGs')
     parser.add_argument('--ind_test', default=None, type=int, help='')
     parser.add_argument('--use_rho', default=1, type=int, help='')
-    
+    parser.add_argument('--remove_sims', default=None, type=int, nargs='+', help='')
 
     args = parser.parse_args()
-    run_it(ind_test=args.ind_test, use_rho=args.use_rho)
+    run_it(ind_test=args.ind_test, use_rho=args.use_rho, remove_sims=args.remove_sims)
