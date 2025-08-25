@@ -3,7 +3,7 @@ import numpy as np
 
 # Define the template for the modified lines
 template = """#!/bin/bash
-#SBATCH -J HFw{i}
+#SBATCH -J L2w{i}
 #SBATCH -p spr
 #SBATCH -N 1
 #SBATCH --ntasks-per-node 112
@@ -12,11 +12,11 @@ template = """#!/bin/bash
 
 hostname; pwd; date
 
-ibrun python run_xi_train.py --fid 'HF' --narrow 0 --numchunks 7 --chunk {i} --stat_type 'xi_hh' --z 0.5
+ibrun python run_xi_train.py --fid 'L2' --narrow 0 --numchunks 10 --chunk {i} --stat_type 'xi_hh' --z 0.5
 """
 
 # Loop from 0 to 20 and create modified files
-for i in range(7):
+for i in range(10):
     print(i)
     filename = f"job_script_{i}.sh"
     with open(filename, "w") as f:

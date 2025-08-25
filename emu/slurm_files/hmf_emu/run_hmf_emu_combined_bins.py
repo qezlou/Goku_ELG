@@ -5,9 +5,9 @@ from gal_goku import emus_multifid
 
 
 def run_it(ind_test, z, num_inducing=500, num_latents=20):
-    data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/'
+    #data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/'
     train_subdir = 'train_z0.5'
-    #data_dir = '/scratch/06536/qezlou/Goku/processed_data/'
+    data_dir = '/scratch/06536/qezlou/Goku/processed_data/'
     #train_subdir = 'HMF/train_less_massive'
     z = np.round(z, 1)
     emu = emus_multifid.HmfNativeBins(data_dir=data_dir,

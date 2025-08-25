@@ -11,11 +11,11 @@ template = """#!/bin/bash
 
 hostname; pwd; date
 export LD_LIBRARY_PATH=/work2/06536/qezlou/stampede3/miniconda3/envs/py3.12/lib:$LD_LIBRARY_PATH
-python run_emu_combined_bins.py --ind_test {i}
+python run_emu_combined_bins.py --ind_test {i} --use_rho 0
 """
 
 # Loop from 0 to num_chunks
-for i in np.arange(2, 36):
+for i in np.arange(0, 36):
     print(i)
     filename = f"job_script_{i}.sh"
     with open(filename, "w") as f:

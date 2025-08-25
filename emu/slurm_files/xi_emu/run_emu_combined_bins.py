@@ -6,9 +6,9 @@ importlib.reload(emus_multifid)
 
 
 def run_it(ind_test, use_rho, num_inducing=500, num_latents=40):
-    data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
+    #data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
     #train_subdir = 'train_hetero'
-    #data_dir = '/scratch/06536/qezlou/Goku/processed_data/xi_bins/'
+    data_dir = '/scratch/06536/qezlou/Goku/processed_data/xi_bins/'
     #train_subdir = 'train_combined_less_massive'
     train_subdir = 'train_combined_additive'
     

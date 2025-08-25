@@ -304,7 +304,7 @@ class Corr():
         halos = HaloCatalog(cat, 
                             cosmo=cosmo, 
                             redshift=redshift,
-                            mdef='vir',
+                            mdef='200m',
                             mass='Mass',
                             position='MassCenterPosition',
                             velocity='MassCenterVelocity')
@@ -337,7 +337,7 @@ class Corr():
             halos = halos[keep_mask]
             self.logger.info(f'Rank {self.nbkit_rank} removed {np.sum(~keep_mask)/len(keep_mask)*100:.2f}% of halos due to exclusion within radius {ex_rad_fac}*R200')
             if self.nbkit_rank == 0:
-                self.logger.info(f'In total, {np.sum(~keep_mask_all)/len(keep_mask_all)*100:.2f}% of halos were removed due to exclusion within radius {ex_rad_fac}*R200')
+                self.logger.info(f'In total, {np.sum(~keep_mask_all)/len(keep_mask_all)*100:.2f}% ( or  {np.sum(~keep_mask_all)} halos) of halos were removed due to exclusion within radius {ex_rad_fac}*R200')
 
         return halos
 

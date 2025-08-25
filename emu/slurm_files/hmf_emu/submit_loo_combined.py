@@ -15,7 +15,7 @@ python run_hmf_emu_combined_bins.py --ind_test {i} --z 0.5
 """
 
 # Loop from 0 to num_chunks
-for i in np.arange(1,36):
+for i in np.arange(0, 1):
     print(i)
     filename = f"job_script_{i}.sh"
     with open(filename, "w") as f:
