@@ -957,7 +957,7 @@ class Xi(BaseSummaryStats):
         # Find the nan bins
         nan_mask = np.isnan(log_corr)
         self.logger.info(f'Found {100*nan_mask.sum()/log_corr.size:.1f} % of xi(r,n1,n2) is nan')
-        # For now we assign 0 for the missing bins
+        # For now we assign -1 for the missing bins
         log_corr[nan_mask] = -1
 
 
