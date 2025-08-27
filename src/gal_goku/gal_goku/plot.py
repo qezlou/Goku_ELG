@@ -464,7 +464,7 @@ class PlotXiEmu(BasePlot):
     """
     Plot routines for the 3D correlation function xi(r) computed on the sims
     """
-    def __init__(self, data_dir, train_subdir='train', use_rho=True, logging_level='INFO'):
+    def __init__(self, data_dir, train_subdir='train', use_rho=True, remove_sims=None, logging_level='INFO'):
         self.latex_labels = {'omega0': r'$\Omega_m$', 'omegab': r'$\Omega_b$', 
                         'hubble': r'$h$', 'scalar_amp': r'$A_s$', 'ns': r'$n_s$', 
                         'w0_fld': r'$w_0$', 'wa_fld': r'$w_a$', 'N_ur': r'$N_{ur}$', 
@@ -480,6 +480,7 @@ class PlotXiEmu(BasePlot):
                                                           num_inducing=500, 
                                                           num_latents=40, 
                                                           use_rho=use_rho,
+                                                          remove_sims=remove_sims,
                                                           logging_level='ERROR')
         self.cosmo_pars = self.emu.X[1]
         # Cosmo parameters in the original scale
@@ -492,7 +493,7 @@ class PlotXiEmu(BasePlot):
 
         self.sim_tags = self.emu.labels[1]
         self.rbins = np.unique(self.emu.mbins[:, 2])
-        self.pred, self.truth, self.loss_hist = self.get_loo_pred_truth(use_rho=use_rho)
+        self.pred, self.truth, self.loss_hist = self.get_loo_pred_truth(num_sims=len(self.sim_tags))
         self.frac_errs = np.abs(self.pred/self.truth - 1)
         
     def loo_diagnose(self, mass_pair, logging_level='ERROR'):
@@ -574,7 +575,7 @@ class PlotXiEmu(BasePlot):
         ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
         self.emu.Y[1][s][ind_bad_bins] = np.nan
         truth = self.xi.unconcatenate(self.emu.Y[1][s], self.emu.mbins).squeeze()
-
+        assert 'loss_history' in self.emu.model_attrs, f'LOOCV is missing for sims {s}'
         loss_history = np.array(self.emu.model_attrs['loss_history'])
         mean_pred = self.xi.make_3d_corr(mean_pred, symmetric=True)
         truth = self.xi.make_3d_corr(truth, symmetric=True)
@@ -583,7 +584,7 @@ class PlotXiEmu(BasePlot):
         return 10**mean_pred.squeeze(), 10**truth.squeeze(), loss_history
 
 
-    def get_loo_pred_truth(self, use_rho=True):
+    def get_loo_pred_truth(self, num_sims=36):
         """
         Use multiprocessing to get the prediction and truth values for all 36 HF sims.
         Returns:
@@ -598,7 +599,7 @@ class PlotXiEmu(BasePlot):
 
         # Run predictions in parallel
         with Pool(num_cores) as pool:
-            results = pool.map(self._predict_and_calculate_error, range(36))
+            results = pool.map(self._predict_and_calculate_error, range(num_sims))
             pred = [p for p, t, l in results]
             truth = [t for p, t, l in results]
             loss_hist = [l for p, t, l in results]
