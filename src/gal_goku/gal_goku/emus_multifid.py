@@ -611,7 +611,7 @@ class XiNativeBinsFullDimReduc():
     """
     def __init__(self, data_dir, num_latents, num_inducing, 
                  use_rho=True, emu_type={'wide_and_narrow':True}, 
-                 remove_sims=None, logging_level='INFO'):
+                 logging_level='INFO'):
         """
         Parameters
         ----------
@@ -633,7 +633,6 @@ class XiNativeBinsFullDimReduc():
         self.logging_level = logging_level
         self.logger = self.configure_logging(logging_level)
         self.data_dir = data_dir
-        self.remove_sims = remove_sims
         self.num_latents = num_latents
         self.num_inducing = num_inducing
         self.use_rho = use_rho
@@ -653,7 +652,7 @@ class XiNativeBinsFullDimReduc():
             # Goku-wide sims
             xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=False, MPI=None, logging_level=logging_level)
             # Load xi((m1, m2), r) for wide
-            self.mbins, Y_wide, err_wide, X_wide, labels_wide = xi.get_wt_err(rcut=(0.2, 61), remove_sims=remove_sims)
+            self.mbins, Y_wide, err_wide, X_wide, labels_wide = xi.get_wt_err_reduced_sims(rcut=(0.2, 61))
             self.wide_array= np.append(self.wide_array, np.ones(Y_wide.shape[0]))
             self.logger.debug(f'Y_wide: {Y_wide.shape}')
             # Only use Goku-wide
@@ -667,7 +666,7 @@ class XiNativeBinsFullDimReduc():
                 # Goku-narrow sims
                 xi = summary_stats.Xi(data_dir=data_dir, fid = fd,  narrow=True, MPI=None, logging_level=logging_level)
                 # Load xi((m1, m2), r) for wide
-                _, Y_narrow, err_narrow, X_narrow, labels_narrow = xi.get_wt_err(rcut=(0.2, 61), remove_sims=remove_sims)
+                _, Y_narrow, err_narrow, X_narrow, labels_narrow = xi.get_wt_err_reduced_sims(rcut=(0.2, 61))
                 self.wide_array= np.append(self.wide_array, np.zeros(Y_narrow.shape[0]))
                 self.logger.debug(f'Y_narrow: {Y_narrow.shape}')
                 # For now, get rid of the lastbins with 0 value
