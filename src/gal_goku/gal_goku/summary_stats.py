@@ -11,6 +11,7 @@ import json
 import re
 #from scipy.interpolate import BSpline, LSQBivariateSpline, make_lsq_spline, make_splrep, UnivariateSpline, bisplrep
 from scipy.interpolate import interp1d
+from scipy.interpolate import CubicSpline
 from scipy.optimize import curve_fit
 from matplotlib import pyplot as plt
 from . import utils
@@ -923,6 +924,66 @@ class Xi(BaseSummaryStats):
         self.logger.debug(f'{self.fid}, narrow= {self.narrow}, Found {bad_sims_mask.sum()} sims with less than {100*alpha_bad:.0f}% of valid data points')
         return rbins, log_corr, eval_splines, bad_sims_mask
 
+    def hard_coded_good_l2_sims(self):
+        """
+        Following on https://github.com/qezlou/private-gal-emu/issues/39#issuecomment-3226453844
+        there are ~ 150 L2-W sims that miss mroe than 25% of their xi(r) values for
+        the largest mass bins, this is the list of those sims
+        """
+        bad_sims = np.array([  4,   6,   9,  16,  18,  21,  33,  36,  48,  51,  60,  67,  70,
+        76,  79,  81,  91,  99, 102, 103, 106, 107, 114, 117, 118, 123,
+        132, 153, 159, 163, 165, 168, 171, 179, 180, 183, 186, 194, 196,
+        198, 205, 217, 220, 227, 230, 235, 238, 250, 254, 262, 265, 268,
+        271, 274, 280, 283, 286, 289, 292, 295, 296, 298, 310, 316, 317,
+        326, 328, 334, 337, 343, 346, 350, 352, 358, 364, 367, 368, 385,
+        388, 394, 397, 400, 410, 413, 415, 424, 430, 436, 442, 446, 448,
+        451, 454, 456, 465, 471, 474, 489, 492, 498, 507, 510, 511, 517,
+        519, 522, 527, 536, 537, 543, 544, 549, 553, 556, 561])
+        good_sims = np.setdiff1d(np.arange(self.xi.shape[0]), bad_sims)
+        return good_sims
+
+    def minimal_spline_interp(self, good_sims, ind_r):
+        """
+        Use Cubic spline only for recovering random NaN values.
+        No extrapoaltion is done here, if the NaN values are at the edges,
+        they will be replaced by a small vlaue of xi = 1e-4.
+        Parameters:
+        --------------
+        good_sims: np.ndarray
+            The indices of the simulations to consider. Simulation with too many NaN
+            values should be removed beforehand. A list is provided in `hard_coded_good_l2_sims()`
+            which is curated for highest mass bin and is applicable for lower mass bins as well.
+        ind_r: np.ndarray
+            The indices of the r values to consider
+        Returns:
+        --------------
+        interpolated_values: np.ndarray, shape=(len(good_sims), n_mass_pairs, len(ind_r))
+            The xi(r, n1, n2) values for the good simulations with NaN values replaced by
+            interpolated values or a small value of 1e-4.
+        """
+        interpolated_values = np.ones((good_sims.size, self.xi.shape[1], ind_r.size)) * 1e-4
+        rbins = self.rbins[ind_r]
+        for i, s in enumerate(good_sims):
+            # loop over mass pairs
+            for j in range(self.xi.shape[1]):
+                corr = self.xi[s,j,ind_r]
+                # Create a cubic spline interpolator from valid data points
+                ind_non_nan = np.where(~np.isnan(np.log10(corr)))[0]
+                if len(ind_non_nan) == corr.size:
+                    interpolated_values[i,j] = corr
+                else:
+                    interp = CubicSpline(np.log10(rbins)[ind_non_nan], 
+                                         np.log10(corr)[ind_non_nan], 
+                                         extrapolate=False, axis=-1)
+                    # Interpolate new values for these problematic points
+                    this_interp_val = interp(np.log10(rbins))
+                    # Extrapolated values will be NaN, replace them with a small value
+                    this_interp_val[np.isnan(this_interp_val)] = -4
+                    interpolated_values[i,j] = 10**this_interp_val
+            
+        return interpolated_values
+
+
     def remove_sims(self, sim_id):
         """
         get the indices to the simulations to remove
@@ -944,6 +1005,35 @@ class Xi(BaseSummaryStats):
                     ind_bad_sims.append(i)
         keep_sims = np.setdiff1d(np.arange(len(self.sim_tags)), np.array(ind_bad_sims))
         return keep_sims
+    
+
+    def get_wt_err_reduced_sims(self, rcut=(0.2, 61)):
+        """
+        
+        Similar to get_wt_err but only working iwth the good sims defined in
+        `hard_coded_good_l2_sims()`. Temprarily checking if we get better result with
+        1. removing sims with too many missing values
+        2. replacing the missing values with a minimal spline interpolation
+        """
+        self.logger.info('Using reduced set of sims and minimal spline interpolation for NaN values')
+        ind_r = np.where((self.rbins > rcut[0]) & (self.rbins < rcut[1]))[0]
+        good_sims = self.hard_coded_good_l2_sims()
+        interped_log_corr = np.log10(self.minimal_spline_interp(good_sims, ind_r))
+        interped_log_corr = interped_log_corr.reshape((interped_log_corr.shape[0], 
+                                                     interped_log_corr.shape[1]*interped_log_corr.shape[2]))
+        
+        corr_err = np.zeros_like(interped_log_corr)
+        
+        params = self.get_params_array()[good_sims]
+        sim_tags = self.sim_tags[good_sims]
+        rbins = self.rbins[ind_r]
+        # Record the bins of ((m1, m2), r)
+        bins = np.zeros((interped_log_corr.shape[1], 3))
+        bins[:,2] = np.tile(rbins, len(self.mass_pairs))
+        bins[:,1] = np.repeat(self.mass_pairs[:,1], rbins.size)
+        bins[:,0] = np.repeat(self.mass_pairs[:,0], rbins.size)
+
+        return bins, interped_log_corr, corr_err, params, sim_tags
 
     
     def get_wt_err(self, rcut=(0.2, 61), remove_sims=None):
