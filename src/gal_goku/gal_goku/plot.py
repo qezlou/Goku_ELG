@@ -480,7 +480,7 @@ class PlotXiEmu(BasePlot):
                                                           num_inducing=500, 
                                                           num_latents=40, 
                                                           use_rho=use_rho,
-                                                          remove_sims=remove_sims,
+                                                          #remove_sims=remove_sims,
                                                           logging_level='ERROR')
         self.cosmo_pars = self.emu.X[1]
         # Cosmo parameters in the original scale
@@ -493,7 +493,8 @@ class PlotXiEmu(BasePlot):
 
         self.sim_tags = self.emu.labels[1]
         self.rbins = np.unique(self.emu.mbins[:, 2])
-        self.pred, self.truth, self.loss_hist = self.get_loo_pred_truth(num_sims=len(self.sim_tags))
+        self.pred, self.truth, self.loss_hist = self.get_loo_pred_truth(#num_sims=len(self.sim_tags),
+                                                                        num_sims=10)
         self.frac_errs = np.abs(self.pred/self.truth - 1)
         
     def loo_diagnose(self, mass_pair, logging_level='ERROR'):
@@ -575,7 +576,7 @@ class PlotXiEmu(BasePlot):
         ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
         self.emu.Y[1][s][ind_bad_bins] = np.nan
         truth = self.xi.unconcatenate(self.emu.Y[1][s], self.emu.mbins).squeeze()
-        assert 'loss_history' in self.emu.model_attrs, f'LOOCV is missing for sims {s}'
+        assert 'loss_history' in self.emu.model_attrs, f'LOOCV is missing for sim {s}'
         loss_history = np.array(self.emu.model_attrs['loss_history'])
         mean_pred = self.xi.make_3d_corr(mean_pred, symmetric=True)
         truth = self.xi.make_3d_corr(truth, symmetric=True)
@@ -724,8 +725,13 @@ class PlotXiEmu(BasePlot):
 
             # plot the loss history
             fig, ax = plt.subplots(1, 2, figsize=(8, 3))
-            ax[0].plot(np.log10(self.loss_hist[s]))
-            ax[0].set_ylim(np.min(np.log10(self.loss_hist[s])), np.min(np.log10(self.loss_hist[s]))+0.1)
+            if np.any(self.loss_hist[s]<0):
+                ind_n = np.where(self.loss_hist[s]<0)[0]
+                ind_p = np.where(self.loss_hist[s]>0)[0]
+                ax[0].plot(ind_p.size + np.arange(ind_n.size), -np.log10(-self.loss_hist[s][ind_n]), label='-log10(-loss)')
+            else:
+                ax[0].plot(np.log10(self.loss_hist[s]))
+            #ax[0].set_ylim(np.nanmin(np.log10(self.loss_hist[s])), np.nanmin(np.log10(self.loss_hist[s]))+0.1)
             ax[0].set_xlabel('Epochs')
             ax[0].set_ylabel('log10(Loss)')
             ax[0].grid(True, linestyle='--', alpha=0.7)
