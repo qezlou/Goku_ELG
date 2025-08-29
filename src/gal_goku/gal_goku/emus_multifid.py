@@ -501,6 +501,7 @@ class BaseMFCoregEmu():
                     # Reload the loss history, so it will be appended
                     # during the new training
                     self.emu.loss_history = attrs['loss_history']
+                    self.emu.kl_history = attrs['kl_history']
                     current_iters = len(self.emu.loss_history)
             except:
                 current_iters = None
@@ -546,6 +547,7 @@ class BaseMFCoregEmu():
                     self.logger.debug(f'Writing the model on {model_file}')
                     self.model_attrs = {}
                     self.model_attrs['loss_history'] = self.emu.loss_history
+                    self.model_attrs['kl_history'] = self.emu.kl_history
                     #self.model_attrs['ind_train'] = ind_train
                     self.model_attrs['emu_type'] = self.emu_type
                     pickle.dump(self.model_attrs, f)
