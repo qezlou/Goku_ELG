@@ -838,9 +838,11 @@ class XiNativeBinsFullDimReduc():
         if len(list(opt_params)) == 0:
             max_iters = 4_000
             initial_lr = 5e-3
+            kl_multiplier=1.0
         else:
             max_iters = opt_params['max_iters']
             initial_lr = opt_params['initial_lr']
+            kl_multiplier= opt_params['kl_multiplier']
         # It won't train unless instructed
         if force_train:
             self.logger.debug(f'Training. shapes passed to LMF : {X_train.shape, Y_train.shape}')
@@ -857,7 +859,9 @@ class XiNativeBinsFullDimReduc():
                 # The decaying learning rate
                 start_lr = tf.keras.optimizers.schedules.CosineDecay(initial_lr, max_iters)(current_iters)
                 # Both data and uncertainty are passed to the optimizer
-                self.emu.optimize(data=(X_train, Y_train), max_iters=it_stp, initial_lr=start_lr, unfix_noise_after=500)
+                self.emu.optimize(data=(X_train, Y_train), max_iters=it_stp, 
+                                  initial_lr=start_lr, unfix_noise_after=500,
+                                  kl_multiplier=kl_multiplier)
                 self.emu.save_model(model_file)
                 # Save loss_history, ind_train and emu_type
                 with open(f'{model_file}.attrs', 'wb') as f:
