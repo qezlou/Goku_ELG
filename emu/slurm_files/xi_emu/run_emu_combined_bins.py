@@ -11,7 +11,6 @@ def run_it(ind_test, use_rho, num_inducing=500, num_latents=40, remove_sims=None
     data_dir = '/scratch/06536/qezlou/Goku/processed_data/xi_bins/'
     #train_subdir = 'train_combined_less_massive'
     train_subdir = 'train_remove_bad_l2_sims'
-    
     emu = emus_multifid.XiNativeBinsFullDimReduc(data_dir=data_dir,
                                                 num_inducing=num_inducing, 
                                                 num_latents=num_latents,
