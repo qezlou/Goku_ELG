@@ -843,6 +843,7 @@ class XiNativeBinsFullDimReduc():
             max_iters = opt_params['max_iters']
             initial_lr = opt_params['initial_lr']
             kl_multiplier= opt_params['kl_multiplier']
+        self.logger.info(f'opt_params: {opt_params}')
         # It won't train unless instructed
         if force_train:
             self.logger.debug(f'Training. shapes passed to LMF : {X_train.shape, Y_train.shape}')
