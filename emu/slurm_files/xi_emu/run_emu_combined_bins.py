@@ -10,7 +10,12 @@ def run_it(ind_test, use_rho, num_inducing=500, num_latents=40, remove_sims=None
     #train_subdir = 'train_hetero'
     data_dir = '/scratch/06536/qezlou/Goku/processed_data/xi_bins/'
     #train_subdir = 'train_combined_less_massive'
+<<<<<<< HEAD
     train_subdir = 'train_remove_bad_l2_sims'
+=======
+    train_subdir = 'train_remove_bad_l2_sims_test_kl_reg'
+    
+>>>>>>> a4dfa92 (remove-bad-sims & KL_multiplier)
     emu = emus_multifid.XiNativeBinsFullDimReduc(data_dir=data_dir,
                                                 num_inducing=num_inducing, 
                                                 num_latents=num_latents,
@@ -29,7 +34,7 @@ def run_it(ind_test, use_rho, num_inducing=500, num_latents=40, remove_sims=None
     
     emu.train(ind_train,
             train_subdir=train_subdir, 
-            opt_params={'max_iters':38_000, 'initial_lr':5e-3}, 
+            opt_params={'max_iters':38_000, 'initial_lr':5e-3, 'kl_multiplier': 0.1}, 
             model_file=model_file
             )
 

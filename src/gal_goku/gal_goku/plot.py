@@ -493,8 +493,7 @@ class PlotXiEmu(BasePlot):
 
         self.sim_tags = self.emu.labels[1]
         self.rbins = np.unique(self.emu.mbins[:, 2])
-        self.pred, self.truth, self.loss_hist = self.get_loo_pred_truth(#num_sims=len(self.sim_tags),
-                                                                        num_sims=10)
+        self.pred, self.truth, self.loss_hist, self.w_matrices = self.get_loo_pred_truth(num_sims=len(self.sim_tags))
         self.frac_errs = np.abs(self.pred/self.truth - 1)
         
     def loo_diagnose(self, mass_pair, logging_level='ERROR'):
@@ -572,6 +571,7 @@ class PlotXiEmu(BasePlot):
         model_file = f'xi_emu_combined_inducing_500_latents_40_leave{s}.pkl'
         
         mean_pred,_ = self.emu.predict(ind_test=np.array([s]), model_file=model_file, train_subdir=self.train_subdir)
+        w_matrix = self.emu.emu.kernel.W.numpy()
         mean_pred = self.xi.unconcatenate(mean_pred.numpy(), self.emu.mbins).squeeze()
         ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
         self.emu.Y[1][s][ind_bad_bins] = np.nan
@@ -582,7 +582,7 @@ class PlotXiEmu(BasePlot):
         truth = self.xi.make_3d_corr(truth, symmetric=True)
         
 
-        return 10**mean_pred.squeeze(), 10**truth.squeeze(), loss_history
+        return 10**mean_pred.squeeze(), 10**truth.squeeze(), loss_history, w_matrix
 
 
     def get_loo_pred_truth(self, num_sims=36):
@@ -601,12 +601,13 @@ class PlotXiEmu(BasePlot):
         # Run predictions in parallel
         with Pool(num_cores) as pool:
             results = pool.map(self._predict_and_calculate_error, range(num_sims))
-            pred = [p for p, t, l in results]
-            truth = [t for p, t, l in results]
-            loss_hist = [l for p, t, l in results]
+            pred = [p for p, t, l, w in results]
+            truth = [t for p, t, l, w in results]
+            loss_hist = [l for p, t, l, w in results]
+            w_matrices = [w for p, t, l, w in results]
         del results
 
-        return np.array(pred), np.array(truth), loss_hist
+        return np.array(pred), np.array(truth), loss_hist, w_matrices
 
     def _2d_err_map(self, data, rbins,  mass_range=(13,11)):
         """
@@ -724,16 +725,20 @@ class PlotXiEmu(BasePlot):
             fig.tight_layout()
 
             # plot the loss history
-            fig, ax = plt.subplots(1, 2, figsize=(8, 3))
+            fig, ax = plt.subplots(1, 4, figsize=(14, 3))
             if np.any(self.loss_hist[s]<0):
                 ind_n = np.where(self.loss_hist[s]<0)[0]
                 ind_p = np.where(self.loss_hist[s]>0)[0]
-                ax[0].plot(ind_p.size + np.arange(ind_n.size), -np.log10(-self.loss_hist[s][ind_n]), label='-log10(-loss)')
+                #ax[0].plot(ind_p.size + np.arange(ind_n.size), -np.log10(-self.loss_hist[s][ind_n]), label='-log10(-loss)')
+                self.loss_hist = np.array(self.loss_hist)
+                ax[0].plot(-self.loss_hist[s][-10_000:], label='-log10(-loss)')
+                ax[0].set_title(f'Epoch trained {len(self.loss_hist[s])}')
+                ax[0].set_ylabel(f'ELBO')
             else:
                 ax[0].plot(np.log10(self.loss_hist[s]))
-            #ax[0].set_ylim(np.nanmin(np.log10(self.loss_hist[s])), np.nanmin(np.log10(self.loss_hist[s]))+0.1)
-            ax[0].set_xlabel('Epochs')
-            ax[0].set_ylabel('log10(Loss)')
+                #ax[0].set_ylim(np.nanmin(np.log10(self.loss_hist[s])), np.nanmin(np.log10(self.loss_hist[s]))+0.1)
+                ax[0].set_xlabel('Epochs')
+                ax[0].set_ylabel('log10(Loss)')
             ax[0].grid(True, linestyle='--', alpha=0.7)
 
             ax[1].scatter(np.arange(len(self.latex_labels)), 
@@ -743,6 +748,21 @@ class PlotXiEmu(BasePlot):
             ax[1].set_xticks(range(len(self.latex_labels)))
             ax[1].set_xticklabels(list(self.latex_labels.values()), rotation=90, ha='right')
             ax[1].grid(True)
+
+            ax[2].imshow(self.w_matrices[s], aspect='auto', cmap='viridis', origin='lower', vmin=-0.5, vmax=0.5)
+            cbar = plt.colorbar(ax[2].images[0], ax=ax[2])
+            cbar.set_label('Value')
+            ax[2].set_xlabel('Latent Dimension')
+            ax[2].set_ylabel('Output Dimension')
+            ax[2].set_title('W Matrix of the Kernel')
+
+            ax[3].imshow(self.w_matrices[s] @ self.w_matrices[s].T, aspect='auto', cmap='viridis', origin='lower', vmin=0, vmax=0.5)
+            cbar = plt.colorbar(ax[3].images[0], ax=ax[3])
+            cbar.set_label('Value')
+            ax[3].set_xlabel('Output Dimension')
+            ax[3].set_ylabel('Output Dimension')
+            ax[3].set_title('output covaraince')
+
             fig.suptitle('num_latents=40, num_inducing=500')
             fig.tight_layout()
 
