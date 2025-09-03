@@ -1018,7 +1018,7 @@ class Xi(BaseSummaryStats):
         keep_sims = np.setdiff1d(np.arange(len(self.sim_tags)), np.array(ind_bad_sims))
         return keep_sims   
 
-    def get_wt_err(self, rcut=(0.2, 61), good_sims=False):
+    def get_wt_err_interped_deprecated(self, rcut=(0.2, 61), good_sims=False):
         """
         Parameters
         --------------
@@ -1066,7 +1066,75 @@ class Xi(BaseSummaryStats):
 
         return bins, interped_log_corr, log_corr_err, params, sim_tags
     
+    def get_wt_err(self, rcut=(0.2, 61), remove_sims=None):
+        """
+        Return the correlation function for all the simulations
+        and the corresponding uncertainties. NOT: For now we assign very large
+        uncertainties to the bins with NaN values and simulations missing more than
+        alpha_bad fraction of the r-bins for some  massive mass pairs.
+        ToDo: Use Jacknife resampling to get the uncertainties
+        Parameters
+        --------------
+        rcut: tuple
+            The range of r values to consider for fitting
+        alpha_bad: float
+            The fraction of bad points to consider
+        Returns
+        --------------
+        bins: np.ndarray, shape=(n,3)
+            The bins of the correlation function in (r, m1, m2) format
+        corr: np.ndarray, shape=(n*n_bins,)
+            The correlation function for the "remaining" bins
+            at (r, m1, m2) bins
+        corr_err: np.ndarray, shape=(n*n_bins)
+            The correlation function errors for the "remaining" bins
+            at (r, m1, m2) bins
+        params: np.ndarray, shape=(n*n_bins, prams_size)
+            The cosmological parameters for the "remaining" bins
 
+        """
+        ind_r = np.where((self.rbins > rcut[0]) & (self.rbins < rcut[1]))[0]
+        rbins = self.rbins[ind_r]
+        log_corr = np.log10(self.xi[:,:,ind_r]).squeeze()
+        log_corr = log_corr.reshape((log_corr.shape[0], log_corr.shape[1]*log_corr.shape[2]))
+        # Find the nan bins
+        nan_mask = np.isnan(log_corr)
+        self.logger.info(f'Found {100*nan_mask.sum()/log_corr.size:.1f} % of xi(r,n1,n2) is nan')
+        # For now we assign -1 for the missing bins
+        log_corr[nan_mask] = -1
+
+
+        # Remove the mass_pairs of some sims that are missing more than alpha_bad
+        # fraction of the rbins
+        #ind = np.where(np.sum(nan_mask, axis=2) > alpha_bad*log_corr.shape[2])
+        #print(ind)
+        #nan_mask[ind,:] = True
+
+        corr_err = np.zeros_like(log_corr)
+        corr_err[nan_mask] = 1e6
+
+        params = self.get_params_array()
+        
+        # Record the bins of ((m1, m2), r)
+        bins = np.zeros((log_corr.shape[1], 3))
+        bins[:,2] = np.tile(rbins, len(self.mass_pairs))
+        bins[:,1] = np.repeat(self.mass_pairs[:,1], rbins.size)
+        bins[:,0] = np.repeat(self.mass_pairs[:,0], rbins.size)
+
+
+        ## Get the simulation labels for each data point
+        #sim_labels = np.repeat(self.sim_tags, log_corr.shape[1])
+
+        sim_tags = self.sim_tags
+
+        if remove_sims is not None:
+            keep_sims = self.remove_sims(remove_sims)
+            log_corr = log_corr[keep_sims]
+            corr_err = corr_err[keep_sims]
+            params = params[keep_sims]
+            sim_tags = self.sim_tags[keep_sims]
+
+        return bins, log_corr, corr_err, params, sim_tags
     
     def unconcatenate(self, corr, bins):
         """
