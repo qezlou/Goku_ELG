@@ -948,8 +948,9 @@ class Xi(BaseSummaryStats):
     def minimal_spline_interp(self, good_sims, ind_r):
         """
         Use Cubic spline only for recovering random NaN values.
-        No extrapoaltion is done here, if the NaN values are at the edges,
-        they will be replaced by a small vlaue of xi = 1e-4.
+        No extrapolation is done here, if the NaN values are at the edges,
+        they will be replaced by a small value of xi = 1e-4 and a very large
+        uncertainty of 1e6.
         Parameters:
         --------------
         good_sims: np.ndarray
@@ -963,8 +964,11 @@ class Xi(BaseSummaryStats):
         interpolated_values: np.ndarray, shape=(len(good_sims), n_mass_pairs, len(ind_r))
             The xi(r, n1, n2) values for the good simulations with NaN values replaced by
             interpolated values or a small value of 1e-4.
+        corr_err: np.ndarray, shape=(len(good_sims), n_mass_pairs, len(ind_r))
+            The uncertainty estimates for the interpolated values
         """
         interpolated_values = np.ones((good_sims.size, self.xi.shape[1], ind_r.size)) * 1e-4
+        corr_err = np.zeros_like(interpolated_values)
         rbins = self.rbins[ind_r]
         for i, s in enumerate(good_sims):
             # loop over mass pairs
@@ -977,6 +981,7 @@ class Xi(BaseSummaryStats):
                 elif len(ind_non_nan) <= 2:
                     # If there are not enough points for interpolation, use a constant value
                     interpolated_values[i,j] = 1e-4
+                    corr_err[i,j] = 1e6
                 else:
                     interp = CubicSpline(np.log10(rbins)[ind_non_nan], 
                                          np.log10(corr)[ind_non_nan], 
@@ -986,8 +991,9 @@ class Xi(BaseSummaryStats):
                     # Extrapolated values will be NaN, replace them with a small value
                     this_interp_val[np.isnan(this_interp_val)] = -4
                     interpolated_values[i,j] = 10**this_interp_val
+                    corr_err[i,j][np.isnan(this_interp_val)] = 1e6
             
-        return interpolated_values
+        return interpolated_values, corr_err
 
 
     def remove_sims(self, sim_id):
@@ -1044,11 +1050,10 @@ class Xi(BaseSummaryStats):
         else:
             good_sims = np.arange(self.xi.shape[0])
         
-        interped_log_corr = np.log10(self.minimal_spline_interp(good_sims, ind_r))
+        interped_log_corr, corr_err = np.log10(self.minimal_spline_interp(good_sims, ind_r))
         interped_log_corr = interped_log_corr.reshape((interped_log_corr.shape[0], 
                                                      interped_log_corr.shape[1]*interped_log_corr.shape[2]))
-        
-        corr_err = np.zeros_like(interped_log_corr)
+        corr_err = corr_err.reshape((corr_err.shape[0], corr_err.shape[1]*corr_err.shape[2]))
         
         params = self.get_params_array()[good_sims]
         sim_tags = self.sim_tags[good_sims]
@@ -1060,6 +1065,8 @@ class Xi(BaseSummaryStats):
         bins[:,0] = np.repeat(self.mass_pairs[:,0], rbins.size)
 
         return bins, interped_log_corr, corr_err, params, sim_tags
+    
+
     
     def unconcatenate(self, corr, bins):
         """
