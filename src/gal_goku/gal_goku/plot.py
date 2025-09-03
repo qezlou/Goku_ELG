@@ -464,7 +464,7 @@ class PlotXiEmu(BasePlot):
     """
     Plot routines for the 3D correlation function xi(r) computed on the sims
     """
-    def __init__(self, data_dir, train_subdir='train', use_rho=True, remove_sims=None, logging_level='INFO'):
+    def __init__(self, data_dir, train_subdir='train', use_rho=True, remove_sims=None, eval_loo=True, logging_level='INFO'):
         self.latex_labels = {'omega0': r'$\Omega_m$', 'omegab': r'$\Omega_b$', 
                         'hubble': r'$h$', 'scalar_amp': r'$A_s$', 'ns': r'$n_s$', 
                         'w0_fld': r'$w_0$', 'wa_fld': r'$w_a$', 'N_ur': r'$N_{ur}$', 
@@ -493,8 +493,9 @@ class PlotXiEmu(BasePlot):
 
         self.sim_tags = self.emu.labels[1]
         self.rbins = np.unique(self.emu.mbins[:, 2])
-        self.pred, self.truth, self.loss_hist, self.w_matrices = self.get_loo_pred_truth(num_sims=len(self.sim_tags))
-        self.frac_errs = np.abs(self.pred/self.truth - 1)
+        if eval_loo:
+            self.pred, self.truth, self.loss_hist, self.w_matrices = self.get_loo_pred_truth(num_sims=len(self.sim_tags))
+            self.frac_errs = np.abs(self.pred/self.truth - 1)
         
     def loo_diagnose(self, mass_pair, logging_level='ERROR'):
         """
