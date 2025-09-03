@@ -981,7 +981,7 @@ class Xi(BaseSummaryStats):
                 elif len(ind_non_nan) <= 2:
                     # If there are not enough points for interpolation, use a constant value
                     interpolated_values[i,j] = 1e-4
-                    log_corr_err[i,j] = 20
+                    log_corr_err[i,j] = 1e6
                 else:
                     interp = CubicSpline(np.log10(rbins)[ind_non_nan], 
                                          np.log10(corr)[ind_non_nan], 
@@ -991,7 +991,7 @@ class Xi(BaseSummaryStats):
                     # Extrapolated values will be NaN, replace them with a small value
                     this_interp_val[np.isnan(this_interp_val)] = -4
                     interpolated_values[i,j] = 10**this_interp_val
-                    log_corr_err[i,j][np.isnan(this_interp_val)] = 20
+                    log_corr_err[i,j][np.isnan(this_interp_val)] = 1e6
             
         return interpolated_values, log_corr_err
 
