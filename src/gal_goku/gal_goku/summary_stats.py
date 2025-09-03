@@ -974,6 +974,9 @@ class Xi(BaseSummaryStats):
                 ind_non_nan = np.where(~np.isnan(np.log10(corr)))[0]
                 if len(ind_non_nan) == corr.size:
                     interpolated_values[i,j] = corr
+                elif len(ind_non_nan) <= 2:
+                    # If there are not enough points for interpolation, use a constant value
+                    interpolated_values[i,j] = 1e-4
                 else:
                     interp = CubicSpline(np.log10(rbins)[ind_non_nan], 
                                          np.log10(corr)[ind_non_nan], 
