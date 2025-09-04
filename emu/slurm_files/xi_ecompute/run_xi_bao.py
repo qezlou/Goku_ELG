@@ -11,7 +11,7 @@ z = 2.5
 mass_th = [11.0, 11.0]
 r_edges = np.arange(80, 150, 5)
 
-base_dir='/scratch/06536/qezlou/Goku/FOF'
+base_dir=f'/scratch/06536/qezlou/Goku/FOF/{fid}/narrow'
 save_file = '/scratch/06536/qezlou/Goku/processed_data/test/'
 
 comm_size = MPI.COMM_WORLD.Get_size()
