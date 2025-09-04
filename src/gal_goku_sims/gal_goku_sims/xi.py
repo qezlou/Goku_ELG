@@ -385,7 +385,7 @@ class Corr():
             # Return the mesh object
             return mesh
         
-    def _get_corr(self, pig_dir, cosmo, mass_th, ex_rad_fac=0, z=2.5):
+    def _get_corr(self, pig_dir, cosmo, mass_th, r_edges=None, ex_rad_fac=0, z=2.5):
         """Get the correlation function for two halo catalogs with 2 mass thresholds
         Parameters
         ----------
@@ -418,10 +418,11 @@ class Corr():
         data1 = halos[halos['Mass'] >= mass_th[0]]
         data2 = halos[halos['Mass'] >= mass_th[1]]
         
-        r_edges = np.logspace(np.log10(0.01), np.log10(0.1), 4)
-        r_edges = np.append(r_edges, np.logspace(np.log10(0.1), np.log10(2), 15)[1:])
-        r_edges = np.append(r_edges, np.logspace(np.log10(2), np.log10(60), 15)[1:])
-        r_edges = np.append(r_edges, np.linspace(60, 80, 20)[1:])
+        if r_edges is None:
+            r_edges = np.logspace(np.log10(0.01), np.log10(0.1), 4)
+            r_edges = np.append(r_edges, np.logspace(np.log10(0.1), np.log10(2), 15)[1:])
+            r_edges = np.append(r_edges, np.logspace(np.log10(2), np.log10(60), 15)[1:])
+            r_edges = np.append(r_edges, np.linspace(60, 80, 20)[1:])
         if self.nbkit_rank ==0:
             self.logger.debug(f'r_edges.size = {r_edges.size}')
         corr = SimulationBox2PCF(data1=data1, data2=data2, mode='1d', edges=r_edges,  position='RSDPosition')
