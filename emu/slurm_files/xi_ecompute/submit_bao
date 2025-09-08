@@ -1,0 +1,12 @@
+#!/bin/bash
+#SBATCH -J bao
+#SBATCH -A AST25019
+#SBATCH -p spr
+#SBATCH -N 1
+#SBATCH --ntasks-per-node 112
+#SBATCH --time=48:00:00
+#SBATCH --output=%x-%j.out
+
+hostname; pwd; date
+
+ibrun python run_xi_bao.py

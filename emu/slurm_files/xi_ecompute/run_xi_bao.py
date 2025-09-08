@@ -8,14 +8,14 @@ import argparse
 
 fid = 'HF'
 z = 2.5
-mass_th = [11.0, 11.0]
+mass_th = 10**np.array([11.6, 11.6])
 r_edges = np.arange(80, 150, 5)
 
-base_dir=f'/scratch/06536/qezlou/Goku/FOF/{fid}/narrow'
+base_dir=f'/scratch/06536/qezlou/Goku/FOF/{fid}'
 save_file = '/scratch/06536/qezlou/Goku/processed_data/test/'
 
 comm_size = MPI.COMM_WORLD.Get_size()
-corr = xi.Corr(ranks_for_nbkit=comm_size)
+corr = xi.Corr(ranks_for_nbkit=comm_size, logging_level='DEBUG')
 
 pigs = corr.get_pig_dirs(base_dir, z=z, narrow=True)
 

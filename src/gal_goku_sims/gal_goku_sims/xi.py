@@ -79,7 +79,7 @@ class InitialDensity():
 
 
 class Corr():
-    def __init__(self, logging_level='INFO', ranks_for_nbkit=0):
+    def __init__(self, logging_level='INFO', nbkit_logging_level='WARNING',ranks_for_nbkit=0):
         self.comm = CurrentMPIComm.get()
         self.rank = self.comm.Get_rank()
         self.size = self.comm.Get_size()
@@ -101,15 +101,15 @@ class Corr():
             self.nbkit_rank = self.rank
             self.nbkit_size = self.size
         
-        self.logger = self.configure_logging(logging_level)
+        self.logger = self.configure_logging(logging_level, nbkit_logging_level)
 
-    def configure_logging(self, logging_level):
+    def configure_logging(self, logging_level, nbkit_logging_level):
         """Sets up logging based on the provided logging level."""
         logger = logging.getLogger('get corr')
         logger.setLevel(logging_level)
         try:
             from nbodykit import setup_logging
-            setup_logging('warning')
+            setup_logging(nbkit_logging_level.lower())
         except ImportError:
             console_handler = logging.StreamHandler()
             formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
