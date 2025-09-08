@@ -298,11 +298,8 @@ class Corr():
         -----------
         Nbodykit HaloCatalog
         """
-        try:
-            cat = BigFileCatalog(pig_dir, dataset='FOFGroups')
-        except Exception as e:
-            self.logger.info(f'Could not open {pig_dir} with BigFileCatalog, trying with bigfile. Exception: {e}')
-            return None
+
+        cat = BigFileCatalog(pig_dir, dataset='FOFGroups')
 
         redshift = 1/cat.attrs['Time'] - 1
         cat['Mass'] *= 1e10
@@ -414,18 +411,19 @@ class Corr():
 
         # in z-space
         los = [0, 0, 1]
-        halos = self.load_halo_cat(pig_dir, cosmo=cosmo, ex_rad_fac=ex_rad_fac)
-        # If the snapshot could not be opened
-        if halos is None:
+        try:
+            halos = self.load_halo_cat(pig_dir, cosmo=cosmo, ex_rad_fac=ex_rad_fac)
+            # Apply RSD to the galaxies
+            rsd_factor = (1+z) / (100 * cosmo.efunc(z))
+            halos['RSDPosition'] = (halos['Position'] + halos['Velocity'] * los * rsd_factor)%halos.attrs['BoxSize']
+
+            data1 = halos[halos['Mass'] >= mass_th[0]]
+            data2 = halos[halos['Mass'] >= mass_th[1]]
+        # IF file is partially pruged, bigfile will raise error retrieving Mass etc.
+        except Exception as e:
+            self.logger.info(f'Could not open {pig_dir} with BigFileCatalog, trying with bigfile. Exception: {e}')
             return None, None
-
-        # Apply RSD to the galaxies
-        rsd_factor = (1+z) / (100 * cosmo.efunc(z))
-        halos['RSDPosition'] = (halos['Position'] + halos['Velocity'] * los * rsd_factor)%halos.attrs['BoxSize']
-
-        data1 = halos[halos['Mass'] >= mass_th[0]]
-        data2 = halos[halos['Mass'] >= mass_th[1]]
-        
+      
         if r_edges is None:
             r_edges = np.logspace(np.log10(0.01), np.log10(0.1), 4)
             r_edges = np.append(r_edges, np.logspace(np.log10(0.1), np.log10(2), 15)[1:])
