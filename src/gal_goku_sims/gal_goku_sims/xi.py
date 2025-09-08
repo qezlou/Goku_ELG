@@ -298,7 +298,12 @@ class Corr():
         -----------
         Nbodykit HaloCatalog
         """
-        cat = BigFileCatalog(pig_dir, dataset='FOFGroups')
+        try:
+            cat = BigFileCatalog(pig_dir, dataset='FOFGroups')
+        except Exception as e:
+            self.logger.info(f'Could not open {pig_dir} with BigFileCatalog, trying with bigfile. Exception: {e}')
+            return None
+
         redshift = 1/cat.attrs['Time'] - 1
         cat['Mass'] *= 1e10
         halos = HaloCatalog(cat, 
@@ -410,6 +415,9 @@ class Corr():
         # in z-space
         los = [0, 0, 1]
         halos = self.load_halo_cat(pig_dir, cosmo=cosmo, ex_rad_fac=ex_rad_fac)
+        # If the snapshot could not be opened
+        if halos is None:
+            return None, None
 
         # Apply RSD to the galaxies
         rsd_factor = (1+z) / (100 * cosmo.efunc(z))
@@ -463,6 +471,9 @@ class Corr():
             corr_fof, mbins = self._get_corr(pig_dir, cosmo=cosmo, 
                                              mass_th=10**m_pair, 
                                              ex_rad_fac=ex_rad_fac, z=z)
+            # If the snapshot could not be opened
+            if corr_fof is None:
+                return None, None, None
             corr_hh.append(corr_fof)
         return np.array(corr_hh), mbins, pairs
 
@@ -513,6 +524,11 @@ class Corr():
                     cosmo = self.get_cosmo(pigs['params'][i])
                     corr_hh, mbins, pairs = self._corr_on_grid(pigs['pig_dirs'][i], cosmo=cosmo, 
                                                                 ex_rad_fac=ex_rad_fac, z=z)
+                    # If the snapshot could not be opened
+                    if corr_hh is None:
+                        self.logger.info(f'Could not open {pigs["pig_dirs"][i]}')
+                        bad_sims.append(pigs['sim_tags'][i])
+                        continue
                     if self.nbkit_rank ==0:
                         self._save_corr_on_grid(corr_hh, mbins, pairs, pigs['sim_tags'][i], save_file)
                     self.nbkit_comm.Barrier()
