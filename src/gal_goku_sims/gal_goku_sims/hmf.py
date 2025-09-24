@@ -14,7 +14,7 @@ class Hmf(xi.Corr):
         self.logger = logging.getLogger('Hmf')
         self.logger.setLevel(logging_level)
     
-    def configure_logging(self, logging_level):
+    def configure_logging(self, logging_level, ranks_for_nbkit=0):
         """Sets up logging based on the provided logging level."""
         logger = logging.getLogger('Hmf')
         logger.setLevel(logging_level)
