@@ -492,10 +492,13 @@ class BaseMFCoregEmu():
         if len(existing_model_files) > 0:
             # extract epoch number from the filenames
             try: 
-                epochs = [int(op.basename(f).split('_')[-1].replace('.pkl', '')) for f in existing_model_files if '_' in op.basename(f)]
-                latest_epoch = max(epochs)
-                model_file = model_file.replace('.pkl', f'_{latest_epoch}.pkl')
-                self.logger.info(f'Found {len(existing_model_files)} existing model files, will load the latest one: {model_file}')
+                if force_train:
+                    epochs = [int(op.basename(f).split('_')[-1].replace('.pkl', '')) for f in existing_model_files if '_' in op.basename(f)]
+                    latest_epoch = max(epochs)
+                    model_file = model_file.replace('.pkl', f'_{latest_epoch}.pkl')
+                    self.logger.info(f'Found {len(existing_model_files)} existing model files, will load the latest one: {model_file}')
+                else:
+                    self.logger.info(f'will NOT train, loading the model from {model_file}')
             except ValueError:
                 self.logger.info(f'loading from the only model file found {model_file}')
             with open(model_file, "rb") as f:
