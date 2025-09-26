@@ -438,7 +438,7 @@ class BaseMFCoregEmu():
 
         return X_normalized, Y_normalized, X_min, X_max
     
-    def train(self, ind_train=None, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train', composite_kernel=None):
+    def train(self, ind_train=None, ind_test=None, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train', composite_kernel=None):
         """
         Train the model and save this in `model_file`
         Parameters
@@ -531,6 +531,7 @@ class BaseMFCoregEmu():
         else:
 
             current_iters = 0
+            model_file = model_file.replace('.pkl', f'_{current_iters}.pkl')
         # Log the model specifications
         self.logger.info(f'Built the model with')
         self.logger.info(f'#num_latents {self.num_latents}')
