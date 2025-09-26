@@ -16,6 +16,7 @@ from mfgpflow.linear_svgp import LatentMFCoregionalizationSVGP
 import sys
 import os.path as op
 import copy
+from glob import glob
 
 try :
     #raise ImportError
@@ -437,7 +438,7 @@ class BaseMFCoregEmu():
 
         return X_normalized, Y_normalized, X_min, X_max
     
-    def train(self, ind_train=None, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train'):
+    def train(self, ind_train=None, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train', composite_kernel=None):
         """
         Train the model and save this in `model_file`
         Parameters
@@ -464,6 +465,18 @@ class BaseMFCoregEmu():
 
         # Base kernel of the MF GP
         kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
+        if composite_kernel is not None:
+            assert isinstance(composite_kernel, str), "composite_kernel should be a string"
+            if composite_kernel.lower() == "matern32":
+                kernel_L += gpflow.kernels.Matern32(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0))
+            elif composite_kernel.lower() == "matern52":
+                kernel_L += gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0))
+            elif composite_kernel.lower() == "rbf":
+                kernel_L += gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0))
+            elif composite_kernel.lower() == "linear":
+                kernel_L += gpflow.kernels.Linear(variance=np.float64(1.0))
+            else:
+                raise ValueError(f"Unknown composite_kernel string: {composite_kernel}")
         kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
         P = int(Y_train.shape[1]/2) # Number of outputs
         # We only pass the actual Y_train, not the errors to the
@@ -494,6 +507,7 @@ class BaseMFCoregEmu():
                     elif isinstance(value, (int, float)):
                         params[key] = np.float64(value)
                 gpflow.utilities.multiple_assign(self.emu, params)
+                print(self.emu)
             # load the loss_history:
             try:
                 with open(f'{model_file}.attrs', 'rb') as f:
@@ -522,6 +536,7 @@ class BaseMFCoregEmu():
             max_iters = 4_000
             initial_lr = 5e-3
         else:
+            iter_save = opt_params['iter_save']
             max_iters = opt_params['max_iters']
             initial_lr = opt_params['initial_lr']
         # It won't train unless instructed
@@ -530,9 +545,9 @@ class BaseMFCoregEmu():
             if len(self.emu.loss_history) >= max_iters:
                 self.logger.info(f'{model_file} already trained for {max_iters} iterations')
                 return
-            # Do the training in batches of 4_000, so we defenitely save
-            # the model every 4_000 iterations
-            iter_stop_point = np.append(np.arange(current_iters, max_iters, 4_000), max_iters) if max_iters % 4_000 != 0 else np.arange(current_iters, max_iters + 1, 4_000)
+            # Do the training in batches of iter_save, so we defenitely save
+            # the model every iter_save iterations
+            iter_stop_point = np.append(np.arange(current_iters, max_iters, iter_save), max_iters) if max_iters % iter_save != 0 else np.arange(current_iters, max_iters + 1, iter_save)
             iter_stop_point = iter_stop_point[1:]
             for it_stp in iter_stop_point:
                 current_iters = len(self.emu.loss_history)
@@ -575,7 +590,7 @@ class BaseMFCoregEmu():
             with open(op.join(self.data_dir, train_subdir, f'{model_file}.attrs'), 'rb') as f:
                 self.model_attrs = pickle.load(f)
         except:
-            self.logger.warning(f'No model attributes found for {model_file}.attrs')
+            self.logger.warning(f'No model attributes found for {op.join(self.data_dir, train_subdir, f"{model_file}.attrs")}')
             self.model_attrs = {}
         #ind_train = self.model_attrs['ind_train']
         #self.emu_type = self.model_attrs['emu_type']
@@ -792,7 +807,7 @@ class XiNativeBinsFullDimReduc():
             num_latents=self.num_latents, num_inducing=self.num_inducing,
             num_outputs=self.output_dim, heterosed=True, use_rho=self.use_rho)
         
-        model_file = op.join(self.data_dir, train_subdir, model_file)
+        model_file = op.join(self.data_dir, train_subdir, [model_file])
         if op.exists(model_file):
             self.logger.info(f'Loading model from {model_file}')
             with open(model_file, "rb") as f:
@@ -840,6 +855,7 @@ class XiNativeBinsFullDimReduc():
             initial_lr = 5e-3
             kl_multiplier=1.0
         else:
+            iter_save = opt_params.get('iter_save', 4000)
             max_iters = opt_params['max_iters']
             initial_lr = opt_params['initial_lr']
             kl_multiplier= opt_params['kl_multiplier']
@@ -850,9 +866,9 @@ class XiNativeBinsFullDimReduc():
             if len(self.emu.loss_history) >= max_iters:
                 self.logger.info(f'{model_file} already trained for {max_iters} iterations')
                 return
-            # Do the training in batches of 4_000, so we defenitely save
-            # the model every 4_000 iterations
-            iter_stop_point = np.append(np.arange(current_iters, max_iters, 4_000), max_iters) if max_iters % 4_000 != 0 else np.arange(current_iters, max_iters + 1, 4_000)
+            # Do the training in batches of iter_save, so we defenitely save
+            # the model every iter_save iterations
+            iter_stop_point = np.append(np.arange(current_iters, max_iters, iter_save), max_iters) if max_iters % iter_save != 0 else np.arange(current_iters, max_iters + 1, iter_save)
             iter_stop_point = iter_stop_point[1:]
             for it_stp in iter_stop_point:
                 current_iters = len(self.emu.loss_history)

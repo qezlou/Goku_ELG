@@ -1596,7 +1596,7 @@ class HmfCombined(BasePlot):
         ---------
         The predicted and truth in 3D and symmetric along mass pairs. shape = (n_mbins, n_mbins, n_rbins)
         """
-        model_file = f'hmf_emu_combined_inducing_{self.num_inducing}_latents_{self.num_latents}_leave{s}.pkl'
+        model_file = f'hmf_emu_combined_z{self.z}_inducing_{self.num_inducing}_latents_{self.num_latents}_leave{s}.pkl'
 
 
         mean_pred,_ = self.emu.predict(ind_test=np.array([s]), model_file=model_file, train_subdir=self.train_subdir)
