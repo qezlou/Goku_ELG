@@ -564,7 +564,7 @@ class BaseMFCoregEmu():
                 start_lr = tf.keras.optimizers.schedules.CosineDecay(initial_lr, max_iters)(current_iters)
                 # Both data and uncertainty are passed to the optimizer
                 self.emu.optimize(data=(X_train, Y_train), max_iters=it_stp, initial_lr=start_lr, unfix_noise_after=500)
-                model_file = op.basename(model_file).split('_')[0]+f'_{int(current_iters)}.pkl'
+                model_file = op.join(op.dirname(model_file), op.basename(model_file).split('_')[0]+f'_{int(current_iters)}.pkl')
                 self.emu.save_model(model_file)
                 # Save loss_history, ind_train and emu_type
                 with open(f'{model_file}.attrs', 'wb') as f:
