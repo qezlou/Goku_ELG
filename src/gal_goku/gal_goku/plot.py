@@ -1573,7 +1573,7 @@ class HmfCombined(BasePlot):
     Class to  plot HMF emulator build using Heteroscedastic Likelihood
     of LinearMFCoregionzalization emulator
     """
-    def __init__(self, data_dir, train_subdir, z=2.5, num_latents=5, num_inducing=500, logging_level='INFO'):
+    def __init__(self, data_dir, train_subdir, z=2.5, num_latents=5, num_inducing=500, composite_kernel=None, logging_level='INFO'):
         super().__init__(logging_level)
         self.data_dir = data_dir
         self.train_subdir = train_subdir
@@ -1582,6 +1582,7 @@ class HmfCombined(BasePlot):
         self.num_inducing = num_inducing
         self.emu = emus_multifid.HmfNativeBins(data_dir=self.data_dir, z=self.z, num_latents= self.num_latents, 
                                     num_inducing=self.num_inducing, logging_level='ERROR')
+        self.composite_kernel = composite_kernel
         self.mbins = 10**self.emu.mbins
         self.sim_tags = self.emu.labels[1]
         self.cosmo_pars = self.emu.X[1]
@@ -1599,7 +1600,10 @@ class HmfCombined(BasePlot):
         model_file = f'hmf_emu_combined_z{self.z}_inducing_{self.num_inducing}_latents_{self.num_latents}_leave{s}.pkl'
 
 
-        mean_pred,_ = self.emu.predict(ind_test=np.array([s]), model_file=model_file, train_subdir=self.train_subdir)
+        mean_pred,_ = self.emu.predict(ind_test=np.array([s]), 
+                                       model_file=model_file, 
+                                       train_subdir=self.train_subdir,
+                                       composite_kernel=self.composite_kernel)
         ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
         self.emu.Y[1][s][ind_bad_bins] = np.nan
         truth = self.emu.Y[1][s]

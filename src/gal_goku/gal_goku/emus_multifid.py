@@ -487,9 +487,17 @@ class BaseMFCoregEmu():
             num_outputs=self.output_dim, heterosed=True)
         
         model_file = op.join(self.data_dir, train_subdir, model_file)
-        self.logger.info(f'Will save to {model_file}')
-        if op.exists(model_file):
-            self.logger.info(f'Loading model from {model_file}')
+        #self.logger.info(f'Will save to {model_file}')
+        existing_model_files = glob(model_file.replace('.pkl', '*.pkl'))
+        if len(existing_model_files) > 0:
+            # extract epoch number from the filenames
+            try: 
+                epochs = [int(op.basename(f).split('_')[-1].replace('.pkl', '')) for f in existing_model_files if '_' in op.basename(f)]
+                latest_epoch = max(epochs)
+                model_file = model_file.replace('.pkl', f'_{latest_epoch}.pkl')
+                self.logger.info(f'Found {len(existing_model_files)} existing model files, will load the latest one: {model_file}')
+            except ValueError:
+                self.logger.info(f'loading from the only model file found {model_file}')
             with open(model_file, "rb") as f:
                 params = pickle.load(f)
                 # TODO: Save the model already in float64:
@@ -556,6 +564,7 @@ class BaseMFCoregEmu():
                 start_lr = tf.keras.optimizers.schedules.CosineDecay(initial_lr, max_iters)(current_iters)
                 # Both data and uncertainty are passed to the optimizer
                 self.emu.optimize(data=(X_train, Y_train), max_iters=it_stp, initial_lr=start_lr, unfix_noise_after=500)
+                model_file = op.basename(model_file).split('_')[0]+f'_{int(current_iters)}.pkl'
                 self.emu.save_model(model_file)
                 # Save loss_history, ind_train and emu_type
                 with open(f'{model_file}.attrs', 'wb') as f:
@@ -568,7 +577,7 @@ class BaseMFCoregEmu():
                     pickle.dump(self.model_attrs, f)
             self.logger.info(f'done with optimization {max_iters}')
 
-    def predict(self, ind_test, model_file, train_subdir = 'train'):
+    def predict(self, ind_test, model_file, train_subdir = 'train', composite_kernel=None):
         """
         Posteroir prediction of the emulator
         Parameters
@@ -595,7 +604,7 @@ class BaseMFCoregEmu():
         #ind_train = self.model_attrs['ind_train']
         #self.emu_type = self.model_attrs['emu_type']
         #self.train(ind_train, model_file, force_train=False, train_subdir=train_subdir)
-        self.train(model_file=model_file, force_train=False, train_subdir=train_subdir)
+        self.train(model_file=model_file, force_train=False, train_subdir=train_subdir, composite_kernel=composite_kernel)
         
         # Add the fidelity indocators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float64)
