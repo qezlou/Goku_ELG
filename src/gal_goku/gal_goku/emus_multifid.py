@@ -482,7 +482,7 @@ class BaseMFCoregEmu():
         # We only pass the actual Y_train, not the errors to the
         # class constructor
         self.emu = LatentMFCoregionalizationSVGP(
-            X_train, Y_train[:,0:P], kernel_L, kernel_delta,
+            X_train, Y_train, kernel_L, kernel_delta,
             num_latents=self.num_latents, num_inducing=self.num_inducing,
             num_outputs=self.output_dim, heterosed=True)
         
