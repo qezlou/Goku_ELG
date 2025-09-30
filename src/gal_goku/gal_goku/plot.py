@@ -1572,9 +1572,31 @@ class HmfCombined(BasePlot):
     """
     Class to  plot HMF emulator build using Heteroscedastic Likelihood
     of LinearMFCoregionzalization emulator
+    Parameters:
+    --------------
+    data_dir: str
+        Directory where the data is stored
+    train_subdir: str
+        Subdirectory where the trained models are stored
+    sims: list
+        List of simulations to use for LOO CV. If None, use all 36 sims.
+        This should be a subset of [0, 35]
+    z: float
+        Redshift to use for the emulator
+    num_latents: int
+        Number of latent functions to use for the emulator
+    num_inducing: int
+        Number of inducing points to use for the emulator
+    composite_kernel: str
+        Composite kernel to use for the emulator. If None, use the default kernel.
+    epochs: int
+        Number of epochs to use for training. If None, use the default number of epochs.
+    logging_level: str
+        Logging level to use. Default is 'INFO'.
     """
-    def __init__(self, data_dir, train_subdir, z=2.5, num_latents=5, num_inducing=500, composite_kernel=None, logging_level='INFO'):
+    def __init__(self, data_dir, train_subdir, sims=None, z=2.5, num_latents=5, num_inducing=500, composite_kernel=None, epochs=None, logging_level='INFO'):
         super().__init__(logging_level)
+        self.sims = sims
         self.data_dir = data_dir
         self.train_subdir = train_subdir
         self.z = z
@@ -1586,7 +1608,9 @@ class HmfCombined(BasePlot):
         self.mbins = 10**self.emu.mbins
         self.sim_tags = self.emu.labels[1]
         self.cosmo_pars = self.emu.X[1]
-        self.pred, self.truth = self.get_loo_pred_truth()
+        self.epochs = epochs
+        self.logger.info(f'Getting the predictions')
+        self.pred, self.truth, self.loss_history = self.get_loo_pred_truth(sims=self.sims)
         
         
     
@@ -1597,8 +1621,10 @@ class HmfCombined(BasePlot):
         ---------
         The predicted and truth in 3D and symmetric along mass pairs. shape = (n_mbins, n_mbins, n_rbins)
         """
-        model_file = f'hmf_emu_combined_z{self.z}_inducing_{self.num_inducing}_latents_{self.num_latents}_leave{s}.pkl'
-
+        if self.epochs is None:
+            model_file = f'hmf_emu_combined_z{self.z}_inducing_{self.num_inducing}_latents_{self.num_latents}_leave{s}.pkl'
+        else:
+            model_file = f'hmf_emu_combined_z{self.z}_inducing_{self.num_inducing}_latents_{self.num_latents}_leave{s}_{self.epochs}.pkl'
 
         mean_pred,_ = self.emu.predict(ind_test=np.array([s]), 
                                        model_file=model_file, 
@@ -1607,12 +1633,12 @@ class HmfCombined(BasePlot):
         ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
         self.emu.Y[1][s][ind_bad_bins] = np.nan
         truth = self.emu.Y[1][s]
-        #loss_history = np.array(self.emu.model_attrs['loss_history'])
+        loss_history = np.array(self.emu.model_attrs['loss_history'])
 
-        return 10**mean_pred.numpy().squeeze(), 10**truth.squeeze()#, loss_history
+        return 10**mean_pred.numpy().squeeze(), 10**truth.squeeze(), loss_history
 
-        
-    def get_loo_pred_truth(self, sims=None):
+
+    def get_loo_pred_truth(self, sims=None, epochs=None):
         """
         Use multiprocessing to get the prediction and truth values for all 36 HF sims.
         Returns:
@@ -1631,11 +1657,11 @@ class HmfCombined(BasePlot):
         # Run predictions in parallel
         with Pool(num_cores) as pool:
             results = pool.map(self._predict_and_calculate_error, sims)
-            pred = [p for p, t in results]
-            truth = [t for p, t in results]
-            #loss_hist = [l for p, t in results]
+            pred = [p for p, t, l in results]
+            truth = [t for p, t, l in results]
+            loss_hist = [l for p, t, l in results]
         del results
-        return np.array(pred), np.array(truth)#, loss_hist
+        return np.array(pred), np.array(truth), np.array(loss_hist)
 
     def pred_vs_trtuh(self):
         """
@@ -1644,32 +1670,35 @@ class HmfCombined(BasePlot):
         fig, ax = plt.subplots(self.pred.shape[0]+1, 4, figsize=(15, 4*self.pred.shape[0]), 
                                gridspec_kw={'width_ratios': [3, 3, 2, 3]})
 
-        for i in range(self.pred.shape[0]):
-            ax[i,0].set_title(f'{self.sim_tags[i]}')
-            ax[i,0].plot(self.mbins, self.truth[i], color=f'C{i}', lw=4, alpha=0.5, marker='x', label=f'Truth {i}')
-            ax[i,0].plot(self.mbins, self.pred[i], color=f'C{i}', ls='dotted', label=f'Pred {i}')
-            ax[i,0].set_xlim(1e11, 2e13)
-            ax[i,1].plot(self.mbins, self.pred[i]/self.truth[i] - 1, color=f'C{i}', lw=4, alpha=0.5, marker='x')
-            ax[i,1].set_xscale('log')
-            ax[i,0].set_xscale('log')
-            ax[i,0].set_yscale('log')
-            ax[i,0].set_xlabel(r'$M$')
-            ax[i,0].set_ylabel(r'$\Phi$')
-            ax[i,1].set_ylabel('frac errors')
-            ax[i,1].set_ylim(-.2, .2)
-            ax[i,1].set_yticks(np.arange(-.4, .5, 0.1))
-            ax[i,0].legend()
-        
-            #ax[i,2].plot(self.loss_history[i], label=f'{i}')
-            ax[i,2].set_ylabel('loss')
-            ax[i,3].scatter(np.arange(len(self.latex_labels)), 
-                            self.cosmo_pars[i], marker = 's', s=30)
-            ax[i,3].set_ylim(0,1)
-            ax[i, 3].set_xticks(range(len(self.latex_labels)))
-            ax[i, 3].set_xticklabels(list(self.latex_labels.values()), rotation=90, ha='right')
-            ax[i,3].set_ylabel('scaled values')
+        for c, i in enumerate(self.sims):
+            #if np.all(self.pred[i] == 1):
+            #    self.logger.warning(f'Simulation {i} - {self.sim_tags[i]} does not have LOOCv')
+            #    continue
+            ax[c,0].set_title(f'{self.sim_tags[i]}')
+            ax[c,0].plot(self.mbins, self.truth[c], color=f'C{c}', lw=4, alpha=0.5, marker='x', label=f'Truth {c}')
+            ax[c,0].plot(self.mbins, self.pred[c], color=f'C{c}', ls='dotted', label=f'Pred {c}')
+            ax[c,0].set_xlim(1e11, 2e13)
+            ax[c,1].plot(self.mbins, self.pred[c]/self.truth[c] - 1, color=f'C{c}', lw=4, alpha=0.5, marker='x')
+            ax[c,1].set_xscale('log')
+            ax[c,0].set_xscale('log')
+            ax[c,0].set_yscale('log')
+            ax[c,0].set_xlabel(r'$M$')
+            ax[c,0].set_ylabel(r'$\Phi$')
+            ax[c,1].set_ylabel('frac errors')
+            ax[c,1].set_ylim(-.2, .2)
+            ax[c,1].set_yticks(np.arange(-.4, .5, 0.1))
+            ax[c,0].legend()
+
+            ax[c,2].plot(self.loss_history[c], label=f'{c}')
+            ax[c,2].set_ylabel('loss')
+            ax[c,3].scatter(np.arange(len(self.latex_labels)), 
+                            self.cosmo_pars[c], marker = 's', s=30)
+            ax[c,3].set_ylim(0,1)
+            ax[c, 3].set_xticks(range(len(self.latex_labels)))
+            ax[c, 3].set_xticklabels(list(self.latex_labels.values()), rotation=90, ha='right')
+            ax[c,3].set_ylabel('scaled values')
             for j in range(4):
-                ax[i,j].grid(True)
+                ax[c,j].grid(True)
             
         # The median error of all sims
         median_err = np.median(np.abs(self.pred/self.truth - 1), axis=0)
@@ -1684,46 +1713,42 @@ class HmfCombined(BasePlot):
         fig.tight_layout()
 
         # plot the percentile of the errors
-        err = np.percentile(np.abs(self.pred/self.truth - 1), [50, 68, 80, 95], axis=0)
-        fig, ax = plt.subplots(1, 1, figsize=(8, 4))
-        num_sims = len(self.cosmo_pars)
-        ax.plot(self.mbins, err[0], color='k', lw=4, alpha=0.5, marker='x', label=f'50th p, {np.round(0.5 *num_sims)} sims')
-        ax.plot(self.mbins, err[1], color='C0', lw=4, alpha=0.5, marker='x', label=f'68th p, {np.round(0.68 *num_sims)} sims')
-        ax.plot(self.mbins, err[2], color='C1', lw=4, alpha=0.5, marker='x', label=f'80th p, {np.round(0.8 *num_sims)} sims')
+        fig, ax = plt.subplots(1, 1, figsize=(12, 12))
+        for c, s in enumerate(self.sims):
+            frac_err = np.abs(self.pred[c]/self.truth[c] - 1)
+            ax.plot(self.mbins, frac_err, alpha=0.3, lw=2, label=f'{c}')
         ax.set_xscale('log')
-        ax.set_ylim(0, .5)
+        ax.set_yscale('log')
         ax.set_ylabel('Fractional Error')
         ax.set_xlabel(r'$M$')
         ax.legend()
-
-
-        # Remove the sims within the edge of the prior
-        cutoff = 0.48
-        assert np.all(self.cosmo_pars <=1.1) and np.all(self.cosmo_pars >= 0), "Cosmological parameters should be in [0, 1]"
-        ind_keep = np.where(np.all(np.abs(self.cosmo_pars-0.5) < cutoff, axis=1))[0]
-        self.logger.info(f'Keeping {len(ind_keep)} sims among {self.pred.shape[0]}')
-        num_sims = len(ind_keep)
-        
-        fig, ax = plt.subplots(1, 1, figsize=(8, 4))
-        ## percentile errors
-        err = np.percentile(np.abs(self.pred[ind_keep]/self.truth[ind_keep] - 1), [50, 68, 80, 95], axis=0)
-        ax.plot(self.mbins, err[0], color='k', lw=4, alpha=0.5, marker='x', label=f'50th p, {np.round(0.5 *num_sims)} sims')
-        ax.plot(self.mbins, err[1], color='C0', lw=4, alpha=0.5, marker='x', label=f'68th p, {np.round(0.68 *num_sims)} sims')
-        ax.plot(self.mbins, err[2], color='C1', lw=4 , alpha=0.5, marker='x', label=f'80th p, {np.round(0.8 *num_sims)} sims')
-        ax.plot(self.mbins, err[3], color='C2', lw=4 , alpha=0.5, marker='x', label=f'95th p, {np.round(0.95 *num_sims)} sims')
-        ax.set_title(f'{len(ind_keep)} sims among all {len(self.cosmo_pars)} sims')
+        ax.grid()
+    
+    def err_all(self):
+        """
+        Plot the emulation LOOCV for paper
+        """
+        err = np.abs(self.pred/self.truth - 1)
+        # Remove any extreme sim
+        ind_rm = np.where(np.all(err > 1.0, axis=1))[0]
+        self.logger.info(f'Removing sims {self.sim_tags[ind_rm]} from the plots')
+        # plot the percentile of the errors
+        fig, ax = plt.subplots(1, 1, figsize=(12, 12))
+        for c, s in enumerate(self.sims):
+            if c in ind_rm:
+                continue
+            frac_err = np.abs(self.pred[c]/self.truth[c] - 1)
+            ax.plot(self.mbins, frac_err, alpha=0.3, lw=2, label=f'{c}')
+            # Place text at x=10^{11.5}, y=frac_err at that mass for each curve
+            x_text = 10**11.5
+            # Find the index in mbins closest to 10^{11.5}
+            idx = np.argmin(np.abs(self.mbins - x_text))
+            y_text = frac_err[idx]
+            ax.text(x_text, y_text, str(self.sim_tags[s][-8::]), fontsize=8, va='bottom', ha='left', alpha=0.7)
         ax.set_xscale('log')
-        ax.set_ylim(0, .5)
         ax.set_ylabel('Fractional Error')
+        ax.set_yticks(np.arange(0, 0.8, 0.1))
+        ax.set_ylim(0, 0.8)
         ax.set_xlabel(r'$M$')
         ax.legend()
-
-        # plot error vs distance from the mid prior range
-        fig, ax = plt.subplots(self.cosmo_pars.shape[1], 1, figsize=(8, 4* self.cosmo_pars.shape[1]))
-        for i in range(self.cosmo_pars.shape[1]):
-            dist = np.abs(self.cosmo_pars[:, i] - 0.5)
-            ax[i].scatter(dist, np.abs(self.pred[:, i]/self.truth[:, i] - 1), alpha=0.5)
-            ax[i].set_xlabel(f'Distance from mid prior range for {self.latex_labels[list(self.latex_labels.keys())[i]]}')
-            ax[i].set_ylabel('Fractional Error')
-            ax[i].set_ylim(0, 0.5)
-            ax[i].grid()
+        ax.grid(which='both', axis='both')

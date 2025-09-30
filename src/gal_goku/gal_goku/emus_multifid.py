@@ -367,7 +367,7 @@ class BaseMFCoregEmu():
                 self.labels.append(np.concatenate((labels_wide, labels_narrow), axis=0))
         # X is normalized between 0 and 1, but for Y only HF fideliy is not normalized
         # the MF GP will match the HF mean
-        self.X, self.Y, self.X_min, self.X_max = self.normalize(self.X, self.Y)
+        self.X, self.Y, self.X_min, self.X_max, self.lf_mean_func = self.normalize(self.X, self.Y)
         self.output_dim = self.Y[0].shape[1]
         # Concatenate the errors to Y, so self.Y is a list of fidelities: [array([Y_wide ... err_wide]), array([Y_narrow ... err_narrow])]
 
@@ -430,13 +430,13 @@ class BaseMFCoregEmu():
             X_normalized.append((X[i]-X_min)/(X_max-X_min))
         Y_normalized = []
         # The zeros row is the LF
-        mean_func =  np.mean(Y[0], axis=0)
-        Y_normalized.append(Y[0] -mean_func)
+        lf_mean_func =  np.mean(Y[0], axis=0)
+        Y_normalized.append(Y[0] -lf_mean_func)
         # Don't subtract the mean for the HF, The MF GP will match
         # the HF mean
         Y_normalized.append(Y[1])
 
-        return X_normalized, Y_normalized, X_min, X_max
+        return X_normalized, Y_normalized, X_min, X_max, lf_mean_func
     
     def train(self, ind_train=None, ind_test=None, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train', composite_kernel=None):
         """
@@ -518,7 +518,6 @@ class BaseMFCoregEmu():
                     elif isinstance(value, (int, float)):
                         params[key] = np.float64(value)
                 gpflow.utilities.multiple_assign(self.emu, params)
-                print(self.emu)
             # load the loss_history:
             try:
                 with open(f'{model_file}.attrs', 'rb') as f:

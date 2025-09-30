@@ -1389,7 +1389,7 @@ class HMF(BaseSummaryStats):
         # The number of halos in the bin
         N_h = 10**log_hmf * dlogM * self.vbox
         # The errors in log10(f(M))
-        errs = np.sqrt(1/N_h)
+        errs = np.sqrt(1/N_h) * 1/np.log(10)
         # Avoid division by zero
         errs[N_h == 0] = 1e2
         return errs
