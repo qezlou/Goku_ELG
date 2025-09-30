@@ -1733,22 +1733,27 @@ class HmfCombined(BasePlot):
         ind_rm = np.where(np.all(err > 1.0, axis=1))[0]
         self.logger.info(f'Removing sims {self.sim_tags[ind_rm]} from the plots')
         # plot the percentile of the errors
-        fig, ax = plt.subplots(1, 1, figsize=(12, 12))
+        fig, ax = plt.subplots(2, 1, figsize=(12, 12), sharex=True)
+        rand_sample = np.random.randint(0, self.pred.shape[0], size=10)
         for c, s in enumerate(self.sims):
             if c in ind_rm:
                 continue
             frac_err = np.abs(self.pred[c]/self.truth[c] - 1)
-            ax.plot(self.mbins, frac_err, alpha=0.3, lw=2, label=f'{c}')
+            if c in rand_sample:
+                ax[0].plot(self.mbins, self.truth[c], alpha=0.3, lw=2, label=f'{c}', color=f'C{c}')
+                ax[0].plot(self.mbins, self.pred[c], alpha=0.3, lw=2, label=f'{c}', color=f'C{c}', ls='dotted')
+            ax[1].plot(self.mbins, frac_err, alpha=0.3, lw=2, label=f'{c}')
             # Place text at x=10^{11.5}, y=frac_err at that mass for each curve
             x_text = 10**11.5
             # Find the index in mbins closest to 10^{11.5}
             idx = np.argmin(np.abs(self.mbins - x_text))
             y_text = frac_err[idx]
-            ax.text(x_text, y_text, str(self.sim_tags[s][-8::]), fontsize=8, va='bottom', ha='left', alpha=0.7)
-        ax.set_xscale('log')
-        ax.set_ylabel('Fractional Error')
-        ax.set_yticks(np.arange(0, 0.8, 0.1))
-        ax.set_ylim(0, 0.8)
-        ax.set_xlabel(r'$M$')
-        ax.legend()
-        ax.grid(which='both', axis='both')
+            ax[1].text(x_text, y_text, str(self.sim_tags[s][-8::]), fontsize=8, va='bottom', ha='left', alpha=0.7)
+        ax[0].set_yscale('log')
+        ax[1].set_xscale('log')
+        ax[1].set_ylabel('Fractional Error')
+        ax[1].set_yticks(np.arange(0, 0.8, 0.1))
+        ax[1].set_ylim(0, 0.8)
+        ax[1].set_xlabel(r'$M$')
+        ax[1].legend()
+        ax[1].grid(which='both', axis='both')
