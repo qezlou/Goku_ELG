@@ -5,7 +5,7 @@ import numpy as np
 template = """#!/bin/bash
 #SBATCH -A AST25019
 #SBATCH -J comb{i}
-#SBATCH -p skx-dev
+#SBATCH -p spr
 #SBATCH -N 1
 #SBATCH --time=2:00:00
 #SBATCH --output=%x-%j.out
@@ -16,7 +16,7 @@ python run_hmf_emu_combined_bins.py --ind_test {i} --z 2.5
 """
 
 # Loop from 0 to num_chunks
-for i in np.arange(16,17):
+for i in np.arange(1,2):
     print(i)
     filename = f"job_script_{i}.sh"
     with open(filename, "w") as f:
