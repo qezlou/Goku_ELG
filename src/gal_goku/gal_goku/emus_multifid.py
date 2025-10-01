@@ -447,6 +447,8 @@ class BaseMFCoregEmu():
             The file to save the Emulator. Two files
             will be saved, one with the model and the other
             with the loss history.
+        composite_kernel : dict
+            If not None, add the specified kernels. e.g {'kernel_L':['matern32', 'matern52'], 'kernel_delta':['rbf']}
         """
         if ind_train is None:
             ind_train = np.arange(self.X[1].shape[0])
@@ -464,19 +466,20 @@ class BaseMFCoregEmu():
         Y_train = Y_train.astype(np.float64)
 
         # Base kernel of the MF GP
-        kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
-        if composite_kernel is not None:
-            assert isinstance(composite_kernel, str), "composite_kernel should be a string"
-            if composite_kernel.lower() == "matern32":
-                kernel_L += gpflow.kernels.Matern32(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0))
-            elif composite_kernel.lower() == "matern52":
-                kernel_L += gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0))
-            elif composite_kernel.lower() == "rbf":
-                kernel_L += gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0))
-            elif composite_kernel.lower() == "linear":
-                kernel_L += gpflow.kernels.Linear(variance=np.float64(1.0))
-            else:
-                raise ValueError(f"Unknown composite_kernel string: {composite_kernel}")
+        if composite_kernel is None:
+            kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
+        elif composite_kernel == ['matern32', 'matern52', 'matern32', 'matern52']:
+            kernel_L = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(0.3)) + \
+                          gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
+            kernel_delta = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(0.3)) + \
+                            gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0)))
+        elif composite_kernel == ['matern32', 'matern52', 'rbf']:
+            kernel_L = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(0.3)) + \
+                          gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
+            kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
+        else:
+            raise ValueError(f"Unknown composite_kernel: {composite_kernel}")
+        
         kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
         P = int(Y_train.shape[1]/2) # Number of outputs
         # We only pass the actual Y_train, not the errors to the
