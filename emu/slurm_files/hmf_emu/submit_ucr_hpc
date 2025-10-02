@@ -1,0 +1,17 @@
+#!/bin/bash
+#SBATCH -J lin
+#SBATCH -p epyc
+#SBATCH -N 1
+#SBATCH --mem=512gb
+#SBATCH --ntasks=26
+#SBATCH --cpus-per-task=4
+#SBATCH --time=240:00:00
+#SBATCH --output=%x-%j.out
+
+hostname; pwd; date
+
+# Set OMP_NUM_THREADS to the number of allocated CPUs per task
+#export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export OMP_NUM_THREADS=4
+export PATH="/rhome/mqezl001/bigdata/.conda/gal_goku/bin:$PATH"
+mpirun -n 26 python run_loo_mf_hmf.py

@@ -4,10 +4,19 @@ import importlib
 from gal_goku import emus_multifid
 
 
-def run_it(ind_test, z, num_inducing=500, num_latents=14):
-    #data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/'
+def run_it(ind_test, z, machine='stampede3'):
+    
+    num_inducing=500
+    num_latents=14
+    
     train_subdir = 'HMF/train_l14_full_comp_kernel'
-    data_dir = '/scratch/06536/qezlou/Goku/processed_data/'
+
+    if machine=='stampede3':
+        data_dir = '/scratch/06536/qezlou/Goku/processed_data/'
+    elif machine=='ucr':
+        data_dir = '/rhome/mqezl001/bigdata/HETDEX/data/'
+    elif machine=='pc':
+        data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/'
     #train_subdir = 'HMF/train_less_massive'
     z = np.round(z, 1)
     emu = emus_multifid.HmfNativeBins(data_dir=data_dir,
@@ -37,6 +46,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='HMF LOOCV')
     parser.add_argument('--ind_test', default=None, type=int, help='')
     parser.add_argument('--z', default=2.5, type=float, help='Redshift')
+    parser.add_argument('--machine', default='stampede3', type=str, help='Machine name')
 
     args = parser.parse_args()
-    run_it(args.ind_test, z=args.z)
+    run_it(args.ind_test, z=args.z, machine=args.machine)
