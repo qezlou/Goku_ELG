@@ -8,6 +8,7 @@ def run_it(ind_test, z, machine='stampede3'):
     
     num_inducing=500
     num_latents=14
+    w_type='pca'  # 'diagonal' or 'pca'
     
     train_subdir = 'HMF/train_l14_full_comp_kernel'
 
@@ -39,6 +40,7 @@ def run_it(ind_test, z, machine='stampede3'):
             opt_params={'max_iters':12_000, 'initial_lr':5e-3, 'iter_save':500}, 
             model_file=model_file,
             composite_kernel=['matern32', 'matern52', 'matern32', 'matern52'],
+            w_type=w_type
             )
 
 if __name__ == '__main__':
