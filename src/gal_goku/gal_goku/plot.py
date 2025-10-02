@@ -1610,7 +1610,7 @@ class HmfCombined(BasePlot):
         self.cosmo_pars = self.emu.X[1]
         self.epochs = epochs
         self.logger.info(f'Getting the predictions')
-        self.pred, self.truth, self.loss_history = self.get_loo_pred_truth(sims=self.sims)
+        self.pred, self.truth, self.loss_history, self.w_matrices = self.get_loo_pred_truth(sims=self.sims)
         
         
     
@@ -1634,8 +1634,9 @@ class HmfCombined(BasePlot):
         self.emu.Y[1][s][ind_bad_bins] = np.nan
         truth = self.emu.Y[1][s]
         loss_history = np.array(self.emu.model_attrs['loss_history'])
+        w_matrix = self.emu.emu.kernel.W.numpy()
 
-        return 10**mean_pred.numpy().squeeze(), 10**truth.squeeze(), loss_history
+        return 10**mean_pred.numpy().squeeze(), 10**truth.squeeze(), loss_history, w_matrix
 
 
     def get_loo_pred_truth(self, sims=None, epochs=None):
@@ -1657,18 +1658,19 @@ class HmfCombined(BasePlot):
         # Run predictions in parallel
         with Pool(num_cores) as pool:
             results = pool.map(self._predict_and_calculate_error, sims)
-            pred = [p for p, t, l in results]
-            truth = [t for p, t, l in results]
-            loss_hist = [l for p, t, l in results]
+            pred = [p for p, t, l, w in results]
+            truth = [t for p, t, l, w in results]
+            loss_hist = [l for p, t, l, w in results]
+            w_matrices = [w for p, t, l, w in results]
         del results
-        return np.array(pred), np.array(truth), np.array(loss_hist)
+        return np.array(pred), np.array(truth), np.array(loss_hist), np.array(w_matrices)
 
     def pred_vs_trtuh(self):
         """
         Plot the predictions vs truth for all the simulations
         """
-        fig, ax = plt.subplots(self.pred.shape[0]+1, 4, figsize=(15, 4*self.pred.shape[0]), 
-                               gridspec_kw={'width_ratios': [3, 3, 2, 3]})
+        fig, ax = plt.subplots(self.pred.shape[0]+1, 5, figsize=(18, 4*self.pred.shape[0]), 
+                               gridspec_kw={'width_ratios': [3, 3, 2, 3, 3]})
 
         for c, i in enumerate(self.sims):
             #if np.all(self.pred[i] == 1):
@@ -1697,7 +1699,14 @@ class HmfCombined(BasePlot):
             ax[c, 3].set_xticks(range(len(self.latex_labels)))
             ax[c, 3].set_xticklabels(list(self.latex_labels.values()), rotation=90, ha='right')
             ax[c,3].set_ylabel('scaled values')
-            for j in range(4):
+            
+            ax[c, 4].imshow(self.w_matrices[c] @ self.w_matrices[c].T, aspect='auto', cmap='viridis', origin='lower', vmin=0, vmax=0.5)
+            cbar = plt.colorbar(ax[c, 4].images[0], ax=ax[c, 4])
+            cbar.set_label('Value')
+            ax[c, 4].set_xlabel('Output Dimension')
+            ax[c, 4].set_ylabel('Output Dimension')
+            ax[c, 4].set_title('output covariance')
+            for j in range(5):
                 ax[c,j].grid(True)
             
         # The median error of all sims

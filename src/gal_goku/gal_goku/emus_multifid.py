@@ -468,6 +468,7 @@ class BaseMFCoregEmu():
         # Base kernel of the MF GP
         if composite_kernel is None:
             kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
+            kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
         elif composite_kernel == ['matern32', 'matern52', 'matern32', 'matern52']:
             kernel_L = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(0.3)) + \
                           gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
@@ -475,6 +476,10 @@ class BaseMFCoregEmu():
                             gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0)))
         elif composite_kernel == ['matern32', 'matern52', 'rbf']:
             kernel_L = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(0.3)) + \
+                          gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
+            kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
+        elif composite_kernel == ['rbf','matern52', 'rbf']:
+            kernel_L = (gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)) + \
                           gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
             kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
         else:
