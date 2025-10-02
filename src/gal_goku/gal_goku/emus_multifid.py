@@ -438,7 +438,7 @@ class BaseMFCoregEmu():
 
         return X_normalized, Y_normalized, X_min, X_max, lf_mean_func
     
-    def train(self, ind_train=None, ind_test=None, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train', composite_kernel=None):
+    def train(self, ind_train=None, ind_test=None, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train', composite_kernel=None, w_type='diagonal'):
         """
         Train the model and save this in `model_file`
         Parameters
@@ -492,8 +492,8 @@ class BaseMFCoregEmu():
         self.emu = LatentMFCoregionalizationSVGP(
             X_train, Y_train, kernel_L, kernel_delta,
             num_latents=self.num_latents, num_inducing=self.num_inducing,
-            num_outputs=self.output_dim, heterosed=True)
-        
+            num_outputs=self.output_dim, heterosed=True, w_type=w_type)
+
         model_file = op.join(self.data_dir, train_subdir, model_file)
         #self.logger.info(f'Will save to {model_file}')
         existing_model_files = glob(model_file.replace('.pkl', '*.pkl'))
