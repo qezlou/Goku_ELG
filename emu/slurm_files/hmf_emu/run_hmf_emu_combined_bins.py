@@ -2,16 +2,16 @@ import argparse
 import numpy as np
 import importlib
 from gal_goku import emus_multifid
+import json
+import os.path as op
 
 
-def run_it(ind_test, z, machine='stampede3'):
+def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_type='diagonal'):
     
     num_inducing=500
-    num_latents=14
-    w_type='fixed_independent'  # 'diagonal' or 'pca'
-    #w_type='diagonal'
 
-    train_subdir = 'HMF/train_independent_l14_full_comp_kernel/'
+
+    
     #train_subdir = 'HMF/train_l14_full_comp_kernel/'
 
     if machine=='stampede3':
@@ -20,6 +20,13 @@ def run_it(ind_test, z, machine='stampede3'):
         data_dir = '/rhome/mqezl001/bigdata/HETDEX/data/'
     elif machine=='pc':
         data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/'
+
+    # Save the config file to the save directory
+    json.dump({
+        'train_subdir': train_subdir,
+        'num_latents': num_latents,
+        'w_type': w_type
+    }, open(op.join(data_dir, train_subdir, 'config.json'), 'w'))
 
     z = np.round(z, 1)
     emu = emus_multifid.HmfNativeBins(data_dir=data_dir,
@@ -51,6 +58,11 @@ if __name__ == '__main__':
     parser.add_argument('--ind_test', default=None, type=int, help='')
     parser.add_argument('--z', default=2.5, type=float, help='Redshift')
     parser.add_argument('--machine', default='stampede3', type=str, help='Machine name')
+    parser.add_argument('--config', default='config.json', type=str, help='Path to config file')
 
     args = parser.parse_args()
-    run_it(args.ind_test, z=args.z, machine=args.machine)
+    # load the config file
+    with open(args.config, 'r') as f:
+        config = json.load(f)
+    args = parser.parse_args()
+    run_it(args.ind_test, z=args.z, train_subdir=config['train_subdir'], machine=args.machine, num_latents=config['num_latents'], w_type=config['w_type'])
