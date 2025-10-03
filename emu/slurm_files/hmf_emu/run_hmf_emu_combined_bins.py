@@ -8,9 +8,11 @@ def run_it(ind_test, z, machine='stampede3'):
     
     num_inducing=500
     num_latents=14
-    w_type='pca'  # 'diagonal' or 'pca'
-    
-    train_subdir = 'HMF/train_l14_full_comp_kernel'
+    w_type='fixed_independent'  # 'diagonal' or 'pca'
+    #w_type='diagonal'
+
+    train_subdir = 'HMF/train_independent_l14_full_comp_kernel/'
+    #train_subdir = 'HMF/train_l14_full_comp_kernel/'
 
     if machine=='stampede3':
         data_dir = '/scratch/06536/qezlou/Goku/processed_data/'
@@ -18,7 +20,7 @@ def run_it(ind_test, z, machine='stampede3'):
         data_dir = '/rhome/mqezl001/bigdata/HETDEX/data/'
     elif machine=='pc':
         data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/'
-    #train_subdir = 'HMF/train_less_massive'
+
     z = np.round(z, 1)
     emu = emus_multifid.HmfNativeBins(data_dir=data_dir,
                                       z=z,
