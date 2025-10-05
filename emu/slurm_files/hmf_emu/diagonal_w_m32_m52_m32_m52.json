@@ -1,0 +1,5 @@
+{
+    "train_subdir": "HMF/train_l14_full_comp_kernel/",
+    "num_latents": 14,
+    "w_type": "diagonal"
+}

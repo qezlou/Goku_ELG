@@ -1,5 +1,5 @@
 {
     "train_subdir": "HMF/train_pca_l14_full_comp_kernel/",
     "num_latents": 14,
-    "w_type": "diagonal"
+    "w_type": "pca"
 }

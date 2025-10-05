@@ -548,6 +548,8 @@ class BaseMFCoregEmu():
         self.logger.info(f'output_dim {self.output_dim}')
         self.logger.info(f'num_inducing {self.num_inducing}')
         self.logger.info(f'varaince dim {self.emu.likelihood.variance.numpy().shape}')
+        self.logger.info(f'composite_kernel {composite_kernel}')
+        self.logger.info(f'w_type {w_type}')
         self.logger.info(f'trained epochs {current_iters}')
 
 
