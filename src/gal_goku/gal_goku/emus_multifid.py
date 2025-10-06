@@ -485,7 +485,7 @@ class BaseMFCoregEmu():
         else:
             raise ValueError(f"Unknown composite_kernel: {composite_kernel}")
         
-        kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
+        #kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
         P = int(Y_train.shape[1]/2) # Number of outputs
         # We only pass the actual Y_train, not the errors to the
         # class constructor
@@ -831,7 +831,7 @@ class XiNativeBinsFullDimReduc():
             num_latents=self.num_latents, num_inducing=self.num_inducing,
             num_outputs=self.output_dim, heterosed=True, use_rho=self.use_rho)
         
-        model_file = op.join(self.data_dir, train_subdir, [model_file])
+        model_file = op.join(self.data_dir, train_subdir, model_file)
         if op.exists(model_file):
             self.logger.info(f'Loading model from {model_file}')
             with open(model_file, "rb") as f:
