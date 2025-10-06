@@ -8,11 +8,19 @@ import h5py
 import numpy as np
 import pickle
 from scipy.interpolate import make_interp_spline
+import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib.colors import BoundaryNorm
 from scipy.ndimage import gaussian_filter1d as gf1d
 from multiprocessing import Pool
 
+
+
+# Set font family to sans-serif
+mpl.rcParams['font.family'] = 'sans-serif'
+
+# Optionally, specify which sans-serif font to use (e.g., Arial, DejaVu Sans)
+mpl.rcParams['font.sans-serif'] = ['DejaVu Sans'] # ['Arial']  # or ['DejaVu Sans'], ['Helvetica'], etc.
 
 from . import summary_stats
 from . import emus_multifid
@@ -1610,7 +1618,7 @@ class HmfCombined(BasePlot):
         self.cosmo_pars = self.emu.X[1]
         self.epochs = epochs
         self.logger.info(f'Getting the predictions')
-        self.pred, self.truth, self.loss_history, self.w_matrices = self.get_loo_pred_truth(sims=self.sims)
+        self.pred, self.truth, self.truth_uncen, self.loss_history, self.w_matrices = self.get_loo_pred_truth(sims=self.sims)
         
         
     
@@ -1633,10 +1641,11 @@ class HmfCombined(BasePlot):
         ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
         self.emu.Y[1][s][ind_bad_bins] = np.nan
         truth = self.emu.Y[1][s]
+        truth_uncen = 10**truth * np.log(10) * self.emu.Y_err[1][s]
         loss_history = np.array(self.emu.model_attrs['loss_history'])
         w_matrix = self.emu.emu.kernel.W.numpy()
 
-        return 10**mean_pred.numpy().squeeze(), 10**truth.squeeze(), loss_history, w_matrix
+        return 10**mean_pred.numpy().squeeze(), 10**truth.squeeze(), truth_uncen.squeeze(), loss_history, w_matrix
 
 
     def get_loo_pred_truth(self, sims=None, epochs=None):
@@ -1658,12 +1667,14 @@ class HmfCombined(BasePlot):
         # Run predictions in parallel
         with Pool(num_cores) as pool:
             results = pool.map(self._predict_and_calculate_error, sims)
-            pred = [p for p, t, l, w in results]
-            truth = [t for p, t, l, w in results]
-            loss_hist = [l for p, t, l, w in results]
-            w_matrices = [w for p, t, l, w in results]
+            pred = [p for p, t, tu, l, w in results]
+            truth = [t for p, t, tu, l, w in results]
+            truth_uncen = [tu for p, t, tu, l, w in results]
+            loss_hist = [l for p, t, tu, l, w in results]
+            w_matrices = [w for p, t, tu, l, w in results]
         del results
-        return np.array(pred), np.array(truth), np.array(loss_hist), np.array(w_matrices)
+        print(f'truth_uncen = {np.array(truth_uncen).shape}')
+        return np.array(pred), np.array(truth), np.array(truth_uncen), np.array(loss_hist), np.array(w_matrices)
 
     def pred_vs_trtuh(self):
         """
@@ -1732,38 +1743,60 @@ class HmfCombined(BasePlot):
         ax.set_xlabel(r'$M$')
         ax.legend()
         ax.grid()
-    
-    def err_all(self):
+
+    def err_all(self, sample_size=10, add_text=True, log_scale=True, savefig=None):
         """
         Plot the emulation LOOCV for paper
+        Parameters:
+        -----------
+        sample_size: int
+            Number of random simulations to plot the HMF and prediction
+        add_text: bool
+            Whether to add the simulation tag to the fractional error plot
+        log_scale: bool
+            Whether to use log scale for the fractional error plot
         """
         err = np.abs(self.pred/self.truth - 1)
         # Remove any extreme sim
         ind_rm = np.where(np.all(err > 1.0, axis=1))[0]
         self.logger.info(f'Removing sims {self.sim_tags[ind_rm]} from the plots')
         # plot the percentile of the errors
-        fig, ax = plt.subplots(2, 1, figsize=(12, 12), sharex=True)
-        rand_sample = np.random.randint(0, self.pred.shape[0], size=10)
+        fig, ax = plt.subplots(2,1, figsize=(10, 6), sharex=True, gridspec_kw={'hspace': 0, 'height_ratios': [1, 0.5]})
+        rand_sample = np.random.randint(0, self.pred.shape[0], size=sample_size)
+        color_c = 0
         for c, s in enumerate(self.sims):
             if c in ind_rm:
                 continue
             frac_err = np.abs(self.pred[c]/self.truth[c] - 1)
             if c in rand_sample:
-                ax[0].plot(self.mbins, self.truth[c], alpha=0.3, lw=2, label=f'{c}', color=f'C{c}')
-                ax[0].plot(self.mbins, self.pred[c], alpha=0.3, lw=2, label=f'{c}', color=f'C{c}', ls='dotted')
+                #ax[0].plot(self.mbins, self.truth[c], alpha=0.6, lw=2, label=f'{c}', color=f'C{color_c}')
+                ax[0].errorbar(self.mbins, self.truth[c], yerr=self.truth_uncen[c], alpha=0.6, lw=2, label=f'{c} unc', color=f'C{color_c}', fmt='o', markersize=5)
+                ax[0].errorbar(self.mbins, self.truth[c], yerr=16*self.truth_uncen[c], alpha=0.6, lw=2, label=f'{c} pred-true', color=f'C{color_c}', fmt='o', markersize=5)
+                ax[0].plot(self.mbins, self.pred[c], alpha=0.6, lw=2, label=f'{c}', color=f'C{color_c}', ls='dotted')
+                color_c += 1
             ax[1].plot(self.mbins, frac_err, alpha=0.3, lw=2, label=f'{c}')
             # Place text at x=10^{11.5}, y=frac_err at that mass for each curve
-            x_text = 10**11.5
-            # Find the index in mbins closest to 10^{11.5}
-            idx = np.argmin(np.abs(self.mbins - x_text))
-            y_text = frac_err[idx]
-            ax[1].text(x_text, y_text, str(self.sim_tags[s][-8::]), fontsize=8, va='bottom', ha='left', alpha=0.7)
+            if add_text:
+                x_text = 10**11.5
+                # Find the index in mbins closest to 10^{11.5}
+                idx = np.argmin(np.abs(self.mbins - x_text))
+                y_text = frac_err[idx]
+                ax[1].text(x_text, y_text, str(self.sim_tags[s][-8::]), fontsize=8, va='bottom', ha='left', alpha=0.7)
+
         ax[0].set_yscale('log')
+        ax[0].set_ylabel(r'$dn /dlogM$')
         ax[1].set_xscale('log')
         ax[1].set_ylabel('Fractional Error')
         #ax[1].set_yticks(np.arange(0, 0.8, 0.1))
         #ax[1].set_ylim(0, 0.8)
-        ax[1].set_yscale('log')
+        if log_scale:
+            ax[1].set_yscale('log')
+        else:
+            ax[1].set_ylim(0, 0.5)
+            ax[1].set_yticks(np.arange(0, 0.45, 0.05))
         ax[1].set_xlabel(r'$M$')
-        ax[1].legend()
         ax[1].grid(which='both', axis='both')
+        ax[0].grid(which='both', axis='both')
+    
+        if savefig is not None:
+            fig.savefig(savefig, dpi=300, bbox_inches='tight')
