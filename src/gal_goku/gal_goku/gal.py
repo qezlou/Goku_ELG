@@ -156,7 +156,7 @@ class Gal(GalBase):
 
         self.logger.debug(f'Emulators mass bins: {self.xi_emu.mass_bins}')
         self.logger.debug(f'Emulators rbins.size: {self.xi_emu.rbins.size}')
-        self.rbins_fine = np.linspace(self.rbins[0], self.rbins[-1], 400)
+        self.rbins_fine = np.logspace(np.log10(self.rbins[0]), np.log10(self.rbins[-1]), 400)
         
         
         # Set the resolution parameters
@@ -172,13 +172,17 @@ class Gal(GalBase):
             Dictionary containing configuration parameters.
         """
         if config is None:
+            # The config to do HOD convolutions
             self.config = {
                 # The halo mass bins for integrating the HOD model with P_hh, 
                 # defining the halo mass resolution
                 'logMh': np.arange(self.hmf_emu.mbins[0], self.hmf_emu.mbins[-1], 0.05),
-                'smooth_xihh_r': 0,
-                'smooth_phh_k': 0,
-                'smooth_xihh_mass': 0,
+                'interp_xihh_r_s': 0, # Smoothing factor for xi_hh(r) spline interpolation. s=0 means interpolation.
+                'interp_xihh_r_k': 1, # Linear interpolation in r
+                'interp_phh_k_s': 0, # Smoothing factor for P_hh(k) spline interpolation. s=0 means interpolation.
+                'interp_phh_k_k': 1, # Linear interpolation in k
+                'interp_xihh_mass_s': 0, # Smoothing factor for xi_hh(M1, M2) spline interpolation. s=0 means interpolation.
+                'interp_xihh_mass_k': 1, # Linear spline interpolation in mass
                 'r_range': [0.5, 50], # We need this cut to ensure stable Hankel transform.
                                       # The small and large scales are both fluctuating
                                       # The small scales should be overridden by the 1-halo term in
@@ -211,7 +215,6 @@ class Gal(GalBase):
         
         # Recompute the P_hh(M, M') for the given cosmology
         self.xi_grid, _ = self.xi_emu.predict(cosmo_pars)
-        print(f"xi_grid shape: {self.xi_grid.shape}")
         self.xi_grid = self.xi_grid[ :, :, self.xi_emu_r_mask].squeeze()
         # TODO: Implement the tree-level correlation function and stitching between the two
         self.xi_grid = self.xi_grid.squeeze()
@@ -388,7 +391,7 @@ class Gal(GalBase):
                 self.xi_hh_mth_bspline.append(RectBivariateSpline(self.xi_emu.mass_bins, 
                                                         self.xi_emu.mass_bins, 
                                                         self.xi_grid[:, :, i], 
-                                                        kx=3, ky=3, s=self.config['smooth_xihh_mass']))
+                                                        kx=self.config['interp_xihh_mass_k'], ky=self.config['interp_xihh_mass_k'], s=self.config['interp_xihh_mass_s']))
 
     def xi_hh_mth(self, logm1, logm2):
         """
@@ -457,7 +460,7 @@ class Gal(GalBase):
         xi_exact_mass = numer / denom
 
         #spl = make_interp_spline(self.xi_emu.rbins, xi_exact_mass, k=3)
-        spl = UnivariateSpline(self.rbins, xi_exact_mass, s=self.config['smooth_xihh_r'], k=3)
+        spl = UnivariateSpline(self.rbins, xi_exact_mass, s=self.config['interp_xihh_r_s'], k=self.config['interp_xihh_r_k'])
         xi_exact_mass = spl(self.rbins_fine)
 
         return xi_exact_mass
@@ -485,7 +488,7 @@ class Gal(GalBase):
         r_mask *= self.rbins_fine > self.config['r_range'][0]
         k, phh = mcfit.xi2P(self.rbins_fine[r_mask], l=0, lowring=True)(xi_exact_mass[r_mask], extrap=True)
 
-        spl = UnivariateSpline(k, phh, s= self.config['smooth_phh_k'], k=3)
+        spl = UnivariateSpline(k, phh, s= self.config['interp_phh_k_s'], k=self.config['interp_phh_k_k'])
         phh = spl(k)
         return k, phh.squeeze()
 
@@ -520,15 +523,14 @@ class Gal(GalBase):
                 self.p_hh_mth_bspline.append(RectBivariateSpline(self.xi_emu.mass_bins, 
                                                         self.xi_emu.mass_bins, 
                                                         self.p_grid[:, :, i], 
-                                                        kx=3, ky=3, s=self.config['smooth_xihh_mass']))    
+                                                        kx=self.config['interp_xihh_mass_k'], ky=self.config['interp_xihh_mass_k'], s=self.config['interp_xihh_mass_s']))    
     def xi_grid_to_p_grid(self):
         """
         Get the power spectrum P_hh(m_th1, mth2) on the grid of mass thresholds defined
         by the emulator.
         """
         self.logger.debug("Converting the emulated xi_hh(mth1, mth2) to P_hh(mth1, mth2)")
-        print(self.rbins.shape, self.xi_grid.shape)
-        spl = UnivariateSpline(self.rbins, self.xi_grid[0, 0], k=3, s=self.config['smooth_xihh_r'])
+        spl = UnivariateSpline(self.rbins, self.xi_grid[0, 0], k=self.config['interp_xihh_r_k'], s=self.config['interp_xihh_r_s'])
         xi_interp = spl(self.rbins_fine) 
         k, _ = mcfit.xi2P(self.rbins_fine, l=0, lowring=True)(xi_interp, extrap=True)
 
@@ -538,7 +540,7 @@ class Gal(GalBase):
             for j in range(len(self.xi_emu.mass_bins)):
                 # We don't use NaN values in the xi_grid, so we need to mask them
                 ind_finite = np.where(np.isfinite(self.xi_grid[i, j]))[0]
-                spl = UnivariateSpline(self.rbins[ind_finite], self.xi_grid[i, j][ind_finite], k=3, s=self.config['smooth_xihh_r'])
+                spl = UnivariateSpline(self.rbins[ind_finite], self.xi_grid[i, j][ind_finite], k=self.config['interp_xihh_r_k'], s=self.config['interp_xihh_r_s'])
                 xi_interp = spl(self.rbins_fine)
                 _, p_grid[i,j] = mcfit.xi2P(self.rbins_fine, l=0, lowring=True)(xi_interp, extrap=True)
         return k, p_grid
@@ -638,7 +640,7 @@ class Gal(GalBase):
 
         # Apply the galaxy-density normalisation
         pgg_cc = (1.0 / self.get_ng()**2) * pgg_cc
-        #spl = UnivariateSpline(k, pgg_cc, s=self.config['smooth_phh_k'], k=3)
+        #spl = UnivariateSpline(k, pgg_cc, s=self.config['interp_phh_k_s'], k=3)
         #pgg_cc = spl(k)
         return k, pgg_cc
 
@@ -673,7 +675,7 @@ class Gal(GalBase):
         pgg_cs = simpson(dndm_vals * Ncen_vals * pgg_cs, x=self.config['logMh'], axis=0)
         # Apply the galaxy-density normalisation
         pgg_cs = (1.0 / self.get_ng()**2) * pgg_cs
-        #spl = UnivariateSpline(k, pgg_cs, s=self.config['smooth_phh_k'], k=3)
+        #spl = UnivariateSpline(k, pgg_cs, s=self.config['interp_phh_k_s'], k=3)
         #pgg_cs = spl(k)
         return k, 2*pgg_cs
 
@@ -706,7 +708,7 @@ class Gal(GalBase):
         pgg_ss = simpson(dndm_vals * Nsat_vals * pgg_ss, x=self.config['logMh'], axis=0)
         # Apply the galaxy-density normalisation
         pgg_ss = (1.0 / self.get_ng()**2) * pgg_ss
-        #spl = UnivariateSpline(k, pgg_ss, s=self.config['smooth_phh_k'], k=3)
+        #spl = UnivariateSpline(k, pgg_ss, s=self.config['interp_phh_k_s'], k=3)
         #pgg_ss = spl(k)
         return k, pgg_ss
 
@@ -807,7 +809,7 @@ class Gal(GalBase):
         """
         rbins, xigg = self.get_xi_gg()
         # Build an interpolator for the correlation function
-        xi_spl = UnivariateSpline(rbins, xigg, s=self.config['smooth_xihh_r'], k=3)
+        xi_spl = UnivariateSpline(rbins, xigg, s=self.config['interp_xihh_r_s'], k=self.config['interp_xihh_r_k'])
         # Compute the projected correlation function w_p(r)
         wp = np.zeros_like(rbins)
         for i, r in enumerate(rbins):
