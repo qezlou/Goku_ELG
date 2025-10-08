@@ -72,7 +72,7 @@ class BaseEmulator:
         
         return logger
 
-    def _get_emu(self, model_file):
+    def _get_emu(self, model_file, composite_kernel=None):
         """
         Load the trained emulator from a file.
 
@@ -93,9 +93,27 @@ class BaseEmulator:
         num_outputs, num_latents = hyper_params['.kernel.W'].shape
         num_inducing = hyper_params['.inducing_variable.inducing_variable.Z'].shape[0]
         num_params = hyper_params['.inducing_variable.inducing_variable.Z'].shape[1] - 1
-
-        kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(num_params, np.float64), variance=np.float64(1.0))
-        kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(num_params, np.float64), variance=np.float64(1.0))
+        self.logger.debug(f' num_outputs: {num_outputs}, num_latents: {num_latents}, num_inducing: {num_inducing}, num_params: {num_params}, composite_kernel: {composite_kernel}')
+        # Base kernel of the MF GP
+        if composite_kernel is None:
+            kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(num_params,  dtype=np.float64), variance=np.float64(1.0))
+            kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(num_params,  dtype=np.float64), variance=np.float64(1.0))
+        elif composite_kernel == ['matern32', 'matern52', 'matern32', 'matern52']:
+            kernel_L = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(num_params, dtype=np.float64), variance=np.float64(0.3)) + \
+                          gpflow.kernels.Matern52(lengthscales=np.ones(num_params, dtype=np.float64), variance=np.float64(1.0)))
+            kernel_delta = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(num_params, dtype=np.float64), variance=np.float64(0.3)) + \
+                            gpflow.kernels.Matern52(lengthscales=np.ones(num_params, dtype=np.float64), variance=np.float64(1.0)))
+        elif composite_kernel == ['matern32', 'matern52', 'rbf']:
+            kernel_L = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(num_params, dtype=np.float64), variance=np.float64(0.3)) + \
+                          gpflow.kernels.Matern52(lengthscales=np.ones(num_params, dtype=np.float64), variance=np.float64(1.0)))
+            kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(num_params, dtype=np.float64), variance=np.float64(1.0))
+        elif composite_kernel == ['rbf','matern52', 'rbf']:
+            kernel_L = (gpflow.kernels.SquaredExponential(lengthscales=np.ones(num_params, dtype=np.float64), variance=np.float64(1.0)) + \
+                          gpflow.kernels.Matern52(lengthscales=np.ones(num_params, dtype=np.float64), variance=np.float64(1.0)))
+            kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(num_params, dtype=np.float64), variance=np.float64(1.0))
+        else:
+            raise ValueError(f"Unknown composite_kernel: {composite_kernel}")
+        
         # The X_train is just a placeholder, dummy array
         X_train = np.random.rand(600, num_params+1)
 
@@ -103,7 +121,7 @@ class BaseEmulator:
         emu = linear_svgp.LatentMFCoregionalizationSVGP(
                                 X_train, None, kernel_L, 
                                 kernel_delta, 
-                                num_latents=num_latents, 
+                                num_latents=num_latents,
                                 num_inducing=num_inducing,
                                 num_outputs=num_outputs,
                                 heterosed=True)
@@ -144,7 +162,7 @@ class Hmf(BaseEmulator):
     """
     Trained emulator for the halo mass function (HMF).
     """
-    def __init__(self, loggin_level='INFO'):
+    def __init__(self,model_file, hmf_composite_kernel=None, loggin_level='INFO'):
         """
         Initialize the multifidelity emulator for the HMF.
 
@@ -157,9 +175,9 @@ class Hmf(BaseEmulator):
         self.mbins = np.array([11.15, 11.25, 11.35, 11.45, 11.55, 11.65, 11.75, 11.85, 11.95,
                                12.05, 12.15, 12.25, 12.35, 12.45, 12.55, 12.65, 12.75, 12.85,
                                12.95, 13.05, 13.15, 13.25, 13.35, 13.45])
-        self.emu = self.get_emu()
+        self.emu = self.get_emu(model_file=model_file, hmf_composite_kernel=hmf_composite_kernel)
 
-    def get_emu(self):
+    def get_emu(self, model_file, hmf_composite_kernel=None):
         """
         Load the trained emulator.
 
@@ -169,9 +187,9 @@ class Hmf(BaseEmulator):
             Loaded emulator instance.
         """
         # TODO: Replace this with the GP trained on the full simulation suite
-        model_file = '/home/qezlou/HD2/HETDEX/cosmo/data/HMF/train/hmf_emu_combined_inducing_500_latents_20_leave31.pkl'
+        #model_file = '/home/qezlou/HD2/HETDEX/cosmo/data/HMF/train/hmf_emu_combined_inducing_500_latents_20_leave31.pkl'
         self.logger.info(f'Loading the hmf emulator from {model_file}')
-        return self._get_emu(model_file=model_file)
+        return self._get_emu(model_file=model_file, composite_kernel=hmf_composite_kernel)
 
     def predict(self, cosmo_pars):
         """

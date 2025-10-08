@@ -130,7 +130,7 @@ class Gal(GalBase):
     projected correlation function w_p(r) from halo summary statistics.
     """
 
-    def __init__(self, z=2.5, leave=18, config=None, tag_info=None, logging_level='INFO'):
+    def __init__(self, hmf_model_file, hmf_composite_kernel= None, z=2.5, leave=18, config=None, tag_info=None, logging_level='INFO'):
         """
         Initialize the Gal class with cosmology, redshift, and HOD model parameters.
         Parameters
@@ -144,7 +144,7 @@ class Gal(GalBase):
         self.z =z
         super().__init__(logging_level=logging_level, logger_name='gal.XiGal')
         # Load the emulator for HMF
-        self.hmf_emu = emu_cosmo.Hmf(loggin_level=logging_level)
+        self.hmf_emu = emu_cosmo.Hmf(model_file=hmf_model_file, hmf_composite_kernel=hmf_composite_kernel, loggin_level=logging_level)
         self._load_config(config)
         # Load the trained emulator for xi_direct
         self.xi_emu = emu_cosmo.Xi(leave=leave, loggin_level=logging_level)
@@ -179,10 +179,10 @@ class Gal(GalBase):
                 'smooth_xihh_r': 0,
                 'smooth_phh_k': 0,
                 'smooth_xihh_mass': 0,
-                'r_range': [0.5, 50], # We need this cut to ensure stable Hankel transform
-                                      # small scales and large scales are both fluctuating
-                                      # small scales should be overriden by the 1-halo term in
-                                      # future. large scales are fluctuating since we are 
+                'r_range': [0.5, 50], # We need this cut to ensure stable Hankel transform.
+                                      # The small and large scales are both fluctuating
+                                      # The small scales should be overridden by the 1-halo term in
+                                      # future. The large scales are fluctuating since we are
                                       # in log-scale
                 'dm': 0.01,  # log10 mass step size for finite difference
                 }
