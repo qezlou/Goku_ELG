@@ -6,7 +6,9 @@ import json
 import os.path as op
 
 
-def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_type='diagonal'):
+def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_type='diagonal', norm_type='std_gaussian'):
+    """Run the emulator training and prediction.
+    """
     
     num_inducing=500
 
@@ -25,7 +27,8 @@ def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_typ
     json.dump({
         'train_subdir': train_subdir,
         'num_latents': num_latents,
-        'w_type': w_type
+        'w_type': w_type,
+        'norm_type': norm_type
     }, open(op.join(data_dir, train_subdir, 'config.json'), 'w'))
 
     z = np.round(z, 1)
@@ -33,6 +36,7 @@ def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_typ
                                       z=z,
                                       num_inducing=num_inducing, 
                                       num_latents=num_latents,
+                                      norm_type=norm_type,
                                       logging_level='DEBUG')
     if ind_test is None:
         ind_train = None
@@ -49,7 +53,7 @@ def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_typ
             opt_params={'max_iters':12_000, 'initial_lr':5e-3, 'iter_save':500}, 
             model_file=model_file,
             composite_kernel=['matern32', 'matern52', 'matern32', 'matern52'],
-            w_type=w_type
+            w_type=w_type,
             )
 
 if __name__ == '__main__':
@@ -65,4 +69,4 @@ if __name__ == '__main__':
     with open(args.config, 'r') as f:
         config = json.load(f)
     args = parser.parse_args()
-    run_it(args.ind_test, z=args.z, train_subdir=config['train_subdir'], machine=args.machine, num_latents=config['num_latents'], w_type=config['w_type'])
+    run_it(args.ind_test, z=args.z, train_subdir=config['train_subdir'], machine=args.machine, num_latents=config['num_latents'], w_type=config['w_type'], norm_type=config['norm_type'])

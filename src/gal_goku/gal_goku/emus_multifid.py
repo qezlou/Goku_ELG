@@ -305,7 +305,7 @@ class BaseMFCoregEmu():
     `LatentMFCoregionalizationSVGP` which allows each output to have a different
     observational (simualtion quality) uncertainty.
     """
-    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, emu_type={'wide_and_narrow':True}, logging_level='INFO'):
+    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', logging_level='INFO'):
         """
         Parameters
         ----------
@@ -319,6 +319,13 @@ class BaseMFCoregEmu():
         emu_type : dict
             wide_and_narrow : bool
                 If True, use both wide and narrow simulations.
+        norm_type : str
+            The type of normalization to be applied to the data.
+            'subtract_mean' : subtract the mean of the LF and let
+            the MF GP match the HF mean.
+            'std_gaussian' : normalize each bin to have mean 0 and std 1. Mean
+            and std are calculated based on the LF sims. Both LF and HF sims
+            are normalized using the same mean and std.
         logging_level : str
             The logging level. 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
         """
@@ -367,7 +374,10 @@ class BaseMFCoregEmu():
                 self.labels.append(np.concatenate((labels_wide, labels_narrow), axis=0))
         # X is normalized between 0 and 1, but for Y only HF fideliy is not normalized
         # the MF GP will match the HF mean
-        self.X, self.Y, self.X_min, self.X_max, self.lf_mean_func = self.normalize(self.X, self.Y)
+        if norm_type == 'subtract_mean':
+            self.X, self.Y, self.X_min, self.X_max, self.lf_mean_func = self.normalize(self.X, self.Y)
+        elif norm_type == 'std_gaussian':
+            self.X, self.Y, self.Y_err, self.X_min, self.X_max, self.mean_Y, self.std_Y = self.normalize_std_gaussian(self.X, self.Y, self.Y_err)
         self.output_dim = self.Y[0].shape[1]
         # Concatenate the errors to Y, so self.Y is a list of fidelities: [array([Y_wide ... err_wide]), array([Y_narrow ... err_narrow])]
 
@@ -385,7 +395,7 @@ class BaseMFCoregEmu():
         assert not np.isnan(self.X[1]).any(), f'X[1] has nans {np.where(np.isnan(self.X[1]))}'
         assert not np.isnan(self.Y[0]).any(), f'Y[0] has nans {np.where(np.isnan(self.Y[0]))}'
         assert not np.isnan(self.Y[1]).any(), f'Y[1] has nans {np.where(np.isnan(self.Y[1]))}'
-        self.logger.debug(f'X: ({np.array(self.X[0]).shape}, {np.array(self.X[1]).shape}, Y: ({np.array(self.Y[0]).shape}, {np.array(self.Y[1]).shape})')
+        self.logger.debug(f'X: ({np.array(self.X[0]).shape}, {np.array(self.X[1]).shape}, Y: ({np.array(self.Y[0]).shape}, {np.array(self.Y[1]).shape}, Y_err: ({np.array(self.Y_err[0]).shape}, {np.array(self.Y_err[1]).shape})')
 
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level in an MPI environment."""
@@ -438,6 +448,29 @@ class BaseMFCoregEmu():
 
         return X_normalized, Y_normalized, X_min, X_max, lf_mean_func
     
+    def normalize_std_gaussian(self, X, Y, Y_err):
+        """
+        Normalize all input, X, such it is between 0 and 1
+        Normalize Y at each bin to have mean 0 and std 1 -- should
+        help with forcing the GP to spend similar focus on all bins
+
+        """
+        X_min, X_max = np.min(X[0], axis=0), np.max(X[0], axis=0)
+        X_normalized = []
+        for i in range(len(X)):
+            X_normalized.append((X[i]-X_min)/(X_max-X_min))
+        
+        Y_normalized = []
+        Y_err_normalized = []
+        # We have more LF sims, so normalize based on LF
+        mean = np.mean(Y[0], axis=0)
+        std = np.std(Y[0], axis=0)
+        for i in range(len(Y)):
+            Y_normalized.append((Y[i] - mean) / std)
+            Y_err_normalized.append(Y_err[i] / std)
+
+        return X_normalized, Y_normalized, Y_err_normalized, X_min, X_max, mean, std
+
     def train(self, ind_train=None, ind_test=None, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train', composite_kernel=None, w_type='diagonal'):
         """
         Train the model and save this in `model_file`
@@ -635,10 +668,11 @@ class HmfNativeBins(BaseMFCoregEmu):
     observational (simualtion quality) uncertainty.
     """
 
-    def __init__(self, data_dir, z, num_latents, num_inducing, emu_type={ 'wide_and_narrow': True }, logging_level='INFO'):
+    def __init__(self, data_dir, z, num_latents, num_inducing, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', logging_level='INFO'):
         
         DataLoader = summary_stats.HMF
-        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, emu_type, logging_level)
+        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, emu_type, norm_type=norm_type, logging_level=logging_level)
+
 
 
 class XiNativeBinsFullDimReduc():
