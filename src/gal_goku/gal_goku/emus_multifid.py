@@ -375,8 +375,10 @@ class BaseMFCoregEmu():
         # X is normalized between 0 and 1, but for Y only HF fideliy is not normalized
         # the MF GP will match the HF mean
         if norm_type == 'subtract_mean':
+            self.logger.info('Normalizing X between 0 and 1, subtracting the mean of LF from LF Y')
             self.X, self.Y, self.X_min, self.X_max, self.lf_mean_func = self.normalize(self.X, self.Y)
         elif norm_type == 'std_gaussian':
+            self.logger.info('Normalizing each bin to have mean 0 and std 1')
             self.X, self.Y, self.Y_err, self.X_min, self.X_max, self.mean_Y, self.std_Y = self.normalize_std_gaussian(self.X, self.Y, self.Y_err)
         self.output_dim = self.Y[0].shape[1]
         # Concatenate the errors to Y, so self.Y is a list of fidelities: [array([Y_wide ... err_wide]), array([Y_narrow ... err_narrow])]
