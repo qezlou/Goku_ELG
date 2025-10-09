@@ -1758,15 +1758,15 @@ class HmfCombined(BasePlot):
         """
         err = np.abs(self.pred/self.truth - 1)
         # Remove any extreme sim
-        ind_rm = np.where(np.all(err > 1.0, axis=1))[0]
-        self.logger.info(f'Removing sims {self.sim_tags[ind_rm]} from the plots')
+        #ind_rm = np.where(np.all(err > 1.0, axis=1))[0]
+        #self.logger.info(f'Removing sims {self.sim_tags[ind_rm]} from the plots')
         # plot the percentile of the errors
         fig, ax = plt.subplots(2,1, figsize=(10, 6), sharex=True, gridspec_kw={'hspace': 0, 'height_ratios': [1, 0.5]})
         rand_sample = np.random.randint(0, self.pred.shape[0], size=sample_size)
         color_c = 0
         for c, s in enumerate(self.sims):
-            if c in ind_rm:
-                continue
+            #if c in ind_rm:
+            #    continue
             frac_err = np.abs(self.pred[c]/self.truth[c] - 1)
             if c in rand_sample:
                 #ax[0].plot(self.mbins, self.truth[c], alpha=0.6, lw=2, label=f'{c}', color=f'C{color_c}')
@@ -1782,7 +1782,7 @@ class HmfCombined(BasePlot):
                 idx = np.argmin(np.abs(self.mbins - x_text))
                 y_text = frac_err[idx]
                 ax[1].text(x_text, y_text, str(self.sim_tags[s][-8::]), fontsize=8, va='bottom', ha='left', alpha=0.7)
-
+        ax[1].plot(self.mbins, np.median(err, axis=0), color='k', lw=4, alpha=0.5, marker='x', label='Median')
         ax[0].set_yscale('log')
         ax[0].set_ylabel(r'$dn /dlogM$')
         ax[1].set_xscale('log')
