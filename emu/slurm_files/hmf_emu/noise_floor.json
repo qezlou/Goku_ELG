@@ -1,0 +1,7 @@
+{
+    "train_subdir": "HMF/train_noise_floor/",
+    "num_latents": 14,
+    "w_type": "pca",
+    "norm_type": "subtract_mean",
+    "noise_floor": 0.05
+}

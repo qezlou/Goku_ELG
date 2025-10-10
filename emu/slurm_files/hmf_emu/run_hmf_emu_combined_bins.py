@@ -6,7 +6,7 @@ import json
 import os.path as op
 
 
-def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_type='diagonal', norm_type='std_gaussian'):
+def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_type='diagonal', norm_type='subtract_mean', noise_floor=0.0):
     """Run the emulator training and prediction.
     """
     
@@ -37,6 +37,7 @@ def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_typ
                                       num_inducing=num_inducing, 
                                       num_latents=num_latents,
                                       norm_type=norm_type,
+                                      noise_floor=noise_floor,
                                       logging_level='DEBUG')
     if ind_test is None:
         ind_train = None
@@ -69,4 +70,4 @@ if __name__ == '__main__':
     with open(args.config, 'r') as f:
         config = json.load(f)
     args = parser.parse_args()
-    run_it(args.ind_test, z=args.z, train_subdir=config['train_subdir'], machine=args.machine, num_latents=config['num_latents'], w_type=config['w_type'], norm_type=config['norm_type'])
+    run_it(args.ind_test, z=args.z, train_subdir=config['train_subdir'], machine=args.machine, num_latents=config['num_latents'], w_type=config['w_type'], norm_type=config['norm_type'], noise_floor=config.get('noise_floor', 0.0))

@@ -305,7 +305,7 @@ class BaseMFCoregEmu():
     `LatentMFCoregionalizationSVGP` which allows each output to have a different
     observational (simualtion quality) uncertainty.
     """
-    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', logging_level='INFO'):
+    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', noise_floor=0.0, logging_level='INFO'):
         """
         Parameters
         ----------
@@ -335,7 +335,8 @@ class BaseMFCoregEmu():
         self.num_latents = num_latents
         self.num_inducing = num_inducing
         self.norm_type = norm_type
-        # Laod the data
+        self.noise_floor = noise_floor
+        # Load the data
         self.X = []
         self.Y = []
         self.Y_err = []
@@ -351,7 +352,7 @@ class BaseMFCoregEmu():
             # Goku-wide sims
             data_loader = DataLoader(data_dir=data_dir, fid =fd, z=z, narrow=False, no_merge=True, logging_level=logging_level)
             # Load xi((m1, m2), r) for wide
-            self.mbins, Y_wide, err_wide, X_wide, labels_wide = data_loader.get_wt_err()
+            self.mbins, Y_wide, err_wide, X_wide, labels_wide = data_loader.get_wt_err(noise_floor=noise_floor)
             self.wide_array= np.append(self.wide_array, np.ones(Y_wide.shape[0]))
             self.logger.debug(f'Y_wide: {Y_wide.shape}')
             # Only use Goku-wide
@@ -365,7 +366,7 @@ class BaseMFCoregEmu():
                 # Goku-narrow sims
                 data_loader = DataLoader(data_dir=data_dir, fid = fd, z=z, narrow=True, no_merge=True, logging_level=logging_level)
                 # Load xi((m1, m2), r) for wide
-                _, Y_narrow, err_narrow, X_narrow, labels_narrow = data_loader.get_wt_err()
+                _, Y_narrow, err_narrow, X_narrow, labels_narrow = data_loader.get_wt_err(noise_floor=noise_floor)
                 self.wide_array= np.append(self.wide_array, np.zeros(Y_narrow.shape[0]))
                 self.logger.debug(f'Y_narrow: {Y_narrow.shape}')
                 # For now, get rid of the lastbins with 0 value
@@ -399,6 +400,8 @@ class BaseMFCoregEmu():
         assert not np.isnan(self.Y[0]).any(), f'Y[0] has nans {np.where(np.isnan(self.Y[0]))}'
         assert not np.isnan(self.Y[1]).any(), f'Y[1] has nans {np.where(np.isnan(self.Y[1]))}'
         self.logger.debug(f'X: ({np.array(self.X[0]).shape}, {np.array(self.X[1]).shape}, Y: ({np.array(self.Y[0]).shape}, {np.array(self.Y[1]).shape}, Y_err: ({np.array(self.Y_err[0]).shape}, {np.array(self.Y_err[1]).shape})')
+        self.logger.info(f'norm_type {norm_type}')
+        self.logger.info(f'noise_floor {noise_floor}')
 
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level in an MPI environment."""
@@ -677,10 +680,10 @@ class HmfNativeBins(BaseMFCoregEmu):
     observational (simualtion quality) uncertainty.
     """
 
-    def __init__(self, data_dir, z, num_latents, num_inducing, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', logging_level='INFO'):
+    def __init__(self, data_dir, z, num_latents, num_inducing, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, logging_level='INFO'):
         
         DataLoader = summary_stats.HMF
-        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, emu_type, norm_type=norm_type, logging_level=logging_level)
+        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, emu_type, norm_type=norm_type, noise_floor=noise_floor, logging_level=logging_level)
 
 
 

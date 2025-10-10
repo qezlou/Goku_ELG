@@ -1339,7 +1339,7 @@ class HMF(BaseSummaryStats):
         self.logger.info(f'loading from {save_file}')
         return masked_hmfs, masked_mbins
 
-    def get_wt_err(self):
+    def get_wt_err(self, noise_floor=0.0):
         """
         Return the halo mass function for all the simulations
         and the corresponding uncertainties. NOT: For now we assign very large
@@ -1364,7 +1364,7 @@ class HMF(BaseSummaryStats):
         full_mbins = 0.5*(full_bins[1:] + full_bins[:-1])
         return full_mbins, log_hmfs, log_hmf_errs, self.get_params_array(), np.array(self.sim_tags)
 
-    def _get_errs(self, log_hmf, mbins):
+    def _get_errs(self, log_hmf, mbins, noise_floor=0.0):
         """
         Get realtistic errorbars for the input halo mass function
         \Delta log10(f(M)) = \sqrt{1/N_h} + higer order terms
@@ -1389,7 +1389,8 @@ class HMF(BaseSummaryStats):
         # The number of halos in the bin
         N_h = 10**log_hmf * dlogM * self.vbox
         # The errors in log10(f(M))
-        errs = np.sqrt(1/N_h)# * 1/np.log(10)
+        #errs = np.sqrt(1/N_h)# * 1/np.log(10)
+        errs = np.sqrt(1/N_h * 1/np.log(10**2) + (noise_floor*log_hmf)**2)
         # Avoid division by zero
         errs[N_h == 0] = 1e2
         return errs
