@@ -1602,7 +1602,7 @@ class HmfCombined(BasePlot):
     logging_level: str
         Logging level to use. Default is 'INFO'.
     """
-    def __init__(self, data_dir, train_subdir, sims=None, z=2.5, num_latents=5, num_inducing=500, composite_kernel=None, epochs=None, logging_level='INFO'):
+    def __init__(self, data_dir, train_subdir, sims=None, z=2.5, num_latents=5, num_inducing=500, composite_kernel=None, epochs=None, norm_type='subtract_mean', logging_level='INFO'):
         super().__init__(logging_level)
         self.sims = sims
         self.data_dir = data_dir
@@ -1610,8 +1610,9 @@ class HmfCombined(BasePlot):
         self.z = z
         self.num_latents = num_latents
         self.num_inducing = num_inducing
+        self.norm_type = norm_type
         self.emu = emus_multifid.HmfNativeBins(data_dir=self.data_dir, z=self.z, num_latents= self.num_latents, 
-                                    num_inducing=self.num_inducing, logging_level='ERROR')
+                                    num_inducing=self.num_inducing, norm_type=self.norm_type, logging_level='ERROR')
         self.composite_kernel = composite_kernel
         self.mbins = 10**self.emu.mbins
         self.sim_tags = self.emu.labels[1]
@@ -1641,6 +1642,10 @@ class HmfCombined(BasePlot):
         ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
         self.emu.Y[1][s][ind_bad_bins] = np.nan
         truth = self.emu.Y[1][s]
+        # Y has already been normalized
+        if self.norm_type == 'std_gaussian':
+            truth *= self.emu.std_Y
+            truth += self.emu.mean_Y
         truth_uncen = 10**truth * np.log(10) * self.emu.Y_err[1][s]
         loss_history = np.array(self.emu.model_attrs['loss_history'])
         w_matrix = self.emu.emu.kernel.W.numpy()

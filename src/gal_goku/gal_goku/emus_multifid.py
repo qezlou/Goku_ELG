@@ -334,6 +334,7 @@ class BaseMFCoregEmu():
         self.data_dir = data_dir
         self.num_latents = num_latents
         self.num_inducing = num_inducing
+        self.norm_type = norm_type
         # Laod the data
         self.X = []
         self.Y = []
@@ -659,6 +660,12 @@ class BaseMFCoregEmu():
         # Add the fidelity indocators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float64)
         mean_pred, var_pred = self.emu.predict_f(X_test)
+
+        if self.norm_type == 'std_gaussian':
+            # Add back the mean subtracted during normalization
+            mean_pred *= self.std_Y
+            mean_pred += self.mean_Y
+            var_pred *= self.std_Y**2
         
         return mean_pred, var_pred
 
