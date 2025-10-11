@@ -1358,7 +1358,7 @@ class HMF(BaseSummaryStats):
         for i, (h, b) in enumerate(zip(hmfs, mbins)):
             ind = np.digitize(mbins[i], full_bins)-1
             log_hmfs[i,ind] = np.log10(h)
-            log_hmf_errs[i,ind] = self._get_errs(log_hmf=np.log10(h), mbins=b)
+            log_hmf_errs[i,ind] = self._get_errs(log_hmf=np.log10(h), mbins=b, noise_floor=noise_floor)
         del hmfs
         del mbins
         full_mbins = 0.5*(full_bins[1:] + full_bins[:-1])
