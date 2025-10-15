@@ -6,7 +6,7 @@ import json
 import os.path as op
 
 
-def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_type='diagonal', norm_type='subtract_mean', noise_floor=0.0):
+def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_type='diagonal', norm_type='subtract_mean', noise_floor=0.0, loss_type='gaussian'):
     """Run the emulator training and prediction.
     """
     
@@ -55,6 +55,7 @@ def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_typ
             model_file=model_file,
             composite_kernel=['matern32', 'matern52', 'matern32', 'matern52'],
             w_type=w_type,
+            loss_type=loss_type
             )
 
 if __name__ == '__main__':
@@ -70,4 +71,4 @@ if __name__ == '__main__':
     with open(args.config, 'r') as f:
         config = json.load(f)
     args = parser.parse_args()
-    run_it(args.ind_test, z=args.z, train_subdir=config['train_subdir'], machine=args.machine, num_latents=config['num_latents'], w_type=config['w_type'], norm_type=config['norm_type'], noise_floor=config.get('noise_floor', 0.0))
+    run_it(args.ind_test, z=args.z, train_subdir=config['train_subdir'], machine=args.machine, num_latents=config['num_latents'], w_type=config['w_type'], norm_type=config['norm_type'], noise_floor=config.get('noise_floor', 0.0), loss_type=config.get('loss_type', 'gaussian'))
