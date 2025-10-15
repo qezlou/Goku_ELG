@@ -1,0 +1,8 @@
+{
+    "train_subdir": "HMF/train_poisson/",
+    "num_latents": 14,
+    "w_type": "pca",
+    "norm_type": "subtract_mean",
+    "noise_floor": 0.05,
+    "loss_type": "poisson"
+}

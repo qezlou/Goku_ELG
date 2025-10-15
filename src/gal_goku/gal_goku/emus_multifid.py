@@ -352,7 +352,7 @@ class BaseMFCoregEmu():
             # Goku-wide sims
             data_loader = DataLoader(data_dir=data_dir, fid =fd, z=z, narrow=False, no_merge=True, logging_level=logging_level)
             # Load xi((m1, m2), r) for wide
-            self.mbins, Y_wide, err_wide, X_wide, labels_wide = data_loader.get_wt_err(noise_floor=noise_floor)
+            self.mbins, Y_wide, err_wide, X_wide, labels_wide = data_loader.get_data(noise_floor=noise_floor)
             self.wide_array= np.append(self.wide_array, np.ones(Y_wide.shape[0]))
             self.logger.debug(f'Y_wide: {Y_wide.shape}')
             # Only use Goku-wide
@@ -366,7 +366,7 @@ class BaseMFCoregEmu():
                 # Goku-narrow sims
                 data_loader = DataLoader(data_dir=data_dir, fid = fd, z=z, narrow=True, no_merge=True, logging_level=logging_level)
                 # Load xi((m1, m2), r) for wide
-                _, Y_narrow, err_narrow, X_narrow, labels_narrow = data_loader.get_wt_err(noise_floor=noise_floor)
+                _, Y_narrow, err_narrow, X_narrow, labels_narrow = data_loader.get_data(noise_floor=noise_floor)
                 self.wide_array= np.append(self.wide_array, np.zeros(Y_narrow.shape[0]))
                 self.logger.debug(f'Y_narrow: {Y_narrow.shape}')
                 # For now, get rid of the lastbins with 0 value
@@ -477,7 +477,7 @@ class BaseMFCoregEmu():
 
         return X_normalized, Y_normalized, Y_err_normalized, X_min, X_max, mean, std
 
-    def train(self, ind_train=None, ind_test=None, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train', composite_kernel=None, w_type='diagonal'):
+    def train(self, ind_train=None, ind_test=None, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train', composite_kernel=None, w_type='diagonal', loss_type='gaussian'):
         """
         Train the model and save this in `model_file`
         Parameters
@@ -531,7 +531,7 @@ class BaseMFCoregEmu():
         self.emu = LatentMFCoregionalizationSVGP(
             X_train, Y_train, kernel_L, kernel_delta,
             num_latents=self.num_latents, num_inducing=self.num_inducing,
-            num_outputs=self.output_dim, heterosed=True, w_type=w_type)
+            num_outputs=self.output_dim, heterosed=True, w_type=w_type, loss_type=loss_type)
 
         model_file = op.join(self.data_dir, train_subdir, model_file)
         #self.logger.info(f'Will save to {model_file}')
@@ -586,7 +586,8 @@ class BaseMFCoregEmu():
         self.logger.info(f'#num_latents {self.num_latents}')
         self.logger.info(f'output_dim {self.output_dim}')
         self.logger.info(f'num_inducing {self.num_inducing}')
-        self.logger.info(f'varaince dim {self.emu.likelihood.variance.numpy().shape}')
+        if loss_type == 'gaussian':
+            self.logger.info(f'variance dim {self.emu.likelihood.variance.numpy().shape}')
         self.logger.info(f'composite_kernel {composite_kernel}')
         self.logger.info(f'w_type {w_type}')
         self.logger.info(f'trained epochs {current_iters}')
