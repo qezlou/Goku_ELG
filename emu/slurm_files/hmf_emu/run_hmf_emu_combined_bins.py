@@ -51,7 +51,7 @@ def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_typ
     
     emu.train(ind_train,
             train_subdir=train_subdir, 
-            opt_params={'max_iters':12_000, 'initial_lr':5e-3, 'iter_save':500}, 
+            opt_params={'max_iters':12_000, 'initial_lr':5e-3, 'iter_save':12_000}, 
             model_file=model_file,
             composite_kernel=['matern32', 'matern52', 'matern32', 'matern52'],
             w_type=w_type,

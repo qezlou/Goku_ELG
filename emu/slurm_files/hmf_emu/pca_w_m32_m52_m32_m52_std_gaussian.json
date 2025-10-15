@@ -1,5 +1,5 @@
 {
-    "train_subdir": "HMF/train_std_gaussian_pca_l14_full_comp_kernel/",
+    "train_subdir": "HMF/train_std_gaussian_pca_l14_full_comp_kernel_leftover/",
     "num_latents": 14,
     "w_type": "pca",
     "norm_type": "std_gaussian"

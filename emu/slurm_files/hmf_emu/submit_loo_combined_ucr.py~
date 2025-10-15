@@ -3,7 +3,7 @@ import numpy as np
 
 # Define the template for the modified lines
 template = """#!/bin/bash
-#SBATCH -J H-FLR{i}
+#SBATCH -J H-pca{i}
 #SBATCH -p epyc
 #SBATCH --mem=64gb
 #SBATCH --ntasks=1
@@ -15,11 +15,11 @@ hostname; pwd; date
 
 
 export PATH="/rhome/mqezl001/bigdata/.conda/gal_goku/bin:$PATH"
-python run_hmf_emu_combined_bins.py --ind_test {i} --z 2.5 --machine ucr --config noise_floor.json
+python run_hmf_emu_combined_bins.py --ind_test {i} --z 2.5 --machine ucr --config pca_w_m32_m52_m32_m52_std_gaussian.json
 """
 
 # Loop from 34 to 36
-for i in np.arange(18,36):
+for i in [12, 15]:
     print(i)
     filename = f"job_script_{i}.sh"
     with open(filename, "w") as f:
