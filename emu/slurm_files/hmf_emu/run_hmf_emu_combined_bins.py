@@ -31,6 +31,10 @@ def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_typ
         'norm_type': norm_type
     }, open(op.join(data_dir, train_subdir, 'config.json'), 'w'))
 
+    if loss_type=='poisson':
+        get_counts = True
+    else:
+        get_counts = False
     z = np.round(z, 1)
     emu = emus_multifid.HmfNativeBins(data_dir=data_dir,
                                       z=z,
@@ -38,6 +42,7 @@ def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_typ
                                       num_latents=num_latents,
                                       norm_type=norm_type,
                                       noise_floor=noise_floor,
+                                      get_counts= get_counts,
                                       logging_level='DEBUG')
     if ind_test is None:
         ind_train = None

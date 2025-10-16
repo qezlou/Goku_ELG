@@ -1339,36 +1339,40 @@ class HMF(BaseSummaryStats):
         self.logger.info(f'loading from {save_file}')
         return masked_hmfs, masked_mbins
 
-    def get_data(self, wt_err=True, noise_floor=0.0):
+    def get_data(self, get_counts=True, noise_floor=0.0):
         """
         Get the data for the emulator
         Parameters
         --------------
-        wt_err: bool
-            Whether to return the uncertainties or a mask for the missing bins
+        get_counts: bool
+            Whether to get log(hmf) with uncertainties (True) or
+            halo counts in bins (False)
         noise_floor: float
             The fractional noise floor to add in quadrature to the Poisson errors
-            when wt_err is True
+            when get_counts is False
         Returns
         --------------
-        If wt_err is True:
-            full_bins: np.ndarray
-                The uniform mass bins used for all the simulations
-            log_hmfs: np.ndarray
-                The halo mass function for all the simulations, log10 scale
-            log_hmf_errs: np.ndarray
+        full_bins: np.ndarray
+            The uniform mass bins used for all the simulations
+        log_hmfs or counts: np.ndarray
+            if get_counts is False:
+            The halo mass function for all the simulations, log10 scale
+            else:
+            The halo counts in the bins for all the simulations
+        log_hmf_errs: np.ndarray
+            if get_counts is False:
                 The uncertainties for the halo mass function, log10 scale
-            params: np.ndarray
-                The cosmological parameters for each simulation
-            sim_tags: np.ndarray
-                The simulation tags
-        If wt_err is False:
-            Similar to above but returns a mask for the missing bins instead of uncertainties
+            else:
+                Array of zeros
+        params: np.ndarray
+            The cosmological parameters for each simulation
+        sim_tags: np.ndarray
+            The simulation tags
         """
-        if wt_err:
-            return self.get_wt_err(noise_floor=noise_floor)
+        if get_counts:
+            return self.get_counts()
         else:
-            return self.get_wt_mask()
+            return self.get_wt_err(noise_floor=noise_floor)
 
     def get_wt_err(self, noise_floor=0.0):
         """
@@ -1395,7 +1399,7 @@ class HMF(BaseSummaryStats):
         full_mbins = 0.5*(full_bins[1:] + full_bins[:-1])
         return full_mbins, log_hmfs, log_hmf_errs, self.get_params_array(), np.array(self.sim_tags)
 
-    def get_wt_mask(self):
+    def get_counts(self):
         """
         Return the halo mass function for all the simulations
         and the corresponding mask for the missing bins.
@@ -1418,14 +1422,12 @@ class HMF(BaseSummaryStats):
         """
         hmfs, mbins = self.load()
         full_bins = np.arange(self.mass_range[0], self.mass_range[1]+0.01, 0.1)
-        log_hmfs = -7*np.ones((len(hmfs), full_bins.size-1))
-        mask_hmf = np.zeros((len(hmfs), full_bins.size-1), dtype=bool)
+        halo_counts = np.zeros((len(hmfs), full_bins.size-1))
         for i, (h, b) in enumerate(zip(hmfs, mbins)):
             ind = np.digitize(mbins[i], full_bins)-1
-            mask_hmf[i,ind] = True
-            log_hmfs[i,ind] = np.log10(h)
-        return full_bins, log_hmfs, mask_hmf, self.get_params_array(), np.array(self.sim_tags)
-
+            halo_counts[i,ind] = h * np.diff(full_bins)[0] * self.vbox
+        return full_bins, halo_counts, np.zeros_like(halo_counts), self.get_params_array(), np.array(self.sim_tags)
+    
     def _get_errs(self, log_hmf, mbins, noise_floor=0.0):
         """
         Get realtistic errorbars for the input halo mass function

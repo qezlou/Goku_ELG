@@ -305,7 +305,7 @@ class BaseMFCoregEmu():
     `LatentMFCoregionalizationSVGP` which allows each output to have a different
     observational (simualtion quality) uncertainty.
     """
-    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', noise_floor=0.0, logging_level='INFO'):
+    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
         """
         Parameters
         ----------
@@ -352,7 +352,7 @@ class BaseMFCoregEmu():
             # Goku-wide sims
             data_loader = DataLoader(data_dir=data_dir, fid =fd, z=z, narrow=False, no_merge=True, logging_level=logging_level)
             # Load xi((m1, m2), r) for wide
-            self.mbins, Y_wide, err_wide, X_wide, labels_wide = data_loader.get_data(noise_floor=noise_floor)
+            self.mbins, Y_wide, err_wide, X_wide, labels_wide = data_loader.get_data(noise_floor=noise_floor, get_counts=get_counts)
             self.wide_array= np.append(self.wide_array, np.ones(Y_wide.shape[0]))
             self.logger.debug(f'Y_wide: {Y_wide.shape}')
             # Only use Goku-wide
@@ -366,7 +366,7 @@ class BaseMFCoregEmu():
                 # Goku-narrow sims
                 data_loader = DataLoader(data_dir=data_dir, fid = fd, z=z, narrow=True, no_merge=True, logging_level=logging_level)
                 # Load xi((m1, m2), r) for wide
-                _, Y_narrow, err_narrow, X_narrow, labels_narrow = data_loader.get_data(noise_floor=noise_floor)
+                _, Y_narrow, err_narrow, X_narrow, labels_narrow = data_loader.get_data(noise_floor=noise_floor, get_counts=get_counts)
                 self.wide_array= np.append(self.wide_array, np.zeros(Y_narrow.shape[0]))
                 self.logger.debug(f'Y_narrow: {Y_narrow.shape}')
                 # For now, get rid of the lastbins with 0 value
@@ -681,11 +681,10 @@ class HmfNativeBins(BaseMFCoregEmu):
     observational (simualtion quality) uncertainty.
     """
 
-    def __init__(self, data_dir, z, num_latents, num_inducing, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, logging_level='INFO'):
+    def __init__(self, data_dir, z, num_latents, num_inducing, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
         
         DataLoader = summary_stats.HMF
-        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, emu_type, norm_type=norm_type, noise_floor=noise_floor, logging_level=logging_level)
-
+        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, logging_level=logging_level)
 
 
 class XiNativeBinsFullDimReduc():
