@@ -8,6 +8,7 @@
 This is a percent-level accurate surrogate model replacing the expensive N-Body simualtions to model the emission-line galaxy clustering. 
 
 
+
 ##  For Non-Astrophysicists
 
 ### The Problem
@@ -21,6 +22,14 @@ Using a **Bayesian experimental design** strategy, we carefully select a limited
 We then train a **multi-fidelity Gaussian Process (GP)** surrogate on these simulation results to emulate the observed clustering signal.
 
 This emulator achieves **percent-level cross-validation accuracy**, enabling **fast and reliable inference** through **Markov Chain Monte Carlo (MCMC)** sampling without the need for repeated, expensive N-body simulations.
+
+
+### Interactive Demo:
+Click the icon to open the interactive galaxy-clustering demo.
+
+[![Interactive demo](https://img.shields.io/badge/Interactive%20Demo–Goku%20ELG-cyan?style=flat-square)](https://qezlou.github.io/gal-clustering-viz/)
+
+
 
 ## For Astrophysisits:
 
