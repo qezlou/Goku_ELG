@@ -5,6 +5,10 @@
 [![arXiv Preprint Coming Soon](https://img.shields.io/badge/arXiv-preprint%20coming%20soon-blue)](https://arxiv.org/)
 
 
+<p align="center">
+    <img src="web_assets/goku_elg.png" alt="Goku-ELG logo" width="320"/>
+</p>
+
 This is a percent-level accurate surrogate model replacing the expensive N-Body simualtions to model the emission-line galaxy clustering. 
 
 
