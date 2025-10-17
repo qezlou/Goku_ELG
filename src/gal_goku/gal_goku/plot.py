@@ -1602,7 +1602,7 @@ class HmfCombined(BasePlot):
     logging_level: str
         Logging level to use. Default is 'INFO'.
     """
-    def __init__(self, data_dir, train_subdir, sims=None, z=2.5, num_latents=5, num_inducing=500, composite_kernel=None, epochs=None, norm_type='subtract_mean', logging_level='INFO'):
+    def __init__(self, data_dir, train_subdir, sims=None, z=2.5, num_latents=5, num_inducing=500, composite_kernel=None, epochs=None, norm_type='subtract_mean', get_counts=False, logging_level='INFO'):
         super().__init__(logging_level)
         self.sims = sims
         self.data_dir = data_dir
@@ -1611,15 +1611,22 @@ class HmfCombined(BasePlot):
         self.num_latents = num_latents
         self.num_inducing = num_inducing
         self.norm_type = norm_type
-        self.emu = emus_multifid.HmfNativeBins(data_dir=self.data_dir, z=self.z, num_latents= self.num_latents, 
-                                    num_inducing=self.num_inducing, norm_type=self.norm_type, logging_level='ERROR')
+        self.emu = emus_multifid.HmfNativeBins(data_dir=self.data_dir, z=self.z,
+                                               num_latents= self.num_latents, 
+                                               num_inducing=self.num_inducing, 
+                                               norm_type=self.norm_type, 
+                                               get_counts=get_counts,
+                                               logging_level=logging_level)
         self.composite_kernel = composite_kernel
         self.mbins = 10**self.emu.mbins
         self.sim_tags = self.emu.labels[1]
         self.cosmo_pars = self.emu.X[1]
         self.epochs = epochs
         self.logger.info(f'Getting the predictions')
-        self.pred, self.truth, self.truth_uncen, self.loss_history, self.w_matrices = self.get_loo_pred_truth(sims=self.sims)
+
+        (self.pred, self.truth, 
+         self.truth_uncen, self.loss_history, 
+         self.w_matrices) = self.get_loo_pred_truth(sims=self.sims)
         
         
     

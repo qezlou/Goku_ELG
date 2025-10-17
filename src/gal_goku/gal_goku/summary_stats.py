@@ -1339,7 +1339,7 @@ class HMF(BaseSummaryStats):
         self.logger.info(f'loading from {save_file}')
         return masked_hmfs, masked_mbins
 
-    def get_data(self, get_counts=True, noise_floor=0.0):
+    def get_data(self, get_counts=False, noise_floor=0.0):
         """
         Get the data for the emulator
         Parameters
@@ -1413,8 +1413,9 @@ class HMF(BaseSummaryStats):
             The uniform mass bins used for all the simulations
         log_hmfs: np.ndarray
             The halo mass function for all the simulations, log10 scale
-        mask_hmf: np.ndarray
-            The mask for the halo mass function, True for the bins with data
+        mult_fac: np.ndarray
+            The multiplicative factor to convert the hmf to counts in bins - 
+            It is zeros for the massive missing bins.
         params: np.ndarray
             The cosmological parameters for each simulation
         sim_tags: np.ndarray
@@ -1422,11 +1423,13 @@ class HMF(BaseSummaryStats):
         """
         hmfs, mbins = self.load()
         full_bins = np.arange(self.mass_range[0], self.mass_range[1]+0.01, 0.1)
-        halo_counts = np.zeros((len(hmfs), full_bins.size-1))
+        log_hmf = -7*np.ones((len(hmfs), full_bins.size-1))
+        mult_fac = np.zeros_like(log_hmf)
         for i, (h, b) in enumerate(zip(hmfs, mbins)):
             ind = np.digitize(mbins[i], full_bins)-1
-            halo_counts[i,ind] = h * np.diff(full_bins)[0] * self.vbox
-        return full_bins, halo_counts, np.zeros_like(halo_counts), self.get_params_array(), np.array(self.sim_tags)
+            log_hmf[i,ind] = np.log10(h)
+            mult_fac[i,ind] = np.diff(full_bins)[0] * self.vbox
+        return full_bins, log_hmf, mult_fac, self.get_params_array(), np.array(self.sim_tags)
     
     def _get_errs(self, log_hmf, mbins, noise_floor=0.0):
         """
