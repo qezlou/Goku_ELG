@@ -28,15 +28,8 @@ A cosmological emulator for emission-line galaxies (ELGs), built using the GOKU 
 
 **Qezlou et al., in preparation**
 
----
 
-## TL;DR
-
-We use machine learning techniques to map from cosmological parameters to emission-line galaxy observables.
-
----
-
-## What's New?
+### What's New?
 
 Resolving emission-line galaxies in N-body simulations requires high resolution, while achieving high-fidelity clustering statistics demands large volumes. We address both challenges **efficiently** by using machine learning models trained on the GOKU simulation suite [Yang et al. (2025)](https://ui.adsabs.harvard.edu/abs/2025PhRvD.111h3529Y/abstract).
 
