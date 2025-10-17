@@ -27,7 +27,7 @@ This emulator achieves **percent-level cross-validation accuracy**, enabling **f
 ### Interactive Demo:
 Click the icon to open the interactive galaxy-clustering demo.
 
-[![Interactive demo](https://img.shields.io/badge/Interactive%20Demo–Goku%20ELG-cyan?style=flat-square)](https://qezlou.github.io/gal-clustering-viz/)
+[![Interactive demo](https://img.shields.io/badge/Interactive%20Demo–Goku%20ELG-cyan?style=flat-square)](https://qezlou.github.io/gal-clustering-viz/change_one/)
 
 
 
