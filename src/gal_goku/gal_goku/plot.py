@@ -1611,6 +1611,7 @@ class HmfCombined(BasePlot):
         self.num_latents = num_latents
         self.num_inducing = num_inducing
         self.norm_type = norm_type
+        self.get_counts = get_counts
         self.emu = emus_multifid.HmfNativeBins(data_dir=self.data_dir, z=self.z,
                                                num_latents= self.num_latents, 
                                                num_inducing=self.num_inducing, 
@@ -1646,18 +1647,26 @@ class HmfCombined(BasePlot):
                                        model_file=model_file, 
                                        train_subdir=self.train_subdir,
                                        composite_kernel=self.composite_kernel)
-        ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
-        self.emu.Y[1][s][ind_bad_bins] = np.nan
-        truth = self.emu.Y[1][s]
-        # Y has already been normalized
-        if self.norm_type == 'std_gaussian':
-            truth *= self.emu.std_Y
-            truth += self.emu.mean_Y
-        truth_uncen = 10**truth * np.log(10) * self.emu.Y_err[1][s]
+
+
         loss_history = np.array(self.emu.model_attrs['loss_history'])
         w_matrix = self.emu.emu.kernel.W.numpy()
 
-        return 10**mean_pred.numpy().squeeze(), 10**truth.squeeze(), truth_uncen.squeeze(), loss_history, w_matrix
+        if self.get_counts:
+            truth = self.emu.Y[1][s]
+            truth_uncen = 0 * self.emu.Y_err[1][s]
+            results = (np.exp(mean_pred.numpy().squeeze()), np.exp(truth.squeeze()), truth_uncen.squeeze(), loss_history, w_matrix)
+        else:
+            ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
+            self.emu.Y[1][s][ind_bad_bins] = np.nan
+            truth = self.emu.Y[1][s]
+            # Y has already been normalized
+            if self.norm_type == 'std_gaussian':
+                truth *= self.emu.std_Y
+                truth += self.emu.mean_Y
+            truth_uncen = 10**truth * np.log(10) * self.emu.Y_err[1][s]
+            results =  (10**mean_pred.numpy().squeeze(), 10**truth.squeeze(), truth_uncen.squeeze(), loss_history, w_matrix)
+        return results
 
 
     def get_loo_pred_truth(self, sims=None, epochs=None):
@@ -1685,7 +1694,7 @@ class HmfCombined(BasePlot):
             loss_hist = [l for p, t, tu, l, w in results]
             w_matrices = [w for p, t, tu, l, w in results]
         del results
-        print(f'truth_uncen = {np.array(truth_uncen).shape}')
+        print(f'truth_uncen = {np.array(truth_uncen).shape} pred = {np.array(pred).shape}, truth = {np.array(truth).shape}')
         return np.array(pred), np.array(truth), np.array(truth_uncen), np.array(loss_hist), np.array(w_matrices)
 
     def pred_vs_trtuh(self):

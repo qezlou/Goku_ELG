@@ -156,7 +156,7 @@ class Gal(GalBase):
 
         self.logger.debug(f'Emulators mass bins: {self.xi_emu.mass_bins}')
         self.logger.debug(f'Emulators rbins.size: {self.xi_emu.rbins.size}')
-        self.rbins_fine = np.logspace(np.log10(self.rbins[0]), np.log10(self.rbins[-1]), 400)
+        self.rbins_fine = np.logspace(np.log10(self.rbins[0]), np.log10(self.rbins[-1]), 300)
         
         
         # Set the resolution parameters

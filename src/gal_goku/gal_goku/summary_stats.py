@@ -1429,8 +1429,9 @@ class HMF(BaseSummaryStats):
             ind = np.digitize(mbins[i], full_bins)-1
             log_hmf[i,ind] = np.log(h)
             mult_fac[i,ind] = np.diff(full_bins)[0] * self.vbox
-        return full_bins, log_hmf, mult_fac, self.get_params_array(), np.array(self.sim_tags)
-    
+        full_mbins = 0.5*(full_bins[1:] + full_bins[:-1])
+        return full_mbins, log_hmf, mult_fac, self.get_params_array(), np.array(self.sim_tags)
+
     def _get_errs(self, log_hmf, mbins, noise_floor=0.0):
         """
         Get realtistic errorbars for the input halo mass function
