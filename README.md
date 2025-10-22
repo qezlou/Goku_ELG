@@ -1,6 +1,6 @@
 # Goku-ELG: An accurate cosmological surrogate for emission-line galaxies (ELGs)
 
-[![Documentation](https://img.shields.io/badge/📖_Read_The_Documentation-blue?style=for-the-badge&logo=readthedocs&logoColor=white)](https://goku-elg.readthedocs.io/en/latest/o)
+[![Documentation](https://img.shields.io/badge/📖_Read_The_Documentation-blue?style=for-the-badge&logo=readthedocs&logoColor=white)](https://goku-elg.readthedocs.io/en/latest/)
 
 [![Under Development](https://img.shields.io/badge/status-under--development-orange)](https://github.com/)
 [![Built with GPflow](https://img.shields.io/badge/built%20with-GPflow-2ea44f)](https://gpflow.github.io/)
@@ -28,10 +28,17 @@ Using a **Bayesian experimental design** strategy, we carefully select a limited
 We then train a **multi-fidelity Gaussian Process (GP)** surrogate on these simulation results to emulate the observed clustering signal.
 
 The experimental design in 10-D paramter space (this summarizes 100 TB of data):
+
 <p align="center">
   <img src="web_assets/10-D-param-space.png" alt="parameters" width="45%">
+  <br>
+  <em>
+    Sample experiments in 10-D. From
+    <a href="https://ui.adsabs.harvard.edu/abs/2025PhRvD.111h3529Y/abstract" target="_blank">
+      Yang et al. (2025)
+    </a>.
+  </em>
 </p>
-
 
 
 This emulator achieves **percent-level cross-validation accuracy**, enabling **fast and reliable inference** through **Markov Chain Monte Carlo (MCMC)** sampling without the need for repeated, expensive N-body simulations.
