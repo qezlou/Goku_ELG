@@ -1,5 +1,7 @@
 # Goku-ELG: An accurate cosmological surrogate for emission-line galaxies (ELGs)
 
+[![Documentation](https://img.shields.io/badge/📖_Read_The_Documentation-blue?style=for-the-badge&logo=readthedocs&logoColor=white)](https://private-gal-emu.readthedocs.io)
+
 [![Under Development](https://img.shields.io/badge/status-under--development-orange)](https://github.com/)
 [![Built with GPflow](https://img.shields.io/badge/built%20with-GPflow-2ea44f)](https://gpflow.github.io/)
 [![arXiv Preprint Coming Soon](https://img.shields.io/badge/arXiv-preprint%20coming%20soon-blue)](https://arxiv.org/)
