@@ -14,18 +14,6 @@ formats:
   - pdf
   - epub
 
-# Python configuration
-python:
-  version: "3.12"
-  install:
-    - requirements: docs/requirements.txt
-    - method: pip
-      path: src/gal_goku
-      extra_requirements:
-        - docs
-    - method: pip
-      path: src/gal_goku_sims
-
 # Build settings
 build:
   os: ubuntu-22.04
@@ -37,6 +25,15 @@ build:
       - echo "Building documentation..."
     post_build:
       - echo "Documentation build complete!"
+
+# Python configuration
+python:
+  install:
+    - requirements: docs/requirements.txt
+    - method: pip
+      path: src/gal_goku
+    - method: pip
+      path: src/gal_goku_sims
 
 # Submodules (if your project uses git submodules)
 submodules:
