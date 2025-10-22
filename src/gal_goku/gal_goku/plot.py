@@ -1617,7 +1617,7 @@ class HmfCombined(BasePlot):
                                                num_inducing=self.num_inducing, 
                                                norm_type=self.norm_type, 
                                                get_counts=get_counts,
-                                               logging_level=logging_level)
+                                               logging_level='ERROR')
         self.composite_kernel = composite_kernel
         self.mbins = 10**self.emu.mbins
         self.sim_tags = self.emu.labels[1]
@@ -1628,6 +1628,7 @@ class HmfCombined(BasePlot):
         (self.pred, self.truth, 
          self.truth_uncen, self.loss_history, 
          self.w_matrices) = self.get_loo_pred_truth(sims=self.sims)
+        self.logger.info(f'Number of sims with LOO predictions: {self.pred.shape[0]}')
         
         
     
@@ -1777,6 +1778,7 @@ class HmfCombined(BasePlot):
         log_scale: bool
             Whether to use log scale for the fractional error plot
         """
+        
         err = np.abs(self.pred/self.truth - 1)
         # Remove any extreme sim
         #ind_rm = np.where(np.all(err > 1.0, axis=1))[0]

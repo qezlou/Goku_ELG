@@ -13,7 +13,7 @@ This is a percent-level accurate surrogate model replacing the expensive N-Body 
 
 
 
-##  For Non-Astrophysicists
+##  For General Audience
 
 ### The Problem
 
@@ -26,6 +26,21 @@ Using a **Bayesian experimental design** strategy, we carefully select a limited
 We then train a **multi-fidelity Gaussian Process (GP)** surrogate on these simulation results to emulate the observed clustering signal.
 
 This emulator achieves **percent-level cross-validation accuracy**, enabling **fast and reliable inference** through **Markov Chain Monte Carlo (MCMC)** sampling without the need for repeated, expensive N-body simulations.
+
+
+### The Validation Test:
+The plots below show the accuracy of our surrogate Gaussian Process model for key summary statistics:
+
+<p align="center">
+  <img src="web_assets/h-h-clustering-cv.png" alt="Gal-Gal-Clustering" width="45%">
+  <img src="web_assets/hmf-cv.png" alt="hmf-CV" width="45%">
+</p>
+
+and for the final observable summary statistics:
+<p align="center">
+  <img src="web_assets/Galaxy_Galaxy_clustering.png" alt="Gal-Gal-Clustering" width="45%">
+</p>
+
 
 
 ### Interactive Demo:

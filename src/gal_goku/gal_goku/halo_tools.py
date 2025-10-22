@@ -10,12 +10,14 @@ from colossus.cosmology import cosmology as colossus_cosmology
 from colossus.halo import concentration
 from scipy import special
 from scipy import integrate
+#from scipy.integrate import simps
 from scipy.constants import G
 from scipy.interpolate import UnivariateSpline
-#from scipy.integrate import simps
-#from colossus.halo import mass_defs
+from colossus.halo import mass_defs
 from astropy import units as u
 import camb
+# classylss provides wrappers around CLASS in the binding module
+import classylss.binding as CLASS
 from . import init_power
 import logging, sys
 
@@ -24,7 +26,7 @@ class HaloTools:
     Class for cosmological calculations.
     """
 
-    def __init__(self, cosmo_pars, z=2.5):
+    def __init__(self, cosmo_pars, z=2.5, cosmo_method='classylss'):
         """
         Initialize the CosmoTools class.
 
@@ -34,6 +36,12 @@ class HaloTools:
             Cosmology parameters in the order:
             'omega0', 'omegab', 'hubble', 'scalar_amp', 'ns',
             'w0_fld', 'wa_fld', 'N_ur', 'alpha_s', 'm_nu'.
+        z : float, optional
+            The redshift (default is 2.5).
+        cosmo_method : str, optional
+            The cosmology calculation method to use ('camb' or 'classylss').
+            NOTE: 'camb' fails for w0 < -1, so I recommend 'classylss'.
+            Otherwise, both are tested to give similar P(k).
         """
         self.logger = self.configure_logging()
         self.cosmo_pars = cosmo_pars
@@ -42,8 +50,12 @@ class HaloTools:
 
         # Pass cosmo parameters to CAMB
         self.z = z
-        self.camb_pars, self.camb_res = self.set_camb_cosmo(all_zs=[self.z])
-        self.rho_c, self.rho_m = self.get_rho_cm(self.z)
+        if cosmo_method == 'camb':
+            self.cosmo = self.CambCosmology(cosmo_pars, z=self.z)
+        elif cosmo_method == 'classylss':
+            self.cosmo = self.ClassylssCosmology(cosmo_pars, z=self.z)
+        else:
+            raise ValueError("cosmo_method must be either 'camb' or 'classylss'")
 
     def configure_logging(self, logging_level='INFO', logger_name='BaseGal'):
         """
@@ -101,41 +113,7 @@ class HaloTools:
         cosmo = colossus_cosmology.setCosmology('myCosmo', **params)
         return cosmo
 
-    def set_camb_cosmo(self, all_zs=[2.5]):
-        """
-        Set up the cosmology for halo calculations using CAMB.
-        """
-        pars = camb.CAMBparams()
-        pars.set_cosmology(H0=self.cosmo_pars[2]*100,  # Hubble parameter in km/s/Mpc
-                           ombh2=self.cosmo_pars[1] * self.cosmo_pars[2]**2,  # Baryon density
-                           omch2=(self.cosmo_pars[0] - self.cosmo_pars[1]) * self.cosmo_pars[2]**2,  # Cold dark matter density
-                           omk=0,
-                           nnu= self.cosmo_pars[7],
-                           mnu=self.cosmo_pars[9])
-        pars.set_dark_energy(w=self.cosmo_pars[5], wa=self.cosmo_pars[6])
-        pars.InitPower.set_params(ns=self.cosmo_pars[4],
-                                  As=self.cosmo_pars[3],
-                                  nrun=self.cosmo_pars[8])
-        pars.set_matter_power(redshifts=all_zs, kmax=100.0)
-        results = camb.get_results(pars)
-        return pars, results
 
-    def get_power_camb(self, k):
-        """
-        Get the matter power spectrum from CAMB for given wavenumbers.
-        Parameters
-        ----------
-        k : array_like
-            Wavenumber(s) [h/Mpc]
-        Returns
-        -------
-        k : array_like
-            Wavenumber(s) [h/Mpc]
-        pk : array_like
-            Power spectrum values at the given wavenumbers [Mpc/h]^3
-        """
-        k, z, pk = self.camb_res.get_matter_power_spectrum(minkh=min(k), maxkh=max(k), npoints=len(k))
-        return k, pk
      
     def get_sigma8(self):
         """"
@@ -292,60 +270,6 @@ class HaloTools:
         uk_interp = np.array(uk_interp)
         return uk_interp
 
-    def get_rho_cm(self, z):
-        """
-        Get the critical and mean matter density at redshift z in units of Msun/(Mpc/h)^3.
-
-        Parameters
-        ----------
-        z : float
-            The redshift.
-
-        Returns
-        -------
-        float
-            The critical density at redshift z.
-        """
-        Hz = self.camb_res.hubble_parameter(z)  # In km/s/Mpc
-        H_si = Hz * (u.km / u.s / u.Mpc).to(u.Hz)  # Convert H(z) to 1/s
-        rho_c_si = 3 * H_si**2 / (8 * np.pi * G)  # In kg/m^3
-        # Convert to Msun / Mpc^3
-        kg_to_msun = (u.kg).to(u.Msun)
-        m_to_mpc = (u.m).to(u.Mpc)
-
-        rho_c = rho_c_si * (kg_to_msun / m_to_mpc**3)  # Msun / Mpc^3
-
-        Omz = self.camb_res.get_Omega('cdm', z) + self.camb_res.get_Omega('baryon', z)
-        rho_m = Omz * rho_c  # Msun / Mpc^3
-        return rho_c, rho_m
-
-    def get_sigma_m(self, mass, delta=200):
-        """
-        Get the mass variance sigma(M) by intergrating the power spectrum.
-
-        Parameters
-        ----------
-        masses : float or np.ndarray
-            The mass or masses in Msun/h.
-
-        Returns
-        -------
-        float or np.ndarray
-            The mass variance sigma(M).
-        """
-        k = np.logspace(-4, 2, 500)
-        k, pk = self.get_power_camb(k)
-        k = k.squeeze()
-        pk = pk.squeeze()
-        rho_ref = delta * self.rho_c  # in Msun/(Mpc/h)^3
-        r = (3 * mass / (4 * np.pi * rho_ref))**(1/3)
-        def w(kr):
-            return (3 * (np.sin(kr) - kr * np.cos(kr))) / (kr**3 + 1e-10)
-        integrand = lambda lnk: np.interp(np.exp(lnk), k, pk) * w(np.exp(lnk) * r)**2 * np.exp(3 * lnk)
-        result = integrate.quad(integrand, np.log(k[0]), np.log(k[-1]), limit=200)[0]
-        sigma_m = np.sqrt(result / (2 * np.pi**2))
-        return sigma_m
-
     def tinker_hmf(self, A=0.186, a=1.47, b=2.57, c=1.19, z=2.5, delta=200, mbins=None):
         """
         Get the Tinker et al. 2008 halo mass function.
@@ -364,10 +288,284 @@ class HaloTools:
             mbins = np.logspace(11, 13.5, 25)
         sigma_ms = []
         for m in mbins:
-            sigma_ms.append(self.get_sigma_m(m, delta=delta))
+            sigma_ms.append(self.cosmo.get_sigma_m(m, delta=delta))
         sigma_ms = np.array(sigma_ms)
         def f_sigma(sigma):
             return A * ((sigma / b)**-a + 1) * np.exp(-c / sigma**2)
         dlnsigma_dlnM = np.gradient(np.log(sigma_ms), np.log(mbins))
-        dndlog10M = (self.rho_m / mbins) * f_sigma(sigma_ms) * np.abs(dlnsigma_dlnM) * np.log(10)
+        dndlog10M = (self.cosmo.rho_m / mbins) * f_sigma(sigma_ms) * np.abs(dlnsigma_dlnM) * np.log(10)
         return dndlog10M
+
+    class Cosmology():
+        """
+        A class for handling cosmological parameters and calculations.
+        """
+        def __init__(self, cosmo_pars):
+            self.cosmo_pars = cosmo_pars
+            self.col_cosmo = None
+
+        def set_cosmo(self):
+            """
+            Set up the cosmology for halo calculations using Colossus.
+            """
+            raise NotImplementedError("Use specific cosmology implementations.")
+        
+        def get_power(self, k):
+            """
+            Get the matter power spectrum for given wavenumbers.
+            Parameters
+            ----------
+            k : array_like
+                Wavenumber(s) [h/Mpc]
+            Returns
+            -------
+            k : array_like
+                Wavenumber(s) [h/Mpc]
+            pk : array_like
+                Power spectrum values at the given wavenumbers [Mpc/h]^3
+            """
+            raise NotImplementedError("Use specific cosmology implementations.")
+        
+        def get_rho_cm(self, z):
+            """
+            Get the critical and mean matter density at redshift z in units of Msun/(Mpc/h)^3.
+
+            Parameters
+            ----------
+            z : float
+                The redshift.
+
+            Returns
+            -------
+            float
+                The critical density at redshift z.
+            """
+            raise NotImplementedError("Use specific cosmology implementations.")
+        
+        def get_sigma_m(self, mass, delta=200):
+            """
+            Get the mass variance sigma(M) by integrating the power spectrum.
+
+            Parameters
+            ----------
+            mass : float or np.ndarray
+                The mass or masses in Msun/h.
+
+            Returns
+            -------
+            float or np.ndarray
+                The mass variance sigma(M).
+            """
+            raise NotImplementedError("Use specific cosmology implementations.")
+        
+    
+    class CambCosmology(Cosmology):
+        """
+        A class for handling cosmological parameters and calculations using CAMB.
+        """
+        def __init__(self, cosmo_pars, z=2.5):
+            super().__init__(cosmo_pars)
+            self.z = z
+            self.camb_pars, self.camb_res = self.set_camb_cosmo(all_zs=[self.z])
+            self.rho_c, self.rho_m = self.get_rho_cm(self.z)
+        
+        def set_camb_cosmo(self, all_zs=[2.5]):
+            """
+            Set up the cosmology for halo calculations using CAMB.
+            """
+            pars = camb.CAMBparams()
+            pars.set_cosmology(H0=self.cosmo_pars[2]*100,  # Hubble parameter in km/s/Mpc
+                            ombh2=self.cosmo_pars[1] * self.cosmo_pars[2]**2,  # Baryon density
+                            omch2=(self.cosmo_pars[0] - self.cosmo_pars[1]) * self.cosmo_pars[2]**2,  # Cold dark matter density
+                            omk=0,
+                            nnu= self.cosmo_pars[7],
+                            mnu=self.cosmo_pars[9])
+            pars.set_dark_energy(w=self.cosmo_pars[5], wa=self.cosmo_pars[6])
+            pars.InitPower.set_params(ns=self.cosmo_pars[4],
+                                    As=self.cosmo_pars[3],
+                                    nrun=self.cosmo_pars[8])
+            pars.set_matter_power(redshifts=all_zs, kmax=100.0)
+            results = camb.get_results(pars)
+            return pars, results
+    
+        def get_power(self, k):
+            """
+            Get the matter power spectrum from CAMB for given wavenumbers.
+            Parameters
+            ----------
+            k : array_like
+                Wavenumber(s) [h/Mpc]
+            Returns
+            -------
+            k : array_like
+                Wavenumber(s) [h/Mpc]
+            pk : array_like
+                Power spectrum values at the given wavenumbers [Mpc/h]^3
+            """
+            k, z, pk = self.camb_res.get_matter_power_spectrum(minkh=min(k), maxkh=max(k), npoints=len(k))
+            return k, pk
+    
+        def get_rho_cm(self, z):
+            """
+            Get the critical and mean matter density at redshift z in units of Msun/(Mpc/h)^3.
+
+            Parameters
+            ----------
+            z : float
+                The redshift.
+
+            Returns
+            -------
+            float
+                The critical density at redshift z.
+            """
+            Hz = self.camb_res.hubble_parameter(z)  # In km/s/Mpc
+            H_si = Hz * (u.km / u.s / u.Mpc).to(u.Hz)  # Convert H(z) to 1/s
+            rho_c_si = 3 * H_si**2 / (8 * np.pi * G)  # In kg/m^3
+            # Convert to Msun / Mpc^3
+            kg_to_msun = (u.kg).to(u.Msun)
+            m_to_mpc = (u.m).to(u.Mpc)
+
+            rho_c = rho_c_si * (kg_to_msun / m_to_mpc**3)  # Msun / Mpc^3
+
+            Omz = self.camb_res.get_Omega('cdm', z) + self.camb_res.get_Omega('baryon', z)
+            rho_m = Omz * rho_c  # Msun / Mpc^3
+            return rho_c, rho_m
+    
+        def get_sigma_m(self, mass, delta=200):
+            """
+            Get the mass variance sigma(M) by intergrating the power spectrum.
+
+            Parameters
+            ----------
+            masses : float or np.ndarray
+                The mass or masses in Msun/h.
+
+            Returns
+            -------
+            float or np.ndarray
+                The mass variance sigma(M).
+            """
+            k = np.logspace(-4, 2, 500)
+            k, pk = self.get_power(k)
+            k = k.squeeze()
+            pk = pk.squeeze()
+            rho_ref = delta * self.rho_c  # in Msun/(Mpc/h)^3
+            r = (3 * mass / (4 * np.pi * rho_ref))**(1/3)
+            def w(kr):
+                return (3 * (np.sin(kr) - kr * np.cos(kr))) / (kr**3 + 1e-10)
+            integrand = lambda lnk: np.interp(np.exp(lnk), k, pk) * w(np.exp(lnk) * r)**2 * np.exp(3 * lnk)
+            result = integrate.quad(integrand, np.log(k[0]), np.log(k[-1]), limit=200)[0]
+            sigma_m = np.sqrt(result / (2 * np.pi**2))
+            return sigma_m
+    
+    class ClassylssCosmology(Cosmology):
+        """
+        A class for handling cosmological parameters and calculations using Classylss.
+        Length units are in Mpc/h and masses in Msun/h.
+        """
+        def __init__(self, cosmo_pars, z=2.5):
+            super().__init__(cosmo_pars)
+            self.z = z
+            self.cosmo_pars = cosmo_pars
+            # Initialize CLASS engine + module wrappers
+            self.classy_engine = self.set_cosmo()
+            self._bg = CLASS.Background(self.classy_engine)
+            self._sp = CLASS.Spectra(self.classy_engine)
+            self.rho_c, self.rho_m = self.get_rho_cm(self.z)
+        
+        def set_cosmo(self):
+            """Configure and return a CLASS engine via classylss.binding."""
+            h = self.cosmo_pars[2]
+            params = {
+                # Hubble parameter
+                'h': h,
+                # Physical densities split into baryons and CDM
+                'Omega_b': self.cosmo_pars[1],
+                'Omega_cdm': float(self.cosmo_pars[0] - self.cosmo_pars[1]),
+                # Primordial power spectrum
+                'A_s': self.cosmo_pars[3],
+                'n_s': self.cosmo_pars[4],
+                'alpha_s': self.cosmo_pars[8],
+                # Dark energy equation of state (fluid parametrization)
+                'w0_fld': self.cosmo_pars[5],
+                'wa_fld': self.cosmo_pars[6],
+                # Radiation / neutrinos
+                'N_ur': self.cosmo_pars[7],
+                # Outputs
+                'output': 'mPk',
+                'P_k_max_h/Mpc': 100.0,
+                'z_max_pk': max(0.0, float(self.z))
+            }
+            # Massive neutrinos (if any)
+            if float(self.cosmo_pars[9]) > 0.0:
+                params.update({'N_ncdm': 1, 'm_ncdm': float(self.cosmo_pars[9])})
+
+            # Initialize CLASS engine
+            engine = CLASS.ClassEngine(params)
+            return engine
+        
+        def get_power(self, k):
+            """
+            Get the linear matter power spectrum P(k) at redshift z from CLASSylss.
+
+            Parameters
+            ----------
+            k : array_like
+                Wavenumber(s) in units of h/Mpc
+
+            Returns
+            -------
+            k : np.ndarray
+                Input wavenumbers (h/Mpc)
+            pk : np.ndarray
+                Power spectrum values (Mpc/h)^3
+            """
+            pk = self._sp.get_pklin(k=k, z=self.z)
+            return k, pk
+        
+        def get_rho_cm(self, z):
+            """
+            Get the critical and mean matter density at redshift z in units of Msun/(Mpc/h)^3.
+            Parameters
+            Parameters
+            ---------- 
+            z : float
+                The redshift.
+            Returns
+            -------
+            float, float
+                The critical density at redshift z.
+            """
+            h0 = float(self._bg.h)
+            # Matter density parameter at redshift z from Background
+            Omz = self._bg.Omega_m(z)
+            rho_c = self._bg.rho_crit(z) * 1e10 # Msun/h/(Mpc/h)^3
+            rho_m = Omz * rho_c
+            return rho_c, rho_m
+    
+        def get_sigma_m(self, mass, delta=200):
+            """
+            Get the mass variance sigma(M) by integrating the power spectrum.
+
+            Parameters
+            ----------
+            masses : float or np.ndarray
+                The mass or masses in Msun/h.
+
+            Returns
+            -------
+            float or np.ndarray
+                The mass variance sigma(M).
+            """
+            k = np.logspace(-4, 2, 500)
+            k, pk = self.get_power(k)
+            rho_ref = delta * self.rho_m  # in Msun/(Mpc/h)^3
+            r = (3 * mass / (4 * np.pi * rho_ref))**(1/3)
+            def w(kr):
+                return (3 * (np.sin(kr) - kr * np.cos(kr))) / (kr**3 + 1e-10)
+
+            integrand = lambda lnk: np.interp(np.exp(lnk), k, pk) * w(np.exp(lnk) * r)**2 * np.exp(3 * lnk)
+            result = integrate.quad(integrand, np.log(k[0]), np.log(k[-1]), limit=200)[0]
+            sigma_m = np.sqrt(result / (2 * np.pi**2))
+            return sigma_m
