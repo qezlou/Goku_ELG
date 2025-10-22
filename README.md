@@ -25,6 +25,13 @@ Because these simulations are slow and costly, researchers often resort to simpl
 Using a **Bayesian experimental design** strategy, we carefully select a limited number of simulation runs within a **10-dimensional cosmological parameter space**.
 We then train a **multi-fidelity Gaussian Process (GP)** surrogate on these simulation results to emulate the observed clustering signal.
 
+The experimental design in 10-D paramter space (this summarizes 100 TB of data):
+<p align="center">
+  <img src="web_assets/10-D-param-space.png" alt="parameters" width="45%">
+</p>
+
+
+
 This emulator achieves **percent-level cross-validation accuracy**, enabling **fast and reliable inference** through **Markov Chain Monte Carlo (MCMC)** sampling without the need for repeated, expensive N-body simulations.
 
 
@@ -44,10 +51,15 @@ and for the final observable summary statistics:
 
 
 ### Interactive Demo:
-Click the icon to open the interactive galaxy-clustering demo.
+Click the icon to open the interactive demo of our surrogate Guassian Process model.
 
 [![Interactive demo](https://img.shields.io/badge/Interactive%20Demo–Goku%20ELG-cyan?style=flat-square)](https://qezlou.github.io/gal-clustering-viz/change_one/)
 
+<p align="center">
+  <a href="https://qezlou.github.io/gal-clustering-viz/change_one/" target="_blank">
+    <img src="web_assets/demo-snap.png" alt="Gal-Gal-Clustering" width="45%">
+  </a>
+</p>
 
 
 ## For Astrophysisits:
@@ -69,13 +81,9 @@ Our method employs a **multi-fidelity Gaussian Process model** [Kennedy & O'Haga
 ## Installation
 
 ```
-python -m pip install emukit
 conda create -n gal_goku python=3.12 numpy scipy=1.15.1 matplotlib
 python -m pip install scikit-learn
 
-```
-
-```
 python -m pip install -e .
 ```
 
