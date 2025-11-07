@@ -10,7 +10,6 @@ from colossus.cosmology import cosmology as colossus_cosmology
 from colossus.halo import concentration
 from scipy import special
 from scipy import integrate
-#from scipy.integrate import simps
 from scipy.constants import G
 from scipy.interpolate import UnivariateSpline
 from colossus.halo import mass_defs
@@ -270,7 +269,7 @@ class HaloTools:
         uk_interp = np.array(uk_interp)
         return uk_interp
 
-    def tinker_hmf(self, A=0.186, a=1.47, b=2.57, c=1.19, z=2.5, delta=200, mbins=None):
+    def tinker_hmf(self, z=2.5, delta=200, delta_ref='mean', mbins=None):
         """
         Get the Tinker et al. 2008 halo mass function.
 
@@ -285,16 +284,58 @@ class HaloTools:
             The halo mass function dn/dlnM in (Mpc/h)^-3.
         """
         if mbins is None:
-            mbins = np.logspace(11, 13.5, 25)
-        sigma_ms = []
-        for m in mbins:
-            sigma_ms.append(self.cosmo.get_sigma_m(m, delta=delta))
-        sigma_ms = np.array(sigma_ms)
+            mbins = 10**np.arange(11.15, 13.5, 0.1)  # Msun/h
+
+        if delta_ref != 'mean':
+            self.logger.warning("tinker_hmf: delta_ref='%s' not fully supported. Using 'mean' (Δb) params; consider converting mass definition or using Colossus for 200c.", delta_ref)
+
+        # Auto Tinker08 params for Δb with redshift and Δ scaling
+        A_t, a_t, b_t, c_t = self._tinker08_params(delta=delta, z=z)
+
+        # Compute sigma(M,z) using present-day mean density in M<->R mapping
+        sigma_ms = np.array([self.cosmo.get_sigma_m(m, delta=None) for m in mbins])
+
         def f_sigma(sigma):
-            return A * ((sigma / b)**-a + 1) * np.exp(-c / sigma**2)
+            return A_t * ((sigma / b_t)**-a_t + 1.0) * np.exp(-c_t / sigma**2)
+
         dlnsigma_dlnM = np.gradient(np.log(sigma_ms), np.log(mbins))
-        dndlog10M = (self.cosmo.rho_m / mbins) * f_sigma(sigma_ms) * np.abs(dlnsigma_dlnM) * np.log(10)
+
+        # Use mean matter density today (comoving) in prefactor
+        rho_bar0 = getattr(self.cosmo, 'rho_m0', None)
+        if rho_bar0 is None:
+            rho_bar0 = self.cosmo.rho_m
+        dndlog10M = (rho_bar0 / mbins) * f_sigma(sigma_ms) * np.abs(dlnsigma_dlnM) * np.log(10)
         return dndlog10M
+
+    @staticmethod
+    def _tinker08_params(delta=200, z=0.0):
+        """Return Tinker et al. (2008) parameters (A,a,b,c) for SO-Δb with redshift and Δ scaling.
+
+        Uses commonly adopted power-law scalings:
+            A(Δ,z) = 0.186 * (Δ/200)^-0.14 * (1+z)^-0.14
+            a(Δ,z) = 1.47  * (Δ/200)^-0.06 * (1+z)^-0.06
+            b(Δ)   ≈ 2.57  (Δ dependence modest; often neglected)
+            c(Δ)   ≈ 1.19  (Δ dependence modest; often neglected)
+        """
+        if delta ==200:
+            A0, a0, b0, c0 = 0.186, 1.47, 2.57, 1.19
+        elif delta == 300:
+            A0, a0, b0, c0 = 0.200, 1.52, 2.25, 1.27
+        elif delta == 400:
+            A0, a0, b0, c0 = 0.212, 1.56, 2.05, 2.05
+        elif delta == 600:
+            A0, a0, b0, c0 = 0.218, 1.61, 1.87, 1.45
+        elif delta == 3200:
+            A0, a0, b0, c0 = 0.260, 2.66, 1.41, 2.44
+        else:
+            raise ValueError("Delta value not supported in Tinker08 params.")
+
+        A = A0 * (1.0 + z) ** (-0.14)
+        a = a0  * (1.0 + z) ** (-0.06)
+        alpha = 10**( -1*(0.75/np.log10(delta))**1.2)
+        b =b0 * (1+z)**-alpha
+        c = c0
+        return A, a, b, c
 
     class Cosmology():
         """
@@ -367,7 +408,15 @@ class HaloTools:
             super().__init__(cosmo_pars)
             self.z = z
             self.camb_pars, self.camb_res = self.set_camb_cosmo(all_zs=[self.z])
-            self.rho_c, self.rho_m = self.get_rho_cm(self.z)
+            # Present-day densities (Msun/(Mpc/h)^3)
+            rho_c0_msun_mpc3, rho_m0_msun_mpc3 = self.get_rho_cm(0.0)
+            h = float(self.cosmo_pars[2])
+            self.rho_c0 = rho_c0_msun_mpc3 * h**3
+            self.rho_m0 = rho_m0_msun_mpc3 * h**3
+            # Densities at z (Msun/(Mpc/h)^3)
+            rho_cz_msun_mpc3, rho_mz_msun_mpc3 = self.get_rho_cm(self.z)
+            self.rho_c = rho_cz_msun_mpc3 * h**3
+            self.rho_m = rho_mz_msun_mpc3 * h**3
         
         def set_camb_cosmo(self, all_zs=[2.5]):
             """
@@ -432,7 +481,7 @@ class HaloTools:
             rho_m = Omz * rho_c  # Msun / Mpc^3
             return rho_c, rho_m
     
-        def get_sigma_m(self, mass, delta=200):
+    def get_sigma_m(self, mass, delta=None):
             """
             Get the mass variance sigma(M) by intergrating the power spectrum.
 
@@ -450,7 +499,8 @@ class HaloTools:
             k, pk = self.get_power(k)
             k = k.squeeze()
             pk = pk.squeeze()
-            rho_ref = delta * self.rho_c  # in Msun/(Mpc/h)^3
+            # Use present-day mean matter density for the M<->R mapping
+            rho_ref = self.rho_m0  # Msun/(Mpc/h)^3
             r = (3 * mass / (4 * np.pi * rho_ref))**(1/3)
             def w(kr):
                 return (3 * (np.sin(kr) - kr * np.cos(kr))) / (kr**3 + 1e-10)
@@ -472,24 +522,40 @@ class HaloTools:
             self.classy_engine = self.set_cosmo()
             self._bg = CLASS.Background(self.classy_engine)
             self._sp = CLASS.Spectra(self.classy_engine)
+            # Present-day densities from CLASS (Msun/(Mpc/h)^3)
+            self.rho_c0 = self._bg.rho_crit(0.0) * 1e10
+            self.rho_m0 = self._bg.Omega0_m * self.rho_c0
+            # Densities at z
             self.rho_c, self.rho_m = self.get_rho_cm(self.z)
         
         def set_cosmo(self):
             """Configure and return a CLASS engine via classylss.binding."""
             h = self.cosmo_pars[2]
+            w0 = float(self.cosmo_pars[5])
+            wa = float(self.cosmo_pars[6])
+            
+            # Compute Omega_fld for dark energy
+            # In a flat universe: Omega_m + Omega_r + Omega_fld = 1
+            # We'll let CLASS compute Omega_r from h and N_ur, so we estimate:
+            # Omega_fld ≈ 1 - Omega_m (ignoring small radiation contribution)
+            omega_m = float(self.cosmo_pars[0])
+            omega_fld = 1.0 - omega_m
+            
             params = {
                 # Hubble parameter
                 'h': h,
-                # Physical densities split into baryons and CDM
+                # Physical densities split into baryons and CDM  
                 'Omega_b': self.cosmo_pars[1],
                 'Omega_cdm': float(self.cosmo_pars[0] - self.cosmo_pars[1]),
                 # Primordial power spectrum
                 'A_s': self.cosmo_pars[3],
                 'n_s': self.cosmo_pars[4],
                 'alpha_s': self.cosmo_pars[8],
-                # Dark energy equation of state (fluid parametrization)
-                'w0_fld': self.cosmo_pars[5],
-                'wa_fld': self.cosmo_pars[6],
+                # Dark energy: fluid parametrization with equation of state
+                # Must provide Omega_fld for CLASS to recognize w0_fld and wa_fld
+                'Omega_fld': omega_fld,
+                'w0_fld': w0,
+                'wa_fld': wa,
                 # Radiation / neutrinos
                 'N_ur': self.cosmo_pars[7],
                 # Outputs
@@ -497,6 +563,7 @@ class HaloTools:
                 'P_k_max_h/Mpc': 100.0,
                 'z_max_pk': max(0.0, float(self.z))
             }
+            
             # Massive neutrinos (if any)
             if float(self.cosmo_pars[9]) > 0.0:
                 params.update({'N_ncdm': 1, 'm_ncdm': float(self.cosmo_pars[9])})
@@ -544,28 +611,29 @@ class HaloTools:
             rho_m = Omz * rho_c
             return rho_c, rho_m
     
-        def get_sigma_m(self, mass, delta=200):
-            """
-            Get the mass variance sigma(M) by integrating the power spectrum.
+        def get_sigma_m(self, mass, delta=None):
+                """
+                Get the mass variance sigma(M) by integrating the power spectrum.
 
-            Parameters
-            ----------
-            masses : float or np.ndarray
-                The mass or masses in Msun/h.
+                Parameters
+                ----------
+                masses : float or np.ndarray
+                    The mass or masses in Msun/h.
 
-            Returns
-            -------
-            float or np.ndarray
-                The mass variance sigma(M).
-            """
-            k = np.logspace(-4, 2, 500)
-            k, pk = self.get_power(k)
-            rho_ref = delta * self.rho_m  # in Msun/(Mpc/h)^3
-            r = (3 * mass / (4 * np.pi * rho_ref))**(1/3)
-            def w(kr):
-                return (3 * (np.sin(kr) - kr * np.cos(kr))) / (kr**3 + 1e-10)
+                Returns
+                -------
+                float or np.ndarray
+                    The mass variance sigma(M).
+                """
+                k = np.logspace(-4, 2, 500)
+                k, pk = self.get_power(k)
+                # Use present-day mean matter density for the M<->R mapping
+                rho_ref = self.rho_m0  # Msun/(Mpc/h)^3
+                r = (3 * mass / (4 * np.pi * rho_ref))**(1/3)
+                def w(kr):
+                    return (3 * (np.sin(kr) - kr * np.cos(kr))) / (kr**3 + 1e-10)
 
-            integrand = lambda lnk: np.interp(np.exp(lnk), k, pk) * w(np.exp(lnk) * r)**2 * np.exp(3 * lnk)
-            result = integrate.quad(integrand, np.log(k[0]), np.log(k[-1]), limit=200)[0]
-            sigma_m = np.sqrt(result / (2 * np.pi**2))
-            return sigma_m
+                integrand = lambda lnk: np.interp(np.exp(lnk), k, pk) * w(np.exp(lnk) * r)**2 * np.exp(3 * lnk)
+                result = integrate.quad(integrand, np.log(k[0]), np.log(k[-1]), limit=200)[0]
+                sigma_m = np.sqrt(result / (2 * np.pi**2))
+                return sigma_m
