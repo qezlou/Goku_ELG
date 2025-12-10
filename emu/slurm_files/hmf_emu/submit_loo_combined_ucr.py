@@ -19,7 +19,7 @@ python run_hmf_emu_combined_bins.py --ind_test {i} --z 2.5 --machine ucr --confi
 """
 
 # Loop from 34 to 36
-for i in np.arange(0, 36):
+for i in np.arange(0, 2):
     print(i)
     filename = f"job_script_{i}.sh"
     with open(filename, "w") as f:

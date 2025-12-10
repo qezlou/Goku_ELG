@@ -3,9 +3,9 @@
 #SBATCH -p spr
 #SBATCH -N 1
 #SBATCH --tasks-per-node=56
-#SBATCH --time=2:00:00
+#SBATCH --time=20:00:00
 #SBATCH --output=%x-%j.out
 
 hostname; pwd; date
 
-ibrun python run_xi_train.py --fid 'HF' --narrow 0 --numchunks 21 --chunk 0 --stat_type 'pk_hlin'
+ibrun python run_xi_train.py --fid 'HF' --narrow 0 --numchunks 21 --chunk 0 --stat_type 'xi_hh' --z 0.0

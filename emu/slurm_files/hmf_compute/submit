@@ -1,0 +1,11 @@
+#!/bin/bash
+#SBATCH -A AST25019
+#SBATCH -J hmf-L2
+#SBATCH -p skx-dev
+#SBATCH -N 1
+#SBATCH --time=2:00:00
+#SBATCH --output=%x-%j.out
+
+hostname; pwd; date
+
+python run_hmf.py

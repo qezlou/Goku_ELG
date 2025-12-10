@@ -67,7 +67,7 @@ class Hmf(xi.Corr):
             
         
 
-    def get_fof_hmf(self, pig_dir, param, vol,  bins, counts_min = 20, merge=True):
+    def get_fof_hmf(self, pig_dir, param, vol,  bins, counts_min = 0, merge=True):
         """
         Plot the halo mass function for the FoF halos
         Parameters:
@@ -78,7 +78,16 @@ class Hmf(xi.Corr):
             Survey volume in Mpc/h
         bins: Array
             An array of mass bins to compute HMF in
-        Returns: Array
+        counts_min: int, default=0
+            Minimum number of counts in the last bins to keep them
+        merge: bool, default=True
+            If True, merge the last bins with counts < counts_min
+        param: dict
+            Dictionary containing cosmological parameters, e.g., {'H0': 70, 'Om0': 0.3, 
+            'Ob0': 0.05, 'sigma8': 0.8, 'ns': 0.96}
+        
+        Returns: 
+        hmf, bins, Array
             Halo mass function, log10(dn/log(M)) in units of
             dex^-1 h^3Mpc^-3
         """
@@ -86,10 +95,15 @@ class Hmf(xi.Corr):
         halos = self.load_halo_cat(pig_dir, cosmo)
         counts, bins = np.histogram(np.log10(halos['Mass']).compute(), bins=bins)
         # Combine the last bins which have less than 20 counts
-        counts, trimmed_bins = self._clean_end_bins(bins, counts, counts_min, merge=merge)
-        bins_delta  = trimmed_bins[1::] - trimmed_bins[0:-1]
+        if counts_min > 0:
+            self.logger.debug(f'Cleaning the last bins with counts < {counts_min}')
+            counts, bins = self._clean_end_bins(bins, counts, counts_min, merge=merge)
+        else:
+            self.logger.debug(f'Not cleaning the last bins with counts < {counts_min}')
+
+        bins_delta  = bins[1::] - bins[0:-1]
         hmf = counts/(vol*bins_delta)
-        return hmf, trimmed_bins
+        return hmf, bins
     
     def get_all_fof_hmfs(self, base_dir, save_file, narrow=False, bins=None, z=2.5, merge=True):
         """iterate over all avaiable pigs in base_dir and compue the halo mas function"""
