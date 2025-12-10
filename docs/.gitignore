@@ -1,0 +1,31 @@
+# Sphinx build directory
+build/
+
+# Generated files
+source/generated/
+source/api/generated/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation specific
+*.doctree
+.buildinfo

@@ -1412,7 +1412,7 @@ class HMF(BaseSummaryStats):
         full_bins: np.ndarray
             The uniform mass bins used for all the simulations
         log_hmfs: np.ndarray
-            The halo mass function for all the simulations, log10 scale
+            The halo mass function for all the simulations, natural log scale
         mult_fac: np.ndarray
             The multiplicative factor to convert the hmf to counts in bins - 
             It is zeros for the massive missing bins.
@@ -1423,14 +1423,15 @@ class HMF(BaseSummaryStats):
         """
         hmfs, mbins = self.load()
         full_bins = np.arange(self.mass_range[0], self.mass_range[1]+0.01, 0.1)
-        log_hmf = -7*np.ones((len(hmfs), full_bins.size-1))
+        log_hmf = -7*np.log(10)*np.ones((len(hmfs), full_bins.size-1))
         mult_fac = np.zeros_like(log_hmf)
         for i, (h, b) in enumerate(zip(hmfs, mbins)):
             ind = np.digitize(mbins[i], full_bins)-1
-            log_hmf[i,ind] = np.log10(h)
+            log_hmf[i,ind] = np.log(h)
             mult_fac[i,ind] = np.diff(full_bins)[0] * self.vbox
-        return full_bins, log_hmf, mult_fac, self.get_params_array(), np.array(self.sim_tags)
-    
+        full_mbins = 0.5*(full_bins[1:] + full_bins[:-1])
+        return full_mbins, log_hmf, mult_fac, self.get_params_array(), np.array(self.sim_tags)
+
     def _get_errs(self, log_hmf, mbins, noise_floor=0.0):
         """
         Get realtistic errorbars for the input halo mass function
