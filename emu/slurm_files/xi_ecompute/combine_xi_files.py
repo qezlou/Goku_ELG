@@ -8,25 +8,30 @@ from glob import glob
 import re
 import argparse
 
+base_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
 def combine(fid, narrow):
 
-    for z in [0.0, 0.2, 0.5, 1.0, 2.0, 3.0, 4.0, 9.0]:
+    for z in [2.5]:
         if narrow:
-            save_dir = f'/scratch/06536/qezlou/Goku/processed_data/xi_bins/{fid}/narrow'
+            save_dir = f'{base_dir}{fid}/narrow'
         else:
-            save_dir = f'/scratch/06536/qezlou/Goku/processed_data/xi_bins/{fid}'
+            save_dir = f'{base_dir}{fid}'
 
         box = {'L2': 250, 'HF':1000}
         parts = {'L2': 750, 'HF':3000}
 
         fnames = glob(op.join(save_dir, f'compressed_*z{z}.hdf5'))
+        print(fnames)
         print(f'Found {len(fnames)} files to combine.')
         numbers = []
         for fname in fnames:
-            match = re.search(r'_(\d+)z', fname)
+            if narrow:
+                match = re.search(r'_(\d+)_narrowz', fname)
+            else:
+                match = re.search(r'_(\d+)z', fname)
             if match:
                 numbers.append(int(match.group(1)))
-
+        print(numbers)
         ind_nums = np.argsort(numbers)
         fnames_sorted = [fnames[i] for i in ind_nums]
         numbers = sorted(numbers)
@@ -46,7 +51,10 @@ def combine(fid, narrow):
 
         for fn in fnames_sorted:
             with h5py.File(fn, 'r') as fr:
-                idx = numbers.index(int(re.search(r'_(\d+)z', fn).group(1)))
+                if narrow:
+                    idx = numbers.index(int(re.search(r'_(\d+)_narrowz', fn).group(1)))
+                else:
+                    idx = numbers.index(int(re.search(r'_(\d+)z', fn).group(1)))
                 corrs[idx] = fr['corr'][:]
                 pairs[idx] = fr['pairs'][:]
                 try:
