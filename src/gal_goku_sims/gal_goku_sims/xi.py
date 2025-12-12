@@ -279,6 +279,7 @@ class Corr():
 
         # Map keep_mask back to original order
         inverse_sort = np.argsort(idx_sorted)
+        self.logger.info(f'Exclusion mask: {np.sum(keep_mask)} halos kept out of {N}')
         return keep_mask[inverse_sort]
 
     def load_halo_cat(self, pig_dir, cosmo, ex_rad_fac = 0):
@@ -317,13 +318,16 @@ class Corr():
             # Gather data to rank 0 for exclusion
             all_pos = self.nbkit_comm.gather(halos['Position'].compute(), root=0)
             all_mass = self.nbkit_comm.gather(halos['Mass'].compute(), root=0)
-            all_r200 = self.nbkit_comm.gather(ex_rad_fac*halos['Radius'].compute(), root=0)
+            # The returned units in nbodykit.transform.HaloRadius is proper Mpc/h
+            all_r200 = self.nbkit_comm.gather(ex_rad_fac*halos['Radius'].compute()*(1+redshift), root=0)
+            #self.logger.info(f'min r200: {np.min(halos["Radius"].compute()*(1+redshift))*ex_rad_fac} Mpc/h | max r200: {np.max(halos["Radius"].compute()*(1+redshift))*ex_rad_fac} Mpc/h')
 
             if self.nbkit_rank == 0:
                 pos_concat = np.concatenate(all_pos)
                 mass_concat = np.concatenate(all_mass)
                 r200_concat = np.concatenate(all_r200)
                 keep_mask_all = self.halo_exclusion(pos_concat, mass_concat, r200_concat, boxsize=halos.attrs['BoxSize'])
+                self.logger.info(f'min r200: {np.min(r200_concat)} Mpc/h | max r200: {np.max(r200_concat)} cMpc/h')
             else:
                 keep_mask_all = None
 
@@ -337,9 +341,10 @@ class Corr():
             offset = sum(counts[:self.nbkit_rank])
             keep_mask = keep_mask_all[offset:offset + len(halos)]
             halos = halos[keep_mask]
-            self.logger.info(f'Rank {self.nbkit_rank} removed {np.sum(~keep_mask)/len(keep_mask)*100:.2f}% of halos due to exclusion within radius {ex_rad_fac}*R200')
+            self.logger.debug(f'Rank {self.nbkit_rank} removed {np.sum(~keep_mask)/len(keep_mask)*100:.2f}% of halos due to exclusion within radius {ex_rad_fac}*R200')
             if self.nbkit_rank == 0:
                 self.logger.info(f'In total, {np.sum(~keep_mask_all)/len(keep_mask_all)*100:.2f}% ( or  {np.sum(~keep_mask_all)} halos) of halos were removed due to exclusion within radius {ex_rad_fac}*R200')
+                
 
         return halos
 
@@ -416,9 +421,18 @@ class Corr():
             # Apply RSD to the galaxies
             rsd_factor = (1+z) / (100 * cosmo.efunc(z))
             halos['RSDPosition'] = (halos['Position'] + halos['Velocity'] * los * rsd_factor)%halos.attrs['BoxSize']
-
-            data1 = halos[halos['Mass'] >= mass_th[0]]
-            data2 = halos[halos['Mass'] >= mass_th[1]]
+            if len(mass_th) == 2:
+                # Keep all halos with mass > mass_th[0] and mass > mass_th[1]
+                data1 = halos[halos['Mass'] >= mass_th[0]]
+                data2 = halos[halos['Mass'] >= mass_th[1]]
+            elif len(mass_th) == 4:
+                # Keep halos within the mass bin specified by mass_th
+                mask1 = (halos['Mass'] >= mass_th[0]) * (halos['Mass'] <= mass_th[1])
+                mask2 = (halos['Mass'] >= mass_th[2]) * (halos['Mass'] <= mass_th[3])
+                data1 = halos[mask1]
+                data2 = halos[mask2]
+            else:
+                raise ValueError("mass_th should be a tuple of 2 or 4 floats")
         # IF file is partially pruged, bigfile will raise error retrieving Mass etc.
         except Exception as e:
             self.logger.info(f'Could not open {pig_dir} with BigFileCatalog, trying with bigfile. Exception: {e}')
