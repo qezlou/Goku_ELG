@@ -305,7 +305,7 @@ class BaseMFCoregEmu():
     `LatentMFCoregionalizationSVGP` which allows each output to have a different
     observational (simualtion quality) uncertainty.
     """
-    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
+    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
         """
         Parameters
         ----------
@@ -333,6 +333,7 @@ class BaseMFCoregEmu():
         self.logger = self.configure_logging(logging_level)
         self.data_dir = data_dir
         self.num_latents = num_latents
+        self.noise_num_latents = noise_num_latents
         self.num_inducing = num_inducing
         self.norm_type = norm_type
         self.noise_floor = noise_floor
@@ -497,8 +498,6 @@ class BaseMFCoregEmu():
         # Stack the L2 and HF data vertically
         X_train = np.vstack([X_l2_aug, X_hf_aug])
         Y_train = np.vstack([self.Y[0], self.Y[1][ind_train]])
-        Y_err = np.vstack([self.Y_err[0], self.Y_err[1][ind_train]])
-        Y_train = np.concatenate((Y_train, Y_err), axis=1) # shape becomes [N, 2*P]
         self.logger.debug(f'X_train: {X_train.shape}, Y_train: {Y_train.shape}')
 
         X_train = X_train.astype(np.float64)
@@ -525,13 +524,12 @@ class BaseMFCoregEmu():
             raise ValueError(f"Unknown composite_kernel: {composite_kernel}")
         
         #kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
-        P = int(Y_train.shape[1]/2) # Number of outputs
-        # We only pass the actual Y_train, not the errors to the
-        # class constructor
         self.emu = LatentMFCoregionalizationSVGP(
             X_train, Y_train, kernel_L, kernel_delta,
             num_latents=self.num_latents, num_inducing=self.num_inducing,
-            num_outputs=self.output_dim, heterosed=True, w_type=w_type, loss_type=loss_type)
+            num_outputs=self.output_dim, heterosed=True, w_type=w_type, 
+            loss_type=loss_type, noise_num_latents=self.noise_num_latents,
+            noise_w_type=w_type)
 
         model_file = op.join(self.data_dir, train_subdir, model_file)
         #self.logger.info(f'Will save to {model_file}')
@@ -596,6 +594,7 @@ class BaseMFCoregEmu():
         if len(list(opt_params)) == 0:
             max_iters = 4_000
             initial_lr = 5e-3
+            iter_save = max_iters
         else:
             iter_save = opt_params['iter_save']
             max_iters = opt_params['max_iters']
@@ -859,8 +858,6 @@ class XiNativeBinsFullDimReduc():
         else:
             # We subtract the median of the HF sims for training if use_rho is False
             Y_train = np.vstack([self.Y[0], self.Y[1][ind_train] - self.hf_median_func])
-        Y_err = np.vstack([self.Y_err[0], self.Y_err[1][ind_train]])
-        Y_train = np.concatenate((Y_train, Y_err), axis=1) # shape becomes [N, 2*P]
         self.logger.debug(f'X_train: {X_train.shape}, Y_train: {Y_train.shape}')
 
         X_train = X_train.astype(np.float64)
@@ -869,11 +866,8 @@ class XiNativeBinsFullDimReduc():
         # Base kernel of the MF GP
         kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
         kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
-        P = int(Y_train.shape[1]/2) # Number of outputs
-        # We only pass the actual Y_train, not the errors to the
-        # class constructor
         self.emu = LatentMFCoregionalizationSVGP(
-            X_train, Y_train[:,0:P], kernel_L, kernel_delta,
+            X_train, Y_train, kernel_L, kernel_delta,
             num_latents=self.num_latents, num_inducing=self.num_inducing,
             num_outputs=self.output_dim, heterosed=True, use_rho=self.use_rho)
         
@@ -923,6 +917,7 @@ class XiNativeBinsFullDimReduc():
         if len(list(opt_params)) == 0:
             max_iters = 4_000
             initial_lr = 5e-3
+            iter_save = max_iters
             kl_multiplier=1.0
         else:
             iter_save = opt_params.get('iter_save', 4000)
@@ -945,7 +940,7 @@ class XiNativeBinsFullDimReduc():
                 self.logger.info(f'Continue optimization from {current_iters} to {it_stp}')
                 # The decaying learning rate
                 start_lr = tf.keras.optimizers.schedules.CosineDecay(initial_lr, max_iters)(current_iters)
-                # Both data and uncertainty are passed to the optimizer
+                # Optimize on mean targets; aleatoric noise is predicted by the model
                 self.emu.optimize(data=(X_train, Y_train), max_iters=it_stp, 
                                   initial_lr=start_lr, unfix_noise_after=500,
                                   kl_multiplier=kl_multiplier)

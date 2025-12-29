@@ -1279,6 +1279,8 @@ class HMF(BaseSummaryStats):
         self.knots = None
         self.chi2 = chi2
         self.mass_range = mass_range
+        self.hmf_dir = op.join(self.data_dir, 'HMF')
+        self.logger.debug(f'save_dir: {self.hmf_dir}')
 
     
     def get_labels(self):
@@ -1291,6 +1293,7 @@ class HMF(BaseSummaryStats):
         """
         Load the Halo Mass Function computed for simulations and saved on `data_dir`
         """
+        
         if self.narrow:
             if self.no_merge:
                 save_file = f'{self.fid}_hmfs_{self.z}_narrow_no_merge.hdf5'
@@ -1302,8 +1305,9 @@ class HMF(BaseSummaryStats):
             else:
                 save_file = f'{self.fid}_hmfs.hdf5'
         if self.rank==0:
-            self.logger.debug(f'Loading HMFs from {save_file}')   
-            with h5py.File(op.join(self.data_dir, 'HMF', save_file), 'r') as f:
+            file_path = op.join(self.hmf_dir, save_file)
+            self.logger.debug(f"Loading HMFs from {save_file}")   
+            with h5py.File(file_path, 'r') as f:
                 bins = f['bins_coarse'][:]
                 hmfs = f['hmfs_coarse'][:]
                 sim_tags = []
@@ -1336,7 +1340,6 @@ class HMF(BaseSummaryStats):
             ind = np.where((mbin >= self.mass_range[0]) & (mbin <= self.mass_range[1]))[0]
             masked_mbins.append(mbin[ind])
             masked_hmfs.append(h[ind])
-        self.logger.info(f'loading from {save_file}')
         return masked_hmfs, masked_mbins
 
     def get_data(self, get_counts=False, noise_floor=0.0):
