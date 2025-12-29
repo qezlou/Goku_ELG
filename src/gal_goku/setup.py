@@ -38,7 +38,7 @@ setuptools.setup(
         "colossus",
         "camb",
         "configobj",
-        "multi_fidelity_gpflow @ git+https://github.com/qezlou/multi_fidelity_gpflow.git",
+        "mfgpflow @ git+https://github.com/qezlou/multi_fidelity_gpflow.git",
         "classylss @ git+https://github.com/sbird/classylss.git",
     ],
 )
