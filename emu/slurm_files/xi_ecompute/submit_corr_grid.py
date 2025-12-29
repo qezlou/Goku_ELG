@@ -4,19 +4,19 @@ import numpy as np
 # Define the template for the modified lines
 template = """#!/bin/bash
 #SBATCH -A AST25019
-#SBATCH -J n9.0-{i}
-#SBATCH -p spr
+#SBATCH -J HN2.0-{i}
+#SBATCH -p icx
 #SBATCH -N 1
-#SBATCH --ntasks-per-node 112
+#SBATCH --ntasks-per-node 80
 #SBATCH --time=48:00:00
 #SBATCH --output=%x-%j.out
 
 hostname; pwd; date
 export LD_PRELOAD=$CONDA_PREFIX/lib/libssl.so:$CONDA_PREFIX/lib/libcrypto.so
-ibrun python run_xi_train.py --fid 'L2' --narrow 1 --numchunks 1 --chunk {i} --stat_type 'xi_hh' --z 4.0
+ibrun python run_xi_train.py --fid 'HF' --narrow 0 --numchunks 1 --chunk {i} --stat_type 'xi_hh' --z 2.0
 """
 
-# Loop from 0 to 20 and create modified files
+# Loop from 0 to 9 and create modified files
 for i in range(1):
     print(i)
     filename = f"job_script_{i}.sh"

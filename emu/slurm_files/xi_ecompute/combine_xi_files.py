@@ -8,20 +8,23 @@ from glob import glob
 import re
 import argparse
 
-base_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
+#base_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
+base_dir = '/scratch/06536/qezlou/Goku/processed_data/xi_bins/'
 def combine(fid, narrow):
 
-    for z in [2.5]:
-        if narrow:
+    if narrow:
             save_dir = f'{base_dir}{fid}/narrow'
-        else:
+    else:
             save_dir = f'{base_dir}{fid}'
+    print(f'save_dir: {save_dir}')
+
+    for z in [0.0, 0.2, 1.0, 2.0, 3.0, 4.0]:
 
         box = {'L2': 250, 'HF':1000}
         parts = {'L2': 750, 'HF':3000}
 
         fnames = glob(op.join(save_dir, f'compressed_*z{z}.hdf5'))
-        print(fnames)
+        #print(fnames)
         print(f'Found {len(fnames)} files to combine.')
         numbers = []
         for fname in fnames:
@@ -31,7 +34,7 @@ def combine(fid, narrow):
                 match = re.search(r'_(\d+)z', fname)
             if match:
                 numbers.append(int(match.group(1)))
-        print(numbers)
+        #print(numbers)
         ind_nums = np.argsort(numbers)
         fnames_sorted = [fnames[i] for i in ind_nums]
         numbers = sorted(numbers)
@@ -40,7 +43,7 @@ def combine(fid, narrow):
             print(fr.keys())
             for key in fr.keys():
                 print(key, fr[key].shape)
-            print(fr['sim_tag'][()].decode('utf-8'))
+            #print(fr['sim_tag'][()].decode('utf-8'))
             corr_shape = fr['corr'].shape
             pairs_shape = fr['pairs'].shape
             mbins = fr['mbins'][:]
