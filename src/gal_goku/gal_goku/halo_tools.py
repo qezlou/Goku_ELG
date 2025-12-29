@@ -16,8 +16,8 @@ from colossus.halo import mass_defs
 from astropy import units as u
 import camb
 # classylss provides wrappers around CLASS in the binding module
-import classylss.binding as CLASS
-from . import init_power
+#import classylss.binding as CLASS
+#from . import init_power
 import logging, sys
 
 class HaloTools:

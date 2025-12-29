@@ -8,7 +8,7 @@ from scipy.interpolate import make_interp_spline, RectBivariateSpline, Univariat
 from scipy import special
 from scipy.integrate import quad, simpson
 from gal_goku import halo_tools
-from . import init_power
+#from . import init_power
 
 
 class GalBase:
