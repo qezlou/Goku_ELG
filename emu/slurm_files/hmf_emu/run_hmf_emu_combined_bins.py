@@ -6,7 +6,7 @@ import json
 import os.path as op
 
 
-def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_type='diagonal', norm_type='subtract_mean', noise_floor=0.0, loss_type='gaussian'):
+def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, noise_num_latents=10, w_type='diagonal', norm_type='subtract_mean', noise_floor=0.0, loss_type='gaussian'):
     """Run the emulator training and prediction.
     """
     
@@ -27,6 +27,7 @@ def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_typ
     json.dump({
         'train_subdir': train_subdir,
         'num_latents': num_latents,
+        'noise_num_latents': noise_num_latents,
         'w_type': w_type,
         'norm_type': norm_type
     }, open(op.join(data_dir, train_subdir, 'config.json'), 'w'))
@@ -46,12 +47,11 @@ def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, w_typ
                                       logging_level='DEBUG')
     if ind_test is None:
         ind_train = None
-        model_file=f'hmf_emu_combined_z{z}_inducing_{int(num_inducing)}_latents_{int(num_latents)}_all.pkl'
+        model_file=f'hmf_emu_combined_z{z}_inducing_{int(num_inducing)}_latents_{int(num_latents)}_{int(noise_num_latents)}_all.pkl'
 
     else:
         ind_train = np.delete(np.arange(emu.Y[1].shape[0]), [ind_test])
-        model_file=f'hmf_emu_combined_z{z}_inducing_{int(num_inducing)}_latents_{int(num_latents)}_leave{ind_test}.pkl'
-
+        model_file=f'hmf_emu_combined_z{z}_inducing_{int(num_inducing)}_latents_{int(num_latents)}_{int(noise_num_latents)}_leave{ind_test}.pkl'
     emu.logger.info(f'will save on {model_file}')
     
     emu.train(ind_train,
@@ -76,4 +76,9 @@ if __name__ == '__main__':
     with open(args.config, 'r') as f:
         config = json.load(f)
     args = parser.parse_args()
-    run_it(args.ind_test, z=args.z, train_subdir=config['train_subdir'], machine=args.machine, num_latents=config['num_latents'], w_type=config['w_type'], norm_type=config['norm_type'], noise_floor=config.get('noise_floor', 0.0), loss_type=config.get('loss_type', 'gaussian'))
+    run_it(args.ind_test, z=args.z, train_subdir=config['train_subdir'], 
+           machine=args.machine, num_latents=config['num_latents'], 
+           noise_num_latents=config['noise_num_latents'], 
+           w_type=config['w_type'], norm_type=config['norm_type'], 
+           noise_floor=config.get('noise_floor', 0.0), 
+           loss_type=config.get('loss_type', 'gaussian'))

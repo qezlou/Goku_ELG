@@ -680,10 +680,10 @@ class HmfNativeBins(BaseMFCoregEmu):
     observational (simualtion quality) uncertainty.
     """
 
-    def __init__(self, data_dir, z, num_latents, num_inducing, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
+    def __init__(self, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
         
         DataLoader = summary_stats.HMF
-        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, logging_level=logging_level)
+        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=noise_num_latents, emu_type=emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, logging_level=logging_level)
 
 
 class XiNativeBinsFullDimReduc():
@@ -693,7 +693,7 @@ class XiNativeBinsFullDimReduc():
     `LatentMFCoregionalizationSVGP` which allows each output to have a different
     observational (simualtion quality) uncertainty.
     """
-    def __init__(self, data_dir, num_latents, num_inducing, 
+    def __init__(self, data_dir, num_latents, num_inducing, noise_num_latents=None,
                  use_rho=True, emu_type={'wide_and_narrow':True}, 
                  logging_level='INFO'):
         """

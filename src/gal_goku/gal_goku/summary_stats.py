@@ -1399,6 +1399,8 @@ class HMF(BaseSummaryStats):
             log_hmf_errs[i,ind] = self._get_errs(log_hmf=np.log10(h), mbins=b, noise_floor=noise_floor)
         del hmfs
         del mbins
+        # replace -inf with a small value, -7
+        log_hmfs[np.isneginf(log_hmfs)] = -7
         full_mbins = 0.5*(full_bins[1:] + full_bins[:-1])
         return full_mbins, log_hmfs, log_hmf_errs, self.get_params_array(), np.array(self.sim_tags)
 
