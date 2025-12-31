@@ -41,6 +41,7 @@ def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=14, noise
                                       z=z,
                                       num_inducing=num_inducing, 
                                       num_latents=num_latents,
+                                      noise_num_latents=noise_num_latents,
                                       norm_type=norm_type,
                                       noise_floor=noise_floor,
                                       get_counts= get_counts,

@@ -3,5 +3,5 @@
     "num_latents": 14,
     "noise_num_latents": 10,
     "w_type": "pca",
-    "norm_type":"std_gaussian"
+    "norm_type":"subtract_mean"
 }

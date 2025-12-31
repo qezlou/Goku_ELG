@@ -581,7 +581,7 @@ class BaseMFCoregEmu():
             model_file = model_file.replace('.pkl', f'_{current_iters}.pkl')
         # Log the model specifications
         self.logger.info(f'Built the model with')
-        self.logger.info(f'#num_latents {self.num_latents}')
+        self.logger.info(f'#num_latents {self.num_latents}, noise_num_latents {self.noise_num_latents}')
         self.logger.info(f'output_dim {self.output_dim}')
         self.logger.info(f'num_inducing {self.num_inducing}')
         if loss_type == 'gaussian':
