@@ -662,15 +662,23 @@ class BaseMFCoregEmu():
         
         # Add the fidelity indocators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float64)
-        mean_pred, var_pred = self.emu.predict_f(X_test)
+        Fmu, Fvar = self.emu.predict_f(X_test)
+        P = self.output_dim
+        mean_mu = Fmu[:, :P]
+        mean_var = Fvar[:, :P]
+        logvar_mu = Fmu[:, P:]
+        logvar_var = Fvar[:, P:]
+
+        aleatoric_var = np.exp(logvar_mu + 0.5 * logvar_var)
+        base_noise = np.array(self.emu.likelihood.variance)
+        effective_var = base_noise + aleatoric_var
+        mean_pred = mean_mu
+        y_var = mean_var + effective_var
 
         if self.norm_type == 'std_gaussian':
-            # Add back the mean subtracted during normalization
-            mean_pred *= self.std_Y
-            mean_pred += self.mean_Y
-            var_pred *= self.std_Y**2
-        
-        return mean_pred, var_pred
+            mean_pred = mean_pred * self.std_Y + self.mean_Y
+            y_var = y_var * (self.std_Y ** 2)
+        return mean_pred, y_var
 
 class HmfNativeBins(BaseMFCoregEmu):
     """
@@ -992,7 +1000,15 @@ class XiNativeBinsFullDimReduc():
         
         # Add the fidelity indocators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float64)
-        mean_pred, var_pred = self.emu.predict_f(X_test)
+        Fmu, Fvar = self.emu.predict_f(X_test)
+        P = self.output_dim
+        mean_pred = Fmu[:, :P]
+        mean_var = Fvar[:, :P]
+        logvar_mu = Fmu[:, P:]
+        logvar_var = Fvar[:, P:]
+        aleatoric_var = np.exp(logvar_mu + 0.5 * logvar_var)
+        base_noise = np.array(self.emu.likelihood.variance)
+        var_pred = mean_var + (base_noise + aleatoric_var)
         if not self.use_rho:
             mean_pred += self.hf_median_func
         
