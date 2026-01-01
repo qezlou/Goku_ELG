@@ -597,7 +597,7 @@ class Xi(BaseSummaryStats):
     """
     Speherically Averaged correlation function
     """
-    def __init__(self, data_dir, fid, mass_range=(11.0, 12.32), narrow=False, MPI=None, logging_level='INFO'):
+    def __init__(self, data_dir, fid, z=2.5, mass_range=(11.0, 12.32), narrow=False, MPI=None, logging_level='INFO', **kwargs):
         """
         Calling this will load the xi(r, n1, n2) for all the simulations
         Parameters:
@@ -606,27 +606,36 @@ class Xi(BaseSummaryStats):
             The directory containing the data
         fid: str
             The folder id
+        z: float
+            The redshift of the snapshots
+        mass_range: tuple, optional, default=(11.0, 12.32)
+            The mass range to consider for the halos
         narrow: bool, optional, default=False
             Whether it is Goku-narrow or not
+        
         logging_level: str, optional, default='INFO'
             The logging level
         """
         super().__init__(data_dir, fid, MPI=MPI, logging_level=logging_level)
         self.data_dir = data_dir
         self.fid = fid
+        if self.fid == 'HF':
+            boxsize = 1000
+            npart = 3000
+        elif self.fid == 'L2':
+            boxsize = 250
+            npart = 750
+
         self.narrow = narrow
         # Get the file counts
         if self.narrow:
-            self.xi_file = op.join(self.data_dir, self.fid, 'narrow', f'xi_grid_{self.fid}_narrow.hdf5')
-            self.sim_tags, self.rbins, self.xi, self.mass_pairs = self._load_data(mass_range=mass_range)
-            self.sim_nums = [int(f.split('_')[-2]) for f in self.sim_tags]
+            self.xi_file = op.join(self.data_dir, f'all_compressed_10p_Box{boxsize}_Part{npart}_narrowz{np.round(z,1)}.hdf5')
+            self.sim_tags, self.sim_nums, self.rbins, self.xi, self.mass_pairs = self._load_data(mass_range=mass_range)
         else:
-            self.xi_file = op.join(self.data_dir, self.fid, f'xi_grid_{self.fid}.hdf5')
-            self.sim_tags, self.rbins, self.xi, self.mass_pairs = self._load_data(mass_range=mass_range)
-            self.sim_nums = [int(f.split('_')[-1]) for f in self.sim_tags]
+            self.xi_file = op.join(self.data_dir, f'all_compressed_10p_Box{boxsize}_Part{npart}_z{np.round(z,1)}.hdf5')
+            self.sim_tags, self.sim_nums, self.rbins, self.xi, self.mass_pairs = self._load_data(mass_range=mass_range)
 
-        # Sort the dat based on the sim id
-        self.sim_nums = np.array(self.sim_nums).astype(int)
+        # Sort the data based on the sim id
         ind_sort = np.argsort(self.sim_nums)
         self.sim_tags = np.array(self.sim_tags)[ind_sort]
         self.sim_nums = np.array(self.sim_nums)[ind_sort]
@@ -645,16 +654,18 @@ class Xi(BaseSummaryStats):
         sim_tags= []
         with h5py.File(self.xi_file, 'r') as f:
             rbins = f['mbins'][:]
-            xi = f['corr'][:]
-            mass_pairs = f['mass_pairs'][:]
+            xi = f['corrs'][:]
+            # All sims have the same mass pairs
+            mass_pairs = f['pairs'][0]
             for tag in f['sim_tags']:
                 sim_tags.append(tag.decode('utf-8'))
-        
+            sim_id = f['sim_id'][:]
+        # Filter based on the mass range
         ind = (mass_pairs[:,0] >= mass_range[0]) & (mass_pairs[:,0] <= mass_range[1]) & \
                 (mass_pairs[:,1] >= mass_range[0]) & (mass_pairs[:,1] <= mass_range[1])
         mass_pairs = mass_pairs[ind,:]
         xi = xi[:, ind, :]
-        return sim_tags, rbins, xi, mass_pairs
+        return sim_tags, sim_id, rbins, xi, mass_pairs
     
     def get_labels(self):
         """It is just the simulation tags"""
@@ -1066,6 +1077,34 @@ class Xi(BaseSummaryStats):
 
         return bins, interped_log_corr, log_corr_err, params, sim_tags
     
+    def get_data(self, get_counts=False, noise_floor=0.0, rcut=(0.2, 61), remove_sims=None):
+        """
+        Return the correlation function for all the simulations
+        and the corresponding uncertainties.
+        Parameters
+        --------------
+        get_counts: bool
+            Here just for interface compatibility, ignored
+        noise_floor: float
+            The minimum uncertainty to assign to each bin
+        Returns
+        --------------
+        bins: np.ndarray, shape=(n,3)
+            The bins of the correlation function in (r, m1, m2) format
+        corr: np.ndarray, shape=(n*n_bins,)
+            The correlation function for the "remaining" bins
+            at (r, m1, m2) bins
+        corr_err: np.ndarray, shape=(n*n_bins)
+            The correlation function errors for the "remaining" bins
+            at (r, m1, m2) bins
+        params: np.ndarray, shape=(n*n_bins, prams_size)
+            The cosmological parameters for the "remaining" bins
+        counts: np.ndarray, shape=(n*n_bins,), optional
+            The counts data if get_counts is True
+
+        """
+        return self.get_wt_err(rcut=rcut, remove_sims=remove_sims)
+        
     def get_wt_err(self, rcut=(0.2, 61), remove_sims=None):
         """
         Return the correlation function for all the simulations
@@ -1116,8 +1155,9 @@ class Xi(BaseSummaryStats):
         params = self.get_params_array()
         
         # Record the bins of ((m1, m2), r)
+        print(f'log_corr.shape: {log_corr.shape}, rbins.size: {rbins.size}, mass_pairs.shape: {self.mass_pairs.shape}')
         bins = np.zeros((log_corr.shape[1], 3))
-        bins[:,2] = np.tile(rbins, len(self.mass_pairs))
+        bins[:,2] = np.tile(rbins, self.mass_pairs.shape[0])
         bins[:,1] = np.repeat(self.mass_pairs[:,1], rbins.size)
         bins[:,0] = np.repeat(self.mass_pairs[:,0], rbins.size)
 
@@ -1264,7 +1304,7 @@ class HMF(BaseSummaryStats):
     """
     Halo mass function
     """
-    def __init__(self, data_dir, fid, z=2.5, mass_range=(11.1, 12.5), narrow=False, no_merge=True, chi2=False, logging_level='INFO'):
+    def __init__(self, data_dir, fid, z=2.5, mass_range=(11.1, 12.5), narrow=False, no_merge=True, chi2=False, logging_level='INFO', **kwargs):
         super().__init__(data_dir, logging_level)
         self.fid = fid
         self.z = np.round(z, 1)
