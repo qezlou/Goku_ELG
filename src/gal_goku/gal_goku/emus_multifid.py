@@ -447,7 +447,7 @@ class BaseMFCoregEmu():
             X_normalized.append((X[i]-X_min)/(X_max-X_min))
         Y_normalized = []
         # The zeros row is the LF
-        lf_mean_func =  np.mean(Y[0], axis=0)
+        lf_mean_func =  np.nanmean(Y[0], axis=0)
         Y_normalized.append(Y[0] -lf_mean_func)
         # Don't subtract the mean for the HF, The MF GP will match
         # the HF mean
@@ -529,7 +529,7 @@ class BaseMFCoregEmu():
             num_latents=self.num_latents, num_inducing=self.num_inducing,
             num_outputs=self.output_dim, heterosed=True, w_type=w_type, 
             loss_type=loss_type, noise_num_latents=self.noise_num_latents,
-            noise_w_type=w_type)
+            noise_w_type=w_type, logging_level=self.logging_level)
 
         model_file = op.join(self.data_dir, train_subdir, model_file)
         #self.logger.info(f'Will save to {model_file}')
@@ -693,6 +693,18 @@ class HmfNativeBins(BaseMFCoregEmu):
         DataLoader = summary_stats.HMF
         super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=noise_num_latents, emu_type=emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, logging_level=logging_level)
 
+class XiNativeBins(BaseMFCoregEmu):
+    """
+    Emulator for the Correlation Function, xi(r, m1, m2) using the native bins
+    This does the full dimensionality reduction of the output space using
+    `LatentMFCoregionalizationSVGP` which allows each output to have a different
+    observational (simualtion quality) uncertainty.
+    """
+
+    def __init__(self, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
+        
+        DataLoader = summary_stats.Xi
+        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=noise_num_latents, emu_type=emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, logging_level=logging_level)
 
 class XiNativeBinsFullDimReduc():
     """
@@ -1012,4 +1024,4 @@ class XiNativeBinsFullDimReduc():
         if not self.use_rho:
             mean_pred += self.hf_median_func
         
-        return mean_pred, var_pred
+        return mean_pred, mean_var, base_noise, aleatoric_var

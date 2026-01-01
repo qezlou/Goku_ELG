@@ -2,46 +2,73 @@ import argparse
 import numpy as np
 import importlib
 from gal_goku import emus_multifid
-importlib.reload(emus_multifid)
+import json
+import os.path as op
 
 
-def run_it(ind_test, use_rho, num_inducing=500, num_latents=40, remove_sims=None):
-    #data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
-    #train_subdir = 'train_hetero'
-    data_dir = '/scratch/06536/qezlou/Goku/processed_data/xi_bins/'
-    #train_subdir = 'train_combined_less_massive'
+def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=40, noise_num_latents=40, w_type='diagonal', norm_type='subtract_mean', noise_floor=0.0, loss_type='gaussian'):
 
-    train_subdir = 'train_remove_bad_l2_sims_test_kl_reg'
+    num_inducing=500
+
+    if machine=='stampede3':
+        data_dir = '/scratch/06536/qezlou/Goku/processed_data/xi_bins/'
+    elif machine=='ucr':
+        data_dir = '/rhome/mqezl001/bigdata/HETDEX/data/xi_bins/'
+    elif machine=='pc':
+        data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
+
+    # Save the config file to the save directory
+    json.dump({
+        'train_subdir': train_subdir,
+        'num_latents': num_latents,
+        'noise_num_latents': noise_num_latents,
+        'w_type': w_type,
+        'norm_type': norm_type
+    }, open(op.join(data_dir, train_subdir, 'config.json'), 'w'))
     
 
-    emu = emus_multifid.XiNativeBinsFullDimReduc(data_dir=data_dir,
-                                                num_inducing=num_inducing, 
-                                                num_latents=num_latents,
-                                                use_rho=bool(use_rho),
-                                                #remove_sims=remove_sims,
-                                                logging_level='DEBUG')
+    emu = emus_multifid.XiNativeBins(data_dir=data_dir,
+                                     z=z,
+                                     num_inducing=num_inducing, 
+                                     num_latents=num_latents,
+                                     noise_num_latents=noise_num_latents,
+                                     norm_type=norm_type,
+                                     noise_floor=noise_floor,
+                                     logging_level='DEBUG')
     if ind_test is None:
         ind_train = None
-        model_file=f'xi_emu_combined_inducing_{int(num_inducing)}_latents_{int(num_latents)}_leave{ind_test}_all.pkl'
+        model_file=f'xi_emu_combined_z{z}_inducing_{int(num_inducing)}_latents_{int(num_latents)}_{int(noise_num_latents)}_leave{ind_test}_all.pkl'
 
     else:
         ind_train = np.delete(np.arange(emu.Y[1].shape[0]), [ind_test])
-        model_file=f'xi_emu_combined_inducing_{int(num_inducing)}_latents_{int(num_latents)}_leave{ind_test}.pkl'
+        model_file=f'xi_emu_combined_z{z}_inducing_{int(num_inducing)}_latents_{int(num_latents)}_{int(noise_num_latents)}_leave{ind_test}.pkl'
     
     emu.logger.info(f'will save on {model_file}')
     
     emu.train(ind_train,
             train_subdir=train_subdir, 
-            opt_params={'max_iters':38_000, 'initial_lr':5e-3, 'kl_multiplier': 0.1}, 
-            model_file=model_file
+            opt_params={'max_iters':38_000, 'initial_lr':5e-3, 'iter_save':10_000}, 
+            model_file=model_file,
+            composite_kernel=['matern32', 'matern52', 'matern32', 'matern52'],
+            w_type=w_type
             )
 
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description='Get the correlation function of the galaxies in the PIGs')
+    parser = argparse.ArgumentParser(description='Xi LOOCV')
     parser.add_argument('--ind_test', default=None, type=int, help='')
-    parser.add_argument('--use_rho', default=1, type=int, help='')
-    parser.add_argument('--remove_sims', default=None, type=int, nargs='+', help='')
+    parser.add_argument('--z', default=2.5, type=float, help='Redshift')
+    parser.add_argument('--machine', default='stampede3', type=str, help='Machine name')
+    parser.add_argument('--config', default='config.json', type=str, help='Path to config file')
 
     args = parser.parse_args()
-    run_it(ind_test=args.ind_test, use_rho=args.use_rho, remove_sims=args.remove_sims)
+    # load the config file
+    with open(args.config, 'r') as f:
+        config = json.load(f)
+    args = parser.parse_args()
+    run_it(args.ind_test, z=args.z, train_subdir=config['train_subdir'], 
+           machine=args.machine, num_latents=config['num_latents'], 
+           noise_num_latents=config['noise_num_latents'], 
+           w_type=config['w_type'], norm_type=config['norm_type'], 
+           noise_floor=config.get('noise_floor', 0.0), 
+           loss_type=config.get('loss_type', 'gaussian'))

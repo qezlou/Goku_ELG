@@ -1625,12 +1625,12 @@ class HmfCombined(BasePlot):
         self.sim_tags = self.emu.labels[1]
         self.cosmo_pars = self.emu.X[1]
         self.epochs = epochs
-        self.logger.info(f'Getting the predictions')
+        self.logger.debug(f'Getting the predictions')
 
-        #(self.pred, self.truth, 
-        # self.truth_uncen, self.loss_history, 
-        # self.w_matrices) = self.get_loo_pred_truth(sims=self.sims)
-        #self.logger.info(f'Number of sims with LOO predictions: {self.pred.shape[0]}')
+        (self.pred, self.pred_uncen,
+         self.truth, self.truth_uncen, 
+         self.loss_history, self.w_matrices) = self.get_loo_pred_truth(sims=self.sims)
+        self.logger.info(f'Number of sims with LOO predictions: {self.pred.shape[0]}')
         
         
     
@@ -1645,8 +1645,8 @@ class HmfCombined(BasePlot):
             model_file = f'hmf_emu_combined_z{self.z}_inducing_{self.num_inducing}_latents_{self.num_latents}_{self.noise_num_latents}_leave{s}.pkl'
         else:
             model_file = f'hmf_emu_combined_z{self.z}_inducing_{self.num_inducing}_latents_{self.num_latents}_{self.noise_num_latents}_leave{s}_{self.epochs}.pkl'
-        self.logger.info(f'Predicting for sim {s}, model file: {model_file}')
-        mean_pred,_ = self.emu.predict(ind_test=np.array([s]), 
+        self.logger.debug(f'Predicting for sim {s}, model file: {model_file}')
+        pred_mean, pred_var = self.emu.predict(ind_test=np.array([s]), 
                                        model_file=model_file, 
                                        train_subdir=self.train_subdir,
                                        composite_kernel=self.composite_kernel)
@@ -1658,7 +1658,7 @@ class HmfCombined(BasePlot):
         if self.get_counts:
             truth = self.emu.Y[1][s]
             truth_uncen = 0 * self.emu.Y_err[1][s]
-            results = (np.exp(mean_pred.numpy().squeeze()), np.exp(truth.squeeze()), truth_uncen.squeeze(), loss_history, w_matrix)
+            results = (np.exp(pred_mean.numpy().squeeze()), np.exp(truth.squeeze()), truth_uncen.squeeze(), loss_history, w_matrix)
         else:
             ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
             self.emu.Y[1][s][ind_bad_bins] = np.nan
@@ -1668,7 +1668,7 @@ class HmfCombined(BasePlot):
                 truth *= self.emu.std_Y
                 truth += self.emu.mean_Y
             truth_uncen = 10**truth * np.log(10) * self.emu.Y_err[1][s]
-            results =  (10**mean_pred.numpy().squeeze(), 10**truth.squeeze(), truth_uncen.squeeze(), loss_history, w_matrix)
+            results =  (10**pred_mean.numpy().squeeze(),10**pred_mean.numpy().squeeze()* np.log(10) * np.sqrt(pred_var.numpy().squeeze()), 10**truth.squeeze(), truth_uncen.squeeze(), loss_history, w_matrix)
         return results
 
 
@@ -1686,19 +1686,20 @@ class HmfCombined(BasePlot):
         # Determine the number of cores to use (leave some cores free)
         #num_cores = max(1, os.cpu_count() - 2)
         num_cores = 10
-        self.logger.info(f"Using {num_cores} cores for parallel prediction")
+        self.logger.debug(f"Using {num_cores} cores for parallel prediction")
 
         # Run predictions in parallel
         with Pool(num_cores) as pool:
             results = pool.map(self._predict_and_calculate_error, sims)
-            pred = [p for p, t, tu, l, w in results]
-            truth = [t for p, t, tu, l, w in results]
-            truth_uncen = [tu for p, t, tu, l, w in results]
-            loss_hist = [l for p, t, tu, l, w in results]
-            w_matrices = [w for p, t, tu, l, w in results]
+            pred = [p for p, pu, t, tu, l, w in results]
+            pred_uncen = [pu for p, pu, t, tu, l, w in results]
+            truth = [t for p, pu, t, tu, l, w in results]
+            truth_uncen = [tu for p, pu, t, tu, l, w in results]
+            loss_hist = [l for p, pu, t, tu, l, w in results]
+            w_matrices = [w for p, pu, t, tu, l, w in results]
         del results
-        print(f'truth_uncen = {np.array(truth_uncen).shape} pred = {np.array(pred).shape}, truth = {np.array(truth).shape}')
-        return np.array(pred), np.array(truth), np.array(truth_uncen), np.array(loss_hist), np.array(w_matrices)
+        self.logger.debug(f'truth_uncen = {np.array(truth_uncen).shape} pred = {np.array(pred).shape}, truth = {np.array(truth).shape}')
+        return np.array(pred), np.array(pred_uncen), np.array(truth), np.array(truth_uncen), np.array(loss_hist), np.array(w_matrices)
 
     def pred_vs_trtuh(self):
         """
@@ -1768,7 +1769,7 @@ class HmfCombined(BasePlot):
         ax.legend()
         ax.grid()
 
-    def err_all(self, sample_size=10, add_text=True, log_scale=True, savefig=None):
+    def err_all(self, sample_size=10, add_text=True, log_scale=True, savefig=None, legend_frac=False):
         """
         Plot the emulation LOOCV for paper
         Parameters:
@@ -1782,24 +1783,33 @@ class HmfCombined(BasePlot):
         """
         self.logger.info(f'Plotting the fractional error for all sims, {self.pred.shape}, {self.truth.shape}')
         err = np.abs(self.pred/self.truth - 1)
-        # Remove any extreme sim
-        #ind_rm = np.where(np.all(err > 1.0, axis=1))[0]
-        #self.logger.info(f'Removing sims {self.sim_tags[ind_rm]} from the plots')
-        # plot the percentile of the errors
+
         fig, ax = plt.subplots(2,1, figsize=(10, 6), sharex=True, gridspec_kw={'hspace': 0, 'height_ratios': [1, 0.5]})
-        rand_sample = np.random.randint(0, self.pred.shape[0], size=sample_size)
+        # Plot for showing (pred - truth)/uncertainty
+        fig_rel_sigma, ax_rel_sigma = plt.subplots(1,1, figsize=(10,3))
+        fgi_rel_hist, ax_rel_hist = plt.subplots(1,1, figsize=(6,4))
+        sample_size = min(sample_size, self.pred.shape[0])
+        rand_sample = np.random.choice(self.sims, size=sample_size, replace=False)
         color_c = 0
         for c, s in enumerate(self.sims):
             #if c in ind_rm:
             #    continue
             frac_err = np.abs(self.pred[c]/self.truth[c] - 1)
-            if c in rand_sample:
+            if s in rand_sample:
                 #ax[0].plot(self.mbins, self.truth[c], alpha=0.6, lw=2, label=f'{c}', color=f'C{color_c}')
-                ax[0].errorbar(self.mbins, self.truth[c], yerr=self.truth_uncen[c], alpha=0.6, lw=2, label=f'{c} unc', color=f'C{color_c}', fmt='o', markersize=5)
-                ax[0].errorbar(self.mbins, self.truth[c], yerr=16*self.truth_uncen[c], alpha=0.6, lw=2, label=f'{c} pred-true', color=f'C{color_c}', fmt='o', markersize=5)
-                ax[0].plot(self.mbins, self.pred[c], alpha=0.6, lw=2, label=f'{c}', color=f'C{color_c}', ls='dotted')
+                ax[0].plot(self.mbins, self.truth[c], 
+                           alpha=0.6, lw=2, label=f'Truth {s}', 
+                           color=f'C{color_c}', marker='o', 
+                           ls='', markersize=5)
+                ax[0].errorbar(self.mbins, self.pred[c], 
+                               yerr=self.pred_uncen[c], 
+                               alpha=0.6, lw=2, 
+                               label=None, 
+                               color=f'C{color_c}', 
+                               fmt='--o', markersize=1)
                 color_c += 1
-            ax[1].plot(self.mbins, frac_err, alpha=0.3, lw=2, label=f'{c}')
+            ax[1].plot(self.mbins, frac_err, alpha=0.3, lw=2, label=f'{s}')
+            ax_rel_sigma.plot(self.mbins, (self.pred[c]-self.truth[c])/self.pred_uncen[c], alpha=0.6, lw=2, label=f'{s}')
             # Place text at x=10^{11.5}, y=frac_err at that mass for each curve
             if add_text:
                 x_text = 10**11.5
@@ -1810,6 +1820,9 @@ class HmfCombined(BasePlot):
         ax[1].plot(self.mbins, np.median(err, axis=0), color='k', lw=4, alpha=0.5, marker='x', label='Median')
         ax[0].set_yscale('log')
         ax[0].set_ylabel(r'$dn /dlogM$')
+        ax[0].legend()
+        if legend_frac:
+            ax[1].legend()
         ax[1].set_xscale('log')
         ax[1].set_ylabel('Fractional Error')
         #ax[1].set_yticks(np.arange(0, 0.8, 0.1))
@@ -1825,3 +1838,16 @@ class HmfCombined(BasePlot):
     
         if savefig is not None:
             fig.savefig(savefig, dpi=300, bbox_inches='tight')
+        
+        ax_rel_sigma.set_xscale('log')
+        ax_rel_sigma.set_xlabel(r'$M$')
+        ax_rel_sigma.set_ylabel(r'$(pred - truth) / \sigma_{pred}$')
+        ax_rel_sigma.axhline(1, color='r', lw=2, ls='dashed')
+        ax_rel_sigma.legend()
+        ax_rel_sigma.grid(which='both', axis='both')
+
+        # Plot the histogram of the relative error divided by uncertainty
+        ax_rel_hist.hist(np.abs((self.pred - self.truth).flatten()/self.pred_uncen.flatten()), bins=30, alpha=0.7, color='b', cumulative=True, density=True)
+        ax_rel_hist.set_xlabel(r'$|pred - truth| / \sigma_{pred}$')
+        ax_rel_hist.set_ylabel('Cumulative Density')
+        ax_rel_hist.grid()

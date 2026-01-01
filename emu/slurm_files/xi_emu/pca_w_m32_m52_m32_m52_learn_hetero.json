@@ -1,0 +1,7 @@
+{
+    "train_subdir": "train_learn_hetero_comp_kernel",
+    "num_latents": 40,
+    "noise_num_latents": 20,
+    "w_type": "pca",
+    "norm_type":"subtract_mean"
+}
