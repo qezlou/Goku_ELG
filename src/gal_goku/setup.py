@@ -38,7 +38,7 @@ setuptools.setup(
         "colossus",
         "camb",
         "configobj",
-        "mfgpflow @ git+https://github.com/qezlou/multi_fidelity_gpflow.git",
+        "mfgpflow @ git+https://github.com/qezlou/multi_fidelity_gpflow.git@learnable-heteroscedasticity",
         "classylss @ git+https://github.com/sbird/classylss.git",
     ],
 )

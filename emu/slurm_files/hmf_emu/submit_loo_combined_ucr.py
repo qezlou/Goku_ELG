@@ -3,8 +3,8 @@ import numpy as np
 
 # Define the template for the modified lines
 template = """#!/bin/bash
-#SBATCH -J H-pson{i}
-#SBATCH -p epyc
+#SBATCH -J H-{i}
+#SBATCH -p intel
 #SBATCH --mem=64gb
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=64
@@ -13,13 +13,13 @@ template = """#!/bin/bash
 
 hostname; pwd; date
 
-
-export PATH="/rhome/mqezl001/bigdata/.conda/gal_goku/bin:$PATH"
-python run_hmf_emu_combined_bins.py --ind_test {i} --z 2.5 --machine ucr --config poisson_loss.json
+source /rhome/mqezl001/bigdata/HETDEX/.gal_env/bin/activate
+which python
+python run_hmf_emu_combined_bins.py --ind_test {i} --z 2.5 --machine ucr --config pca_w_m32_m52_m32_m52_learn_hetero.json
 """
 
 # Loop from 34 to 36
-for i in np.arange(0, 2):
+for i in np.arange(19, 20):
     print(i)
     filename = f"job_script_{i}.sh"
     with open(filename, "w") as f:
