@@ -306,15 +306,25 @@ class MultiFidelityNormalizingFlow:
     """
 
     def __init__(self, input_dim, output_dim, num_bijectors=4, hidden_units=(128, 128),
-                 learning_rate=1e-3, name="mf_flow"):
+                 learning_rate=1e-3, name="mf_flow", device=None):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.num_bijectors = num_bijectors
         self.hidden_units = hidden_units
         self.learning_rate = learning_rate
+        self.device = self._select_device(device)
+        self.loss_history = []
         self._build_flow()
         self.optimizer = torch.optim.Adam(self.flow.parameters(), lr=self.learning_rate)
-        self.loss_history = []
+
+    def _select_device(self, device):
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        resolved = torch.device(device)
+        if resolved.type == "cuda" and not torch.cuda.is_available():
+            print("Requested CUDA device but no GPU detected; falling back to CPU", flush=True)
+            resolved = torch.device("cpu")
+        return resolved
 
     def _build_flow(self):
         transforms = []
@@ -329,12 +339,14 @@ class MultiFidelityNormalizingFlow:
             transforms.append(nf_transforms.permutations.ReversePermutation(features=self.output_dim))
         transform = nf_transforms.CompositeTransform(transforms)
         distribution = nf_distributions.normal.StandardNormal(shape=[self.output_dim])
-        self.flow = nf_flows.base.Flow(transform, distribution).to(torch.double)
+        self.flow = nf_flows.base.Flow(transform, distribution).to(device=self.device, dtype=torch.double)
 
     def log_prob(self, y, context):
         return self.flow.log_prob(inputs=y, context=context)
 
     def _train_step(self, x_batch, y_batch):
+        x_batch = x_batch.to(self.device, dtype=torch.double, non_blocking=True)
+        y_batch = y_batch.to(self.device, dtype=torch.double, non_blocking=True)
         self.optimizer.zero_grad()
         loss = -self.log_prob(y_batch, x_batch).mean()
         loss.backward()
@@ -345,7 +357,8 @@ class MultiFidelityNormalizingFlow:
         x_tensor = torch.as_tensor(x, dtype=torch.double)
         y_tensor = torch.as_tensor(y, dtype=torch.double)
         dataset = torch.utils.data.TensorDataset(x_tensor, y_tensor)
-        loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False)
+        pin_mem = self.device.type == 'cuda'
+        loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False, pin_memory=pin_mem)
         iterator = iter(loader)
         for step in range(1, max_iters + 1):
             try:
@@ -361,6 +374,7 @@ class MultiFidelityNormalizingFlow:
 
     def sample(self, context, num_samples=200):
         with torch.no_grad():
+            context = context.to(self.device, dtype=torch.double, non_blocking=True)
             samples = self.flow.sample(num_samples=num_samples, context=context)
         return samples.detach().cpu().numpy()
 
@@ -381,11 +395,28 @@ class MultiFidelityNormalizingFlow:
         ckpt_path = prefix if prefix.endswith(".pt") else f"{prefix}.pt"
         if not op.exists(ckpt_path):
             return None
-        checkpoint = torch.load(ckpt_path, map_location=torch.device("cpu"))
+        checkpoint = torch.load(ckpt_path, map_location=self.device)
         self.flow.load_state_dict(checkpoint["state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer"])
+        for state in self.optimizer.state.values():
+            for key, value in state.items():
+                if torch.is_tensor(value):
+                    state[key] = value.to(self.device)
         self.loss_history = checkpoint.get("loss_history", [])
         return ckpt_path
+
+    def to_device(self, device):
+        """Move flow and optimizer state to the requested device."""
+        target = self._select_device(device)
+        if target == self.device:
+            return self.device
+        self.device = target
+        self.flow = self.flow.to(device=self.device, dtype=torch.double)
+        for state in self.optimizer.state.values():
+            for key, value in state.items():
+                if torch.is_tensor(value):
+                    state[key] = value.to(self.device)
+        return self.device
 
 
 class BaseMFCoregEmu():
@@ -394,7 +425,7 @@ class BaseMFCoregEmu():
     This now models the joint LF/HF distribution with a conditional
     normalizing flow instead of two separate GPs for the mean and variance.
     """
-    def __init__(self, DataLoader, data_dir, z, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
+    def __init__(self, DataLoader, data_dir, z, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO', device=None):
         """
         Parameters
         ----------
@@ -424,6 +455,7 @@ class BaseMFCoregEmu():
         self.z = z
         self.norm_type = norm_type
         self.noise_floor = noise_floor
+        self.device = self._resolve_device(device)
         # Load the data
         self.X = []
         self.Y = []
@@ -516,6 +548,16 @@ class BaseMFCoregEmu():
         logger.addHandler(console_handler)
         
         return logger
+
+    def _resolve_device(self, device):
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        resolved = torch.device(device)
+        if resolved.type == 'cuda' and not torch.cuda.is_available():
+            self.logger.warning('CUDA requested but no GPU available; falling back to CPU')
+            resolved = torch.device('cpu')
+        self.logger.info(f'Using torch device {resolved}')
+        return resolved
     
     def normalize(self, X, Y):
         """
@@ -617,10 +659,12 @@ class BaseMFCoregEmu():
                 output_dim=self.output_dim,
                 num_bijectors=num_bijectors,
                 hidden_units=hidden_units,
-                learning_rate=initial_lr
+                learning_rate=initial_lr,
+                device=self.device
             )
         else:
             self.logger.info('Reusing existing flow model instance')
+            self.flow_model.to_device(self.device)
         # Try to restore if a checkpoint exists
         ckpt_path = f"{ckpt_prefix}.pt"
         if op.exists(ckpt_path):
@@ -683,8 +727,11 @@ class BaseMFCoregEmu():
                 output_dim=self.output_dim,
                 num_bijectors=num_bijectors,
                 hidden_units=hidden_units,
-                learning_rate=learning_rate
+                learning_rate=learning_rate,
+                device=self.device
             )
+        else:
+            self.flow_model.to_device(self.device)
 
         ckpt_prefix = op.join(self.data_dir, train_subdir, base_name)
         ckpt_path = f"{ckpt_prefix}.pt"
