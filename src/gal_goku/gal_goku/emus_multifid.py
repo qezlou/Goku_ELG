@@ -662,9 +662,9 @@ class BaseMFCoregEmu():
         # The zeros row is the LF
         lf_mean_func =  np.nanmean(Y[0], axis=0)
         Y_normalized.append(Y[0] -lf_mean_func)
-        # Don't subtract the mean for the HF, The MF GP will match
-        # the HF mean
-        Y_normalized.append(Y[1])
+        # For a conditional flow, it’s usually cleaner to apply the 
+        # same affine normalization to both fidelities
+        Y_normalized.append(Y[1] - lf_mean_func)
 
         return X_normalized, Y_normalized, X_min, X_max, lf_mean_func
     
@@ -872,7 +872,8 @@ class BaseMFCoregEmu():
         # Add the fidelity indicators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float32)
         context = torch.as_tensor(X_test, dtype=self.flow_model.dtype)
-        samples = self.flow_model.sample(context, num_samples=num_samples)
+        samples = self.flow_model.sample(context, num_samples=num_samples).squeeze()
+        print(f'samples.shape: {samples.shape}', flush=True)
         mean_pred = np.mean(samples, axis=0)
         var_pred = np.var(samples, axis=0)
         print(f'[timer] predict: sampling + moments {time.time() - t3:.2f}s (num_samples={num_samples})', flush=True)
