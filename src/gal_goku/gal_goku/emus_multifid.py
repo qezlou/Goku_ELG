@@ -345,10 +345,21 @@ class MultiFidelityNormalizingFlow:
     def _ensure_device_dtype(self):
         """Keep the flow parameters, buffers, and optimizer states on the configured device/dtype."""
         self.flow = self.flow.to(device=self.device, dtype=self.dtype)
+        # nflows stores masks as buffers; keep them in sync with the flow dtype
+        for _, buf in self.flow.named_buffers():
+            if torch.is_tensor(buf):
+                if torch.is_floating_point(buf):
+                    buf.data = buf.to(device=self.device, dtype=self.dtype)
+                else:
+                    # keep integer buffers (e.g., permutation indices) in their original dtype
+                    buf.data = buf.to(device=self.device)
         for state in self.optimizer.state.values():
             for key, value in state.items():
                 if torch.is_tensor(value):
-                    state[key] = value.to(self.device, dtype=self.dtype)
+                    if torch.is_floating_point(value):
+                        state[key] = value.to(self.device, dtype=self.dtype)
+                    else:
+                        state[key] = value.to(self.device)
 
     def log_prob(self, y, context):
         return self.flow.log_prob(inputs=y, context=context)
@@ -363,13 +374,38 @@ class MultiFidelityNormalizingFlow:
         self.optimizer.step()
         return loss
 
-    def fit(self, x, y, max_iters=2_000, batch_size=64, log_every=200):
+    def fit(self, x, y, max_iters=2_000, batch_size=64, log_every=200,
+            lr_scheduler=None, early_stopping=None):
         x_tensor = torch.as_tensor(x, dtype=self.dtype)
         y_tensor = torch.as_tensor(y, dtype=self.dtype)
         dataset = torch.utils.data.TensorDataset(x_tensor, y_tensor)
         pin_mem = self.device.type == 'cuda'
         loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False, pin_memory=pin_mem)
         iterator = iter(loader)
+        scheduler = None
+        scheduler_step_every = 1
+        if lr_scheduler:
+            sched_type = lr_scheduler.get("type", "plateau")
+            scheduler_step_every = lr_scheduler.get("step_every", 1)
+            if sched_type == "plateau":
+                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    self.optimizer,
+                    mode="min",
+                    factor=lr_scheduler.get("gamma", 0.5),
+                    patience=lr_scheduler.get("patience", 200),
+                    min_lr=lr_scheduler.get("min_lr", 1e-6)
+                )
+            elif sched_type == "step":
+                scheduler = torch.optim.lr_scheduler.StepLR(
+                    self.optimizer,
+                    step_size=lr_scheduler.get("step_size", log_every),
+                    gamma=lr_scheduler.get("gamma", 0.5)
+                )
+        best_loss = float("inf")
+        steps_since_improvement = 0
+        early_cfg = early_stopping or {}
+        es_patience = early_cfg.get("patience")
+        es_min_delta = early_cfg.get("min_delta", 0.0)
         for step in range(1, max_iters + 1):
             try:
                 x_batch, y_batch = next(iterator)
@@ -377,9 +413,24 @@ class MultiFidelityNormalizingFlow:
                 iterator = iter(loader)
                 x_batch, y_batch = next(iterator)
             loss = self._train_step(x_batch, y_batch)
+            loss_val = float(loss.detach().cpu().item())
+            if scheduler is not None:
+                if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                    scheduler.step(loss_val)
+                elif step % scheduler_step_every == 0:
+                    scheduler.step()
+            if loss_val + es_min_delta < best_loss:
+                best_loss = loss_val
+                steps_since_improvement = 0
+            else:
+                steps_since_improvement += 1
+                if es_patience is not None and steps_since_improvement >= es_patience:
+                    print(f"Early stopping at step {step}: no improvement for {es_patience} steps", flush=True)
+                    break
             if step % log_every == 0:
-                print(f"Step {step}/{max_iters}, Loss: {loss.item():.4f}", flush=True)
-                self.loss_history.append(float(loss.detach().cpu().item()))
+                current_lr = self.optimizer.param_groups[0]["lr"]
+                print(f"Step {step}/{max_iters}, Loss: {loss_val:.4f}, lr: {current_lr:.2e}", flush=True)
+                self.loss_history.append(loss_val)
         return self.loss_history
 
     def sample(self, context, num_samples=200):
@@ -425,11 +476,7 @@ class MultiFidelityNormalizingFlow:
         if target == self.device:
             return self.device
         self.device = target
-        self.flow = self.flow.to(device=self.device, dtype=self.dtype)
-        for state in self.optimizer.state.values():
-            for key, value in state.items():
-                if torch.is_tensor(value):
-                    state[key] = value.to(self.device, dtype=self.dtype)
+        self._ensure_device_dtype()
         return self.device
 
 
@@ -639,6 +686,14 @@ class BaseMFCoregEmu():
               - num_bijectors (int)
               - hidden_units (tuple)
               - log_every (int)
+              - lr_scheduler_type (str: 'plateau' or 'step')
+              - lr_scheduler_gamma (float)
+              - lr_scheduler_step (int)
+              - lr_scheduler_patience (int)
+              - lr_scheduler_min_lr (float)
+              - lr_scheduler_step_every (int)
+              - early_stopping_patience (int)
+              - early_stopping_min_delta (float)
         """
         if ind_train is None:
             ind_train = np.arange(self.X[1].shape[0])
@@ -660,12 +715,39 @@ class BaseMFCoregEmu():
         hidden_units = opt_params.get('hidden_units', (128, 128))
         log_every = opt_params.get('log_every', 200)
         num_samples = opt_params.get('num_samples', 256)
+        lr_scheduler_type = opt_params.get('lr_scheduler_type')
+        lr_scheduler_gamma = opt_params.get('lr_scheduler_gamma', 0.5)
+        lr_scheduler_step = opt_params.get('lr_scheduler_step', log_every)
+        lr_scheduler_patience = opt_params.get('lr_scheduler_patience', 200)
+        lr_scheduler_min_lr = opt_params.get('lr_scheduler_min_lr', 1e-6)
+        lr_scheduler_step_every = opt_params.get('lr_scheduler_step_every', 1)
+        early_stopping_patience = opt_params.get('early_stopping_patience')
+        early_stopping_min_delta = opt_params.get('early_stopping_min_delta', 0.0)
+
+        lr_scheduler_cfg = None
+        if lr_scheduler_type is not None:
+            lr_scheduler_cfg = {
+                'type': lr_scheduler_type,
+                'gamma': lr_scheduler_gamma,
+                'step_size': lr_scheduler_step,
+                'patience': lr_scheduler_patience,
+                'min_lr': lr_scheduler_min_lr,
+                'step_every': lr_scheduler_step_every
+            }
+        early_stop_cfg = None
+        if early_stopping_patience is not None:
+            early_stop_cfg = {
+                'patience': early_stopping_patience,
+                'min_delta': early_stopping_min_delta
+            }
 
         self.flow_config = dict(
             num_bijectors=num_bijectors,
             hidden_units=hidden_units,
             learning_rate=initial_lr,
-            num_samples=num_samples
+            num_samples=num_samples,
+            lr_scheduler=lr_scheduler_cfg,
+            early_stopping=early_stop_cfg
         )
         if self.flow_model is None:
             self.flow_model = MultiFidelityNormalizingFlow(
@@ -687,6 +769,10 @@ class BaseMFCoregEmu():
 
         self.logger.info(f'Built flow with output_dim {self.output_dim}, num_bijectors {num_bijectors}, hidden_units {hidden_units}')
         self.logger.info(f'flow batch_size {batch_size}, max_iters {max_iters}, log_every {log_every}')
+        if lr_scheduler_cfg is not None:
+            self.logger.info(f"Using lr scheduler {lr_scheduler_cfg.get('type')} with gamma={lr_scheduler_cfg.get('gamma')}, step_size={lr_scheduler_cfg.get('step_size')}, patience={lr_scheduler_cfg.get('patience')}")
+        if early_stop_cfg is not None:
+            self.logger.info(f"Early stopping enabled with patience={early_stop_cfg.get('patience')}, min_delta={early_stop_cfg.get('min_delta')}")
 
         if force_train:
             self.logger.debug(f'Training flow on shapes {X_train.shape}, {Y_train.shape}')
@@ -695,7 +781,9 @@ class BaseMFCoregEmu():
                 y=Y_train,
                 max_iters=max_iters,
                 batch_size=batch_size,
-                log_every=log_every
+                log_every=log_every,
+                lr_scheduler=lr_scheduler_cfg,
+                early_stopping=early_stop_cfg
             )
             ckpt_path = self.flow_model.save(ckpt_prefix)
             with open(f'{ckpt_prefix}.attrs', 'wb') as f:
