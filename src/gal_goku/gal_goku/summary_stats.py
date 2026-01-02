@@ -1155,7 +1155,7 @@ class Xi(BaseSummaryStats):
         params = self.get_params_array()
         
         # Record the bins of ((m1, m2), r)
-        print(f'log_corr.shape: {log_corr.shape}, rbins.size: {rbins.size}, mass_pairs.shape: {self.mass_pairs.shape}')
+        self.logger.debug(f'log_corr.shape: {log_corr.shape}, rbins.size: {rbins.size}, mass_pairs.shape: {self.mass_pairs.shape}')
         bins = np.zeros((log_corr.shape[1], 3))
         bins[:,2] = np.tile(rbins, self.mass_pairs.shape[0])
         bins[:,1] = np.repeat(self.mass_pairs[:,1], rbins.size)

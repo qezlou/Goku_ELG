@@ -332,6 +332,7 @@ class BaseMFCoregEmu():
         self.logging_level = logging_level
         self.logger = self.configure_logging(logging_level)
         self.data_dir = data_dir
+        self.z = z
         self.num_latents = num_latents
         self.noise_num_latents = noise_num_latents
         self.num_inducing = num_inducing

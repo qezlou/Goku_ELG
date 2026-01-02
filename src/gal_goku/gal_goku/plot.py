@@ -472,37 +472,51 @@ class PlotXiEmu(BasePlot):
     """
     Plot routines for the 3D correlation function xi(r) computed on the sims
     """
-    def __init__(self, data_dir, train_subdir='train', use_rho=True, remove_sims=None, eval_loo=True, logging_level='INFO'):
+    def __init__(self, data_dir, sims, z=2.5, train_subdir='train', epochs=38000, composite_kernel=None, eval_loo=True, logging_level='INFO'):
         self.latex_labels = {'omega0': r'$\Omega_m$', 'omegab': r'$\Omega_b$', 
                         'hubble': r'$h$', 'scalar_amp': r'$A_s$', 'ns': r'$n_s$', 
                         'w0_fld': r'$w_0$', 'wa_fld': r'$w_a$', 'N_ur': r'$N_{ur}$', 
                         'alpha_s': r'$\alpha_s$', 'm_nu': r'$m_{\nu}$'}
         super().__init__(logging_level)
         self.data_dir = data_dir
+        self.sims = sims
         self.train_subdir = train_subdir
+        self.epochs = epochs
+        self.composite_kernel = composite_kernel
         self.xi = summary_stats.Xi(self.data_dir, fid='HF', MPI=None, logging_level='ERROR')
         # Relieve the memory load
         del self.xi.xi
         # Load the emualtor, mainly the data
-        self.emu = emus_multifid.XiNativeBinsFullDimReduc(data_dir=self.data_dir, 
-                                                          num_inducing=500, 
-                                                          num_latents=40, 
-                                                          use_rho=use_rho,
-                                                          #remove_sims=remove_sims,
-                                                          logging_level='ERROR')
-        self.cosmo_pars = self.emu.X[1]
+
+        # Read the config file for important information
+        with open(op.join(data_dir, train_subdir, 'config.json'), 'r') as f:
+            config = json.load(f)
+            num_latents = config['num_latents']
+            noise_num_latents = config['noise_num_latents']
+            norm_type = config['norm_type']
+            w_type = config['w_type']
+
+        self.emu = emus_multifid.XiNativeBins(data_dir=data_dir,
+                                        z=z,
+                                        num_inducing=500, 
+                                        num_latents=num_latents,
+                                        noise_num_latents=noise_num_latents,
+                                        norm_type=norm_type,
+                                        noise_floor=0.0, # We have trained with default 0.0
+                                        logging_level='ERROR',)
+        self.cosmo_pars = self.emu.X[1][self.sims,:]
         # Cosmo parameters in the original scale
-        self.cosmo_pars_unscaled = self.emu.X[1] * (self.emu.X_max - self.emu.X_min) + self.emu.X_min
+        self.cosmo_pars_unscaled = self.emu.X[1][self.sims,:] * (self.emu.X_max - self.emu.X_min) + self.emu.X_min
 
         # Get the distance from Planck 2018
-        self.dist_planck = np.zeros((self.emu.X[1].shape[0], self.emu.X[1].shape[1]))
-        for s in range(self.emu.X[1].shape[0]):
+        self.dist_planck = np.zeros((len(self.sims), self.emu.X[1].shape[1]))
+        for s in range(len(self.sims)):
             self.dist_planck[s] = np.array([ (self.cosmo_pars_unscaled[s,p] - self.planck18_pars['mean'][p])/self.planck18_pars['sigma'][p] for p in range(self.emu.X[1].shape[1])])
 
-        self.sim_tags = self.emu.labels[1]
+        self.sim_tags = self.emu.labels[1][self.sims]
         self.rbins = np.unique(self.emu.mbins[:, 2])
         if eval_loo:
-            self.pred, self.truth, self.loss_hist, self.w_matrices = self.get_loo_pred_truth(num_sims=len(self.sim_tags))
+            self.pred, self.pred_unc, self.truth, self.loss_hist, self.w_matrices = self.get_loo_pred_truth()
             self.frac_errs = np.abs(self.pred/self.truth - 1)
         
     def loo_diagnose(self, mass_pair, logging_level='ERROR'):
@@ -577,24 +591,29 @@ class PlotXiEmu(BasePlot):
         ---------
         The predicted and truth in 3D and symmetric along mass pairs. shape = (n_mbins, n_mbins, n_rbins)
         """
-        model_file = f'xi_emu_combined_inducing_500_latents_40_leave{s}.pkl'
-        
-        mean_pred,_ = self.emu.predict(ind_test=np.array([s]), model_file=model_file, train_subdir=self.train_subdir)
+        model_file = f'xi_emu_combined_z{self.emu.z}_inducing_{self.emu.num_inducing}_latents_{self.emu.num_latents}_{self.emu.noise_num_latents}_leave{s}_{self.epochs}.pkl'
+        self.logger.debug(f'Predicting for sim {s} using model file {model_file}')
+        pred_mean, pred_var = self.emu.predict(ind_test=np.array([s]), 
+                                model_file=model_file, 
+                                train_subdir=self.train_subdir,
+                                composite_kernel=self.composite_kernel)
         w_matrix = self.emu.emu.kernel.W.numpy()
-        mean_pred = self.xi.unconcatenate(mean_pred.numpy(), self.emu.mbins).squeeze()
-        ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
-        self.emu.Y[1][s][ind_bad_bins] = np.nan
+        pred_mean = self.xi.unconcatenate(pred_mean.numpy(), self.emu.mbins).squeeze()
+        pred_var = self.xi.unconcatenate(pred_var.numpy(), self.emu.mbins).squeeze()
+        #ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
+        #self.emu.Y[1][s][ind_bad_bins] = np.nan
         truth = self.xi.unconcatenate(self.emu.Y[1][s], self.emu.mbins).squeeze()
         assert 'loss_history' in self.emu.model_attrs, f'LOOCV is missing for sim {s}'
         loss_history = np.array(self.emu.model_attrs['loss_history'])
-        mean_pred = self.xi.make_3d_corr(mean_pred, symmetric=True)
+        pred_mean = self.xi.make_3d_corr(pred_mean, symmetric=True)
         truth = self.xi.make_3d_corr(truth, symmetric=True)
+        pred_var = self.xi.make_3d_corr(pred_var, symmetric=True)
         
 
-        return 10**mean_pred.squeeze(), 10**truth.squeeze(), loss_history, w_matrix
+        return 10**pred_mean.squeeze(),10**pred_mean.squeeze()* np.log(10) * np.sqrt(pred_var.squeeze()), 10**truth.squeeze(), loss_history, w_matrix
 
 
-    def get_loo_pred_truth(self, num_sims=36):
+    def get_loo_pred_truth(self):
         """
         Use multiprocessing to get the prediction and truth values for all 36 HF sims.
         Returns:
@@ -604,19 +623,20 @@ class PlotXiEmu(BasePlot):
         # Use multiprocessing for parallel execution
 
         # Determine the number of cores to use (leave some cores free)
-        num_cores = max(1, os.cpu_count() - 2)
+        num_cores = min(len(self.sims), os.cpu_count() - 2)
         print(f"Using {num_cores} cores for parallel processing")
 
         # Run predictions in parallel
         with Pool(num_cores) as pool:
-            results = pool.map(self._predict_and_calculate_error, range(num_sims))
-            pred = [p for p, t, l, w in results]
-            truth = [t for p, t, l, w in results]
-            loss_hist = [l for p, t, l, w in results]
-            w_matrices = [w for p, t, l, w in results]
+            results = pool.map(self._predict_and_calculate_error, self.sims)
+            pred = [p for p, pu, t, l, w in results]
+            pred_un = [pu for p, pu, t, l, w in results]
+            truth = [t for p, pu, t, l, w in results]
+            loss_hist = [l for p, pu, t, l, w in results]
+            w_matrices = [w for p, pu, t, l, w in results]
         del results
 
-        return np.array(pred), np.array(truth), loss_hist, w_matrices
+        return np.array(pred), np.array(pred_un), np.array(truth), loss_hist, w_matrices
 
     def _2d_err_map(self, data, rbins,  mass_range=(13,11)):
         """
@@ -718,7 +738,7 @@ class PlotXiEmu(BasePlot):
         fig.suptitle(f'Median cross-validation error')
         fig.tight_layout()
         # Plot the error for each simulation
-        for s in range(len(self.truth)):
+        for s in range(len(self.sims)):
             fig, ax = self._2d_err_map(self.frac_errs[s], rbins=self.rbins, mass_range=mass_range)
 
             fig.suptitle(f'Leave {self.sim_tags[s]} out | frac_err')
@@ -731,6 +751,9 @@ class PlotXiEmu(BasePlot):
             fig.tight_layout()
             fig, ax, _ = self._indvidual_pred_or_truth(np.log10(self.pred[s]), rbins=self.rbins, bounds=bounds, mass_range=mass_range)
             fig.suptitle(f'Leave {self.sim_tags[s]} out | predicted')
+            fig.tight_layout()
+            fig, ax, _ = self._indvidual_pred_or_truth(np.log10(self.pred_unc[s]), rbins=self.rbins, mass_range=mass_range)
+            fig.suptitle(f'Leave {self.sim_tags[s]} out | predicted uncertainty')
             fig.tight_layout()
 
             # plot the loss history
@@ -777,22 +800,30 @@ class PlotXiEmu(BasePlot):
 
 
             # Plot 1D plots for a few mass bins
-            fig, ax = plt.subplots(1, 2, figsize=(8, 3))
+            fig, ax = plt.subplots(1, 3, figsize=(12, 3))
             frac_errs = np.abs(self.pred[s]/self.truth[s] - 1)
             for i, n in enumerate([2, 8, 13]):
                 ax[0].plot(self.rbins, self.truth[s][n, n], label='truth', color=f'C{i}')
-                ax[0].plot(self.rbins, self.pred[s][n, n], label='pred', color=f'C{i}', ls='--')
+                #ax[0].plot(self.rbins, self.pred[s][n, n], label='pred', color=f'C{i}', ls='--')
+                ax[0].errorbar(self.rbins, self.pred[s][n, n], yerr=self.pred_unc[s][n, n], label='pred', color=f'C{i}', ls='--', alpha=0.7, marker='o', markersize=3)
                 ax[1].plot(self.rbins, frac_errs[n,n], label='truth', color=f'C{i}')
-            ax[0].set_xscale('log')
-            ax[0].set_yscale('log')
-            ax[0].set_xlabel('r [Mpc/h]')
+                ax[2].plot(self.rbins, frac_errs[n,n]/self.pred_unc[s][n, n], label='truth', color=f'C{i}')
+            for i in range(3):
+                ax[i].set_xscale('log')
+                ax[i].set_xlabel('r [Mpc/h]')
+            ax[0].set_yscale('log')            
             ax[0].set_ylabel(r'$\xi(r)$')
-            ax[0].grid(which='both', linestyle='--', linewidth=0.5)
-            ax[1].set_xscale('log')
+            ax[0].grid(which='both', linestyle='--', linewidth=0.5)   
+            ax[1].set_ylabel('Fractional Error')         
             ax[1].set_ylim(-0.5, 0.5)
             ax[1].set_yticks(np.arange(-0.5, 0.6, 0.1))
             ax[1].grid(which='both', linestyle='--', linewidth=0.5)
-
+            ax[2].set_ylabel('Error / Pred Uncertainty')
+            ax[2].set_ylim(-5, 5)
+            ax[2].set_yticks(np.arange(-5, 6, 1))
+            ax[2].grid(which='both', linestyle='--', linewidth=0.5)
+            fig.suptitle(f'Leave {self.sim_tags[s]} out')
+            fig.tight_layout()
 
     def cross_valid_1d_errs(self, pred, truth, rbins, mass_bins, loss_history=None):
         """
