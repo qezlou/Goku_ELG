@@ -306,13 +306,14 @@ class MultiFidelityNormalizingFlow:
     """
 
     def __init__(self, input_dim, output_dim, num_bijectors=4, hidden_units=(128, 128),
-                 learning_rate=1e-3, name="mf_flow", device=None):
+                 learning_rate=1e-3, name="mf_flow", device=None, dtype=torch.double):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.num_bijectors = num_bijectors
         self.hidden_units = hidden_units
         self.learning_rate = learning_rate
         self.device = self._select_device(device)
+        self.dtype = dtype
         self.loss_history = []
         self._build_flow()
         self.optimizer = torch.optim.Adam(self.flow.parameters(), lr=self.learning_rate)
@@ -339,14 +340,23 @@ class MultiFidelityNormalizingFlow:
             transforms.append(nf_transforms.permutations.ReversePermutation(features=self.output_dim))
         transform = nf_transforms.CompositeTransform(transforms)
         distribution = nf_distributions.normal.StandardNormal(shape=[self.output_dim])
-        self.flow = nf_flows.base.Flow(transform, distribution).to(device=self.device, dtype=torch.double)
+        self.flow = nf_flows.base.Flow(transform, distribution).to(device=self.device, dtype=self.dtype)
+
+    def _ensure_device_dtype(self):
+        """Keep the flow parameters, buffers, and optimizer states on the configured device/dtype."""
+        self.flow = self.flow.to(device=self.device, dtype=self.dtype)
+        for state in self.optimizer.state.values():
+            for key, value in state.items():
+                if torch.is_tensor(value):
+                    state[key] = value.to(self.device, dtype=self.dtype)
 
     def log_prob(self, y, context):
         return self.flow.log_prob(inputs=y, context=context)
 
     def _train_step(self, x_batch, y_batch):
-        x_batch = x_batch.to(self.device, dtype=torch.double, non_blocking=True)
-        y_batch = y_batch.to(self.device, dtype=torch.double, non_blocking=True)
+        self._ensure_device_dtype()
+        x_batch = x_batch.to(self.device, dtype=self.dtype, non_blocking=True)
+        y_batch = y_batch.to(self.device, dtype=self.dtype, non_blocking=True)
         self.optimizer.zero_grad()
         loss = -self.log_prob(y_batch, x_batch).mean()
         loss.backward()
@@ -354,8 +364,8 @@ class MultiFidelityNormalizingFlow:
         return loss
 
     def fit(self, x, y, max_iters=2_000, batch_size=64, log_every=200):
-        x_tensor = torch.as_tensor(x, dtype=torch.double)
-        y_tensor = torch.as_tensor(y, dtype=torch.double)
+        x_tensor = torch.as_tensor(x, dtype=self.dtype)
+        y_tensor = torch.as_tensor(y, dtype=self.dtype)
         dataset = torch.utils.data.TensorDataset(x_tensor, y_tensor)
         pin_mem = self.device.type == 'cuda'
         loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False, pin_memory=pin_mem)
@@ -374,9 +384,10 @@ class MultiFidelityNormalizingFlow:
 
     def sample(self, context, num_samples=200):
         with torch.no_grad():
-            context = context.to(self.device, dtype=torch.double, non_blocking=True)
+            self._ensure_device_dtype()
+            context = context.to(self.device, dtype=self.dtype, non_blocking=True)
             samples = self.flow.sample(num_samples=num_samples, context=context)
-        return samples.detach().cpu().numpy()
+        return samples.to(dtype=self.dtype).detach().cpu().numpy()
 
     def save(self, prefix):
         os.makedirs(op.dirname(prefix), exist_ok=True)
@@ -386,6 +397,7 @@ class MultiFidelityNormalizingFlow:
                 "state_dict": self.flow.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
                 "loss_history": self.loss_history,
+                "dtype": self.dtype,
             },
             path,
         )
@@ -396,13 +408,15 @@ class MultiFidelityNormalizingFlow:
         if not op.exists(ckpt_path):
             return None
         checkpoint = torch.load(ckpt_path, map_location=self.device)
+        self.dtype = checkpoint.get("dtype", self.dtype)
         self.flow.load_state_dict(checkpoint["state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer"])
         for state in self.optimizer.state.values():
             for key, value in state.items():
                 if torch.is_tensor(value):
-                    state[key] = value.to(self.device)
+                    state[key] = value.to(self.device, dtype=self.dtype)
         self.loss_history = checkpoint.get("loss_history", [])
+        self._ensure_device_dtype()
         return ckpt_path
 
     def to_device(self, device):
@@ -411,11 +425,11 @@ class MultiFidelityNormalizingFlow:
         if target == self.device:
             return self.device
         self.device = target
-        self.flow = self.flow.to(device=self.device, dtype=torch.double)
+        self.flow = self.flow.to(device=self.device, dtype=self.dtype)
         for state in self.optimizer.state.values():
             for key, value in state.items():
                 if torch.is_tensor(value):
-                    state[key] = value.to(self.device)
+                    state[key] = value.to(self.device, dtype=self.dtype)
         return self.device
 
 
@@ -695,7 +709,7 @@ class BaseMFCoregEmu():
                 pickle.dump(self.model_attrs, f)
             self.logger.info(f'done with optimization {max_iters}, saved {ckpt_path}')
 
-    def predict(self, ind_test, model_file, train_subdir = 'train', composite_kernel=None):
+    def predict(self, ind_test, model_file, train_subdir = 'train'):
         """
         Posterior prediction of the emulator using the trained normalizing flow.
         Returns mean and variance estimated from flow samples.
