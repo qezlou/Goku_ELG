@@ -12,8 +12,14 @@ from . import summary_stats
 #from . import gpemulator_singlebin as gpemu
 import gpflow
 import tensorflow as tf
+import torch
+from nflows import flows as nf_flows
+from nflows import distributions as nf_distributions
+from nflows import transforms as nf_transforms
+from nflows.nn import nets as nf_nets
 from mfgpflow.linear_svgp import LatentMFCoregionalizationSVGP
 import sys
+import os
 import os.path as op
 import copy
 from glob import glob
@@ -298,14 +304,102 @@ class Hmf(BaseStatEmu):
         super().__init__(X=self.X, Y=self.Y, logging_level=logging_level, emu_type=emu_type, n_optimization_restarts=5)
     
 
+class MultiFidelityNormalizingFlow:
+    """
+    Conditional normalizing flow that models HF and LF jointly by conditioning
+    on the cosmological parameters plus a fidelity indicator.
+    """
+
+    def __init__(self, input_dim, output_dim, num_bijectors=4, hidden_units=(128, 128),
+                 learning_rate=1e-3, name="mf_flow"):
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.num_bijectors = num_bijectors
+        self.hidden_units = hidden_units
+        self.learning_rate = learning_rate
+        self._build_flow()
+        self.optimizer = torch.optim.Adam(self.flow.parameters(), lr=self.learning_rate)
+        self.loss_history = []
+
+    def _build_flow(self):
+        transforms = []
+        for _ in range(self.num_bijectors):
+            maf = nf_transforms.autoregressive.MaskedAffineAutoregressiveTransform(
+                features=self.output_dim,
+                hidden_features=self.hidden_units[0],
+                context_features=self.input_dim,
+                num_blocks=max(1, len(self.hidden_units))
+            )
+            transforms.append(maf)
+            transforms.append(nf_transforms.permutations.ReversePermutation(features=self.output_dim))
+        transform = nf_transforms.CompositeTransform(transforms)
+        distribution = nf_distributions.normal.StandardNormal(shape=[self.output_dim])
+        self.flow = nf_flows.base.Flow(transform, distribution).to(torch.double)
+
+    def log_prob(self, y, context):
+        return self.flow.log_prob(inputs=y, context=context)
+
+    def _train_step(self, x_batch, y_batch):
+        self.optimizer.zero_grad()
+        loss = -self.log_prob(y_batch, x_batch).mean()
+        loss.backward()
+        self.optimizer.step()
+        return loss
+
+    def fit(self, x, y, max_iters=2_000, batch_size=64, log_every=200):
+        x_tensor = torch.as_tensor(x, dtype=torch.double)
+        y_tensor = torch.as_tensor(y, dtype=torch.double)
+        dataset = torch.utils.data.TensorDataset(x_tensor, y_tensor)
+        loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False)
+        iterator = iter(loader)
+        for step in range(1, max_iters + 1):
+            try:
+                x_batch, y_batch = next(iterator)
+            except StopIteration:
+                iterator = iter(loader)
+                x_batch, y_batch = next(iterator)
+            loss = self._train_step(x_batch, y_batch)
+            if step % log_every == 0:
+                print(f"Step {step}/{max_iters}, Loss: {loss.item():.4f}", flush=True)
+                self.loss_history.append(float(loss.detach().cpu().item()))
+        return self.loss_history
+
+    def sample(self, context, num_samples=200):
+        with torch.no_grad():
+            samples = self.flow.sample(num_samples=num_samples, context=context)
+        return samples.detach().cpu().numpy()
+
+    def save(self, prefix):
+        os.makedirs(op.dirname(prefix), exist_ok=True)
+        path = f"{prefix}.pt"
+        torch.save(
+            {
+                "state_dict": self.flow.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+                "loss_history": self.loss_history,
+            },
+            path,
+        )
+        return path
+
+    def restore(self, prefix):
+        ckpt_path = prefix if prefix.endswith(".pt") else f"{prefix}.pt"
+        if not op.exists(ckpt_path):
+            return None
+        checkpoint = torch.load(ckpt_path, map_location=torch.device("cpu"))
+        self.flow.load_state_dict(checkpoint["state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer"])
+        self.loss_history = checkpoint.get("loss_history", [])
+        return ckpt_path
+
+
 class BaseMFCoregEmu():
     """
     Emulator for the Halo Mass Function using the native bins
-    This does the full dimensionality reduction of the output space using
-    `LatentMFCoregionalizationSVGP` which allows each output to have a different
-    observational (simualtion quality) uncertainty.
+    This now models the joint LF/HF distribution with a conditional
+    normalizing flow instead of two separate GPs for the mean and variance.
     """
-    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
+    def __init__(self, DataLoader, data_dir, z, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
         """
         Parameters
         ----------
@@ -333,9 +427,6 @@ class BaseMFCoregEmu():
         self.logger = self.configure_logging(logging_level)
         self.data_dir = data_dir
         self.z = z
-        self.num_latents = num_latents
-        self.noise_num_latents = noise_num_latents
-        self.num_inducing = num_inducing
         self.norm_type = norm_type
         self.noise_floor = noise_floor
         # Load the data
@@ -404,10 +495,13 @@ class BaseMFCoregEmu():
         self.logger.debug(f'X: ({np.array(self.X[0]).shape}, {np.array(self.X[1]).shape}, Y: ({np.array(self.Y[0]).shape}, {np.array(self.Y[1]).shape}, Y_err: ({np.array(self.Y_err[0]).shape}, {np.array(self.Y_err[1]).shape})')
         self.logger.info(f'norm_type {norm_type}')
         self.logger.info(f'noise_floor {noise_floor}')
+        # Normalizing flow gets built during training to keep config flexible
+        self.flow_model = None
+        self.flow_config = {}
 
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level in an MPI environment."""
-        logger = logging.getLogger('HMF-MFCoregEmu')
+        logger = logging.getLogger('BaseMFCoregEmu')
         logger.setLevel(logging_level)
 
         # Create a console handler with flushing
@@ -481,231 +575,164 @@ class BaseMFCoregEmu():
 
     def train(self, ind_train=None, ind_test=None, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train', composite_kernel=None, w_type='diagonal', loss_type='gaussian'):
         """
-        Train the model and save this in `model_file`
+        Train the multi-fidelity normalizing flow and save checkpoints.
         Parameters
         ----------
         model_file : str
-            The file to save the Emulator. Two files
-            will be saved, one with the model and the other
-            with the loss history.
-        composite_kernel : dict
-            If not None, add the specified kernels. e.g {'kernel_L':['matern32', 'matern52'], 'kernel_delta':['rbf']}
+            The file prefix to save the Emulator checkpoints and attributes.
+        opt_params : dict
+            flow training options. Keys supported:
+              - max_iters (int)
+              - initial_lr (float)
+              - batch_size (int)
+              - num_bijectors (int)
+              - hidden_units (tuple)
+              - log_every (int)
         """
         if ind_train is None:
             ind_train = np.arange(self.X[1].shape[0])
-        # Add the fidelity indocators, 0 for L2 and 1 for HF
+        # Add the fidelity indicators, 0 for L2 and 1 for HF
         X_l2_aug = np.hstack([self.X[0], np.zeros((self.X[0].shape[0], 1), dtype=np.float64)])
         X_hf_aug = np.hstack([self.X[1][ind_train], np.ones((ind_train.size, 1), dtype=np.float64)])
-        # Stack the L2 and HF data vertically
-        X_train = np.vstack([X_l2_aug, X_hf_aug])
-        Y_train = np.vstack([self.Y[0], self.Y[1][ind_train]])
+        X_train = np.vstack([X_l2_aug, X_hf_aug]).astype(np.float64)
+        Y_train = np.vstack([self.Y[0], self.Y[1][ind_train]]).astype(np.float64)
         self.logger.debug(f'X_train: {X_train.shape}, Y_train: {Y_train.shape}')
 
-        X_train = X_train.astype(np.float64)
-        Y_train = Y_train.astype(np.float64)
+        checkpoint_dir = op.join(self.data_dir, train_subdir)
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        ckpt_prefix = op.join(checkpoint_dir, model_file)
 
-        # Base kernel of the MF GP
-        if composite_kernel is None:
-            kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
-            kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
-        elif composite_kernel == ['matern32', 'matern52', 'matern32', 'matern52']:
-            kernel_L = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(0.3)) + \
-                          gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
-            kernel_delta = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(0.3)) + \
-                            gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0)))
-        elif composite_kernel == ['matern32', 'matern52', 'rbf']:
-            kernel_L = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(0.3)) + \
-                          gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
-            kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
-        elif composite_kernel == ['rbf','matern52', 'rbf']:
-            kernel_L = (gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)) + \
-                          gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
-            kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
+        max_iters = opt_params.get('max_iters', 4_000)
+        initial_lr = opt_params.get('initial_lr', 5e-3)
+        batch_size = opt_params.get('batch_size', 64)
+        num_bijectors = opt_params.get('num_bijectors', 4)
+        hidden_units = opt_params.get('hidden_units', (128, 128))
+        log_every = opt_params.get('log_every', 200)
+        num_samples = opt_params.get('num_samples', 256)
+
+        self.flow_config = dict(
+            num_bijectors=num_bijectors,
+            hidden_units=hidden_units,
+            learning_rate=initial_lr,
+            num_samples=num_samples
+        )
+        if self.flow_model is None:
+            self.flow_model = MultiFidelityNormalizingFlow(
+                input_dim=X_train.shape[1],
+                output_dim=self.output_dim,
+                num_bijectors=num_bijectors,
+                hidden_units=hidden_units,
+                learning_rate=initial_lr
+            )
         else:
-            raise ValueError(f"Unknown composite_kernel: {composite_kernel}")
-        
-        #kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
-        self.emu = LatentMFCoregionalizationSVGP(
-            X_train, Y_train, kernel_L, kernel_delta,
-            num_latents=self.num_latents, num_inducing=self.num_inducing,
-            num_outputs=self.output_dim, heterosed=True, w_type=w_type, 
-            loss_type=loss_type, noise_num_latents=self.noise_num_latents,
-            noise_w_type=w_type, logging_level=self.logging_level)
+            self.logger.info('Reusing existing flow model instance')
+        # Try to restore if a checkpoint exists
+        ckpt_path = f"{ckpt_prefix}.pt"
+        if op.exists(ckpt_path):
+            self.logger.info(f'Loading flow checkpoint from {ckpt_path}')
+            self.flow_model.restore(ckpt_path)
 
-        model_file = op.join(self.data_dir, train_subdir, model_file)
-        #self.logger.info(f'Will save to {model_file}')
-        existing_model_files = glob(model_file.replace('.pkl', '*.pkl'))
-        if len(existing_model_files) > 0:
-            # extract epoch number from the filenames
-            try: 
-                if force_train:
-                    epochs = [int(op.basename(f).split('_')[-1].replace('.pkl', '')) for f in existing_model_files if '_' in op.basename(f)]
-                    latest_epoch = max(epochs)
-                    model_file = model_file.replace('.pkl', f'_{latest_epoch}.pkl')
-                    self.logger.info(f'Found {len(existing_model_files)} existing model files, will load the latest one: {model_file}')
-                else:
-                    self.logger.info(f'will NOT train, loading the model from {model_file}')
-            except ValueError:
-                self.logger.info(f'loading from the only model file found {model_file}')
-            with open(model_file, "rb") as f:
-                params = pickle.load(f)
-                # TODO: Save the model already in float64:
-                # Convert all parameters to float64 type
-                # This won't be necessary if the saved model is already in float64
-                for key, value in params.items():
-                    if isinstance(value, dict):
-                        for inner_key, inner_value in value.items():
-                            if isinstance(inner_value, np.ndarray):
-                                params[key][inner_key] = inner_value.astype(np.float64)
-                            elif isinstance(inner_value, (int, float)):
-                                params[key][inner_key] = np.float64(inner_value)
-                    elif isinstance(value, np.ndarray):
-                        params[key] = value.astype(np.float64)
-                    elif isinstance(value, (int, float)):
-                        params[key] = np.float64(value)
-                gpflow.utilities.multiple_assign(self.emu, params)
-            # load the loss_history:
-            try:
-                with open(f'{model_file}.attrs', 'rb') as f:
-                    attrs = pickle.load(f)
-                    # Reload the loss history, so it will be appended
-                    # during the new training
-                    self.emu.loss_history = attrs['loss_history']
-                    self.emu.kl_history = attrs['kl_history']
-                    current_iters = len(self.emu.loss_history)
-            except:
-                current_iters = None
-                self.logger.warning(f'No loss history found for {model_file}.attrs, but model exists')
-        else:
+        self.logger.info(f'Built flow with output_dim {self.output_dim}, num_bijectors {num_bijectors}, hidden_units {hidden_units}')
+        self.logger.info(f'flow batch_size {batch_size}, max_iters {max_iters}, log_every {log_every}')
 
-            current_iters = 0
-            model_file = model_file.replace('.pkl', f'_{current_iters}.pkl')
-        # Log the model specifications
-        self.logger.info(f'Built the model with')
-        self.logger.info(f'#num_latents {self.num_latents}, noise_num_latents {self.noise_num_latents}')
-        self.logger.info(f'output_dim {self.output_dim}')
-        self.logger.info(f'num_inducing {self.num_inducing}')
-        if loss_type == 'gaussian':
-            self.logger.info(f'variance dim {self.emu.likelihood.variance.numpy().shape}')
-        self.logger.info(f'composite_kernel {composite_kernel}')
-        self.logger.info(f'w_type {w_type}')
-        self.logger.info(f'trained epochs {current_iters}')
-
-
-        if len(list(opt_params)) == 0:
-            max_iters = 4_000
-            initial_lr = 5e-3
-            iter_save = max_iters
-        else:
-            iter_save = opt_params['iter_save']
-            max_iters = opt_params['max_iters']
-            initial_lr = opt_params['initial_lr']
-        # It won't train unless instructed
         if force_train:
-            self.logger.debug(f'Training. shapes passed to LMF : {X_train.shape, Y_train.shape}')
-            if len(self.emu.loss_history) >= max_iters:
-                self.logger.info(f'{model_file} already trained for {max_iters} iterations')
-                return
-            # Do the training in batches of iter_save, so we defenitely save
-            # the model every iter_save iterations
-            iter_stop_point = np.append(np.arange(current_iters, max_iters, iter_save), max_iters) if max_iters % iter_save != 0 else np.arange(current_iters, max_iters + 1, iter_save)
-            iter_stop_point = iter_stop_point[1:]
-            for it_stp in iter_stop_point:
-                current_iters = len(self.emu.loss_history)
-                self.logger.info(f'Continue optimization from {current_iters} to {it_stp}')
-                # The decaying learning rate
-                start_lr = tf.keras.optimizers.schedules.CosineDecay(initial_lr, max_iters)(current_iters)
-                # Both data and uncertainty are passed to the optimizer
-                self.emu.optimize(data=(X_train, Y_train), max_iters=it_stp, initial_lr=start_lr, unfix_noise_after=500)
-                # We need the udpated current iters to save the model
-                current_iters = len(self.emu.loss_history)
-                model_file = op.join(op.dirname(model_file), op.basename(model_file).rsplit('_', 1)[0]+f'_{int(current_iters)}.pkl')
-                self.emu.save_model(model_file)
-                # Save loss_history, ind_train and emu_type
-                with open(f'{model_file}.attrs', 'wb') as f:
-                    self.logger.debug(f'Writing the model on {model_file}')
-                    self.model_attrs = {}
-                    self.model_attrs['loss_history'] = self.emu.loss_history
-                    self.model_attrs['kl_history'] = self.emu.kl_history
-                    #self.model_attrs['ind_train'] = ind_train
-                    self.model_attrs['emu_type'] = self.emu_type
-                    pickle.dump(self.model_attrs, f)
-            self.logger.info(f'done with optimization {max_iters}')
+            self.logger.debug(f'Training flow on shapes {X_train.shape}, {Y_train.shape}')
+            history = self.flow_model.fit(
+                x=X_train,
+                y=Y_train,
+                max_iters=max_iters,
+                batch_size=batch_size,
+                log_every=log_every
+            )
+            ckpt_path = self.flow_model.save(ckpt_prefix)
+            with open(f'{ckpt_prefix}.attrs', 'wb') as f:
+                self.logger.debug(f'Writing flow attrs to {ckpt_prefix}.attrs')
+                self.model_attrs = {
+                    'loss_history': history,
+                    'emu_type': self.emu_type,
+                    'flow_config': self.flow_config,
+                    'num_samples': num_samples
+                }
+                pickle.dump(self.model_attrs, f)
+            self.logger.info(f'done with optimization {max_iters}, saved {ckpt_path}')
 
     def predict(self, ind_test, model_file, train_subdir = 'train', composite_kernel=None):
         """
-        Posteroir prediction of the emulator
-        Parameters
-        ----------
-        ind_train : array
-            The indices of the HF sims to be used for training
-        ind_test : array
-            The indices of the HF sims to be used for testing
-        model_file : str
-            The file to save the Emulator. If the file exists, 
-            the model is loaded from the file.
-        Returns
-        -------
-        mean_pred, var_pred : (array, array)
-            The mean and variance of the predicted 
-            log10(xi(r)) for the test sims.
+        Posterior prediction of the emulator using the trained normalizing flow.
+        Returns mean and variance estimated from flow samples.
         """
+        base_name = op.splitext(model_file)[0]
+        attr_file = op.join(self.data_dir, train_subdir, f'{base_name}.attrs')
+        legacy_attr_file = op.join(self.data_dir, train_subdir, f'{model_file}.attrs')
         try:
-            with open(op.join(self.data_dir, train_subdir, f'{model_file}.attrs'), 'rb') as f:
+            with open(attr_file, 'rb') as f:
                 self.model_attrs = pickle.load(f)
-        except:
-            self.logger.warning(f'No model attributes found for {op.join(self.data_dir, train_subdir, f"{model_file}.attrs")}')
-            self.model_attrs = {}
-        #ind_train = self.model_attrs['ind_train']
-        #self.emu_type = self.model_attrs['emu_type']
-        #self.train(ind_train, model_file, force_train=False, train_subdir=train_subdir)
-        self.train(model_file=model_file, force_train=False, train_subdir=train_subdir, composite_kernel=composite_kernel)
-        
-        # Add the fidelity indocators
-        X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float64)
-        Fmu, Fvar = self.emu.predict_f(X_test)
-        P = self.output_dim
-        mean_mu = Fmu[:, :P]
-        mean_var = Fvar[:, :P]
-        logvar_mu = Fmu[:, P:]
-        logvar_var = Fvar[:, P:]
+        except Exception:
+            try:
+                with open(legacy_attr_file, 'rb') as f:
+                    self.model_attrs = pickle.load(f)
+                    self.logger.info(f'Loaded legacy attrs from {legacy_attr_file}')
+            except Exception:
+                self.logger.warning(f'No model attributes found for {attr_file}')
+                self.model_attrs = {}
 
-        aleatoric_var = np.exp(logvar_mu + 0.5 * logvar_var)
-        base_noise = np.array(self.emu.likelihood.variance)
-        effective_var = base_noise + aleatoric_var
-        mean_pred = mean_mu
-        y_var = mean_var + effective_var
+        flow_cfg = self.model_attrs.get('flow_config', self.flow_config)
+        num_bijectors = flow_cfg.get('num_bijectors', 4) if flow_cfg is not None else 4
+        hidden_units = flow_cfg.get('hidden_units', (128, 128)) if flow_cfg is not None else (128, 128)
+        learning_rate = flow_cfg.get('learning_rate', 5e-3) if flow_cfg is not None else 5e-3
+        num_samples = self.model_attrs.get('num_samples', 256)
+
+        if self.flow_model is None:
+            self.flow_model = MultiFidelityNormalizingFlow(
+                input_dim=self.X[0].shape[1] + 1,
+                output_dim=self.output_dim,
+                num_bijectors=num_bijectors,
+                hidden_units=hidden_units,
+                learning_rate=learning_rate
+            )
+
+        ckpt_prefix = op.join(self.data_dir, train_subdir, base_name)
+        ckpt_path = f"{ckpt_prefix}.pt"
+        if not op.exists(ckpt_path):
+            self.logger.warning(f'No flow checkpoint found at {ckpt_path}; predictions will use current (possibly untrained) weights')
+        else:
+            self.flow_model.restore(ckpt_path)
+
+        # Add the fidelity indicators
+        X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float64)
+        context = torch.as_tensor(X_test, dtype=torch.double)
+        samples = self.flow_model.sample(context, num_samples=num_samples)
+        mean_pred = np.mean(samples, axis=0)
+        var_pred = np.var(samples, axis=0)
 
         if self.norm_type == 'std_gaussian':
             mean_pred = mean_pred * self.std_Y + self.mean_Y
-            y_var = y_var * (self.std_Y ** 2)
-        return mean_pred, y_var
+            var_pred = var_pred * (self.std_Y ** 2)
+        return mean_pred, var_pred
 
 class HmfNativeBins(BaseMFCoregEmu):
     """
     Emulator for the Halo Mass Function using the native bins
     This does the full dimensionality reduction of the output space using
-    `LatentMFCoregionalizationSVGP` which allows each output to have a different
-    observational (simualtion quality) uncertainty.
+    the conditional normalizing flow defined in BaseMFCoregEmu.
     """
 
-    def __init__(self, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
+    def __init__(self, data_dir, z, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
         
         DataLoader = summary_stats.HMF
-        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=noise_num_latents, emu_type=emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, logging_level=logging_level)
+        super().__init__(DataLoader, data_dir, z, emu_type=emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, logging_level=logging_level)
 
 class XiNativeBins(BaseMFCoregEmu):
     """
     Emulator for the Correlation Function, xi(r, m1, m2) using the native bins
     This does the full dimensionality reduction of the output space using
-    `LatentMFCoregionalizationSVGP` which allows each output to have a different
-    observational (simualtion quality) uncertainty.
+    the conditional normalizing flow defined in BaseMFCoregEmu.
     """
 
-    def __init__(self, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
+    def __init__(self, data_dir, z, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
         
         DataLoader = summary_stats.Xi
-        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=noise_num_latents, emu_type=emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, logging_level=logging_level)
+        super().__init__(DataLoader, data_dir, z, emu_type=emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, logging_level=logging_level)
 
 class XiNativeBinsFullDimReduc():
     """

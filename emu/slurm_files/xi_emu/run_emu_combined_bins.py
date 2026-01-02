@@ -1,14 +1,16 @@
 import argparse
 import numpy as np
-import importlib
 from gal_goku import emus_multifid
 import json
 import os.path as op
 
 
-def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=40, noise_num_latents=40, w_type='diagonal', norm_type='subtract_mean', noise_floor=0.0, loss_type='gaussian'):
+def run_it(ind_test, z, train_subdir, machine='stampede3',
+           norm_type='subtract_mean', noise_floor=0.0,
+           flow_max_iters=20000, flow_initial_lr=1e-3, flow_batch_size=128,
+           flow_num_bijectors=6, flow_hidden_units=(256, 256), flow_log_every=500,
+           flow_num_samples=512):
 
-    num_inducing=500
 
     if machine=='stampede3':
         data_dir = '/scratch/06536/qezlou/Goku/processed_data/xi_bins/'
@@ -20,37 +22,45 @@ def run_it(ind_test, z, train_subdir, machine='stampede3', num_latents=40, noise
     # Save the config file to the save directory
     json.dump({
         'train_subdir': train_subdir,
-        'num_latents': num_latents,
-        'noise_num_latents': noise_num_latents,
-        'w_type': w_type,
-        'norm_type': norm_type
+        'norm_type': norm_type,
+        'flow_max_iters': flow_max_iters,
+        'flow_initial_lr': flow_initial_lr,
+        'flow_batch_size': flow_batch_size,
+        'flow_num_bijectors': flow_num_bijectors,
+        'flow_hidden_units': list(flow_hidden_units),
+        'flow_log_every': flow_log_every,
+        'flow_num_samples': flow_num_samples,
+        'noise_floor': noise_floor
     }, open(op.join(data_dir, train_subdir, 'config.json'), 'w'))
     
 
     emu = emus_multifid.XiNativeBins(data_dir=data_dir,
                                      z=z,
-                                     num_inducing=num_inducing, 
-                                     num_latents=num_latents,
-                                     noise_num_latents=noise_num_latents,
                                      norm_type=norm_type,
                                      noise_floor=noise_floor,
                                      logging_level='DEBUG')
     if ind_test is None:
         ind_train = None
-        model_file=f'xi_emu_combined_z{z}_inducing_{int(num_inducing)}_latents_{int(num_latents)}_{int(noise_num_latents)}_leave{ind_test}_all.pkl'
+        model_file=f'xi_emu_combined_z{z}_all'
 
     else:
         ind_train = np.delete(np.arange(emu.Y[1].shape[0]), [ind_test])
-        model_file=f'xi_emu_combined_z{z}_inducing_{int(num_inducing)}_latents_{int(num_latents)}_{int(noise_num_latents)}_leave{ind_test}.pkl'
+        model_file=f'xi_emu_combined_z{z}_leave{ind_test}'
     
     emu.logger.info(f'will save on {model_file}')
     
     emu.train(ind_train,
             train_subdir=train_subdir, 
-            opt_params={'max_iters':38_000, 'initial_lr':5e-3, 'iter_save':10_000}, 
-            model_file=model_file,
-            composite_kernel=['matern32', 'matern52', 'matern32', 'matern52'],
-            w_type=w_type
+            opt_params={
+                'max_iters': flow_max_iters,
+                'initial_lr': flow_initial_lr,
+                'batch_size': flow_batch_size,
+                'num_bijectors': flow_num_bijectors,
+                'hidden_units': flow_hidden_units,
+                'log_every': flow_log_every,
+                'num_samples': flow_num_samples
+            }, 
+            model_file=model_file
             )
 
 if __name__ == '__main__':
@@ -67,8 +77,13 @@ if __name__ == '__main__':
         config = json.load(f)
     args = parser.parse_args()
     run_it(args.ind_test, z=args.z, train_subdir=config['train_subdir'], 
-           machine=args.machine, num_latents=config['num_latents'], 
-           noise_num_latents=config['noise_num_latents'], 
-           w_type=config['w_type'], norm_type=config['norm_type'], 
-           noise_floor=config.get('noise_floor', 0.0), 
-           loss_type=config.get('loss_type', 'gaussian'))
+           machine=args.machine,
+           norm_type=config['norm_type'], 
+           noise_floor=config.get('noise_floor', 0.0),
+           flow_max_iters=config.get('flow_max_iters', 20000),
+           flow_initial_lr=config.get('flow_initial_lr', 1e-3),
+           flow_batch_size=config.get('flow_batch_size', 128),
+           flow_num_bijectors=config.get('flow_num_bijectors', 6),
+           flow_hidden_units=tuple(config.get('flow_hidden_units', (256, 256))),
+           flow_log_every=config.get('flow_log_every', 500),
+           flow_num_samples=config.get('flow_num_samples', 512))

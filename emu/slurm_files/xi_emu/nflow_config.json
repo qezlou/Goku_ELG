@@ -1,0 +1,12 @@
+{
+    "train_subdir": "train_nflow",
+    "norm_type": "subtract_mean",
+    "noise_floor": 0.0,
+    "flow_max_iters": 20000,
+    "flow_initial_lr": 0.001,
+    "flow_batch_size": 128,
+    "flow_num_bijectors": 6,
+    "flow_hidden_units": [256, 256],
+    "flow_log_every": 500,
+    "flow_num_samples": 512
+}
