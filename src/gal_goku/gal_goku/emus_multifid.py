@@ -8,16 +8,11 @@ import pickle
 import h5py
 import numpy as np
 from . import summary_stats
-#from . import single_fid
-#from . import gpemulator_singlebin as gpemu
-import gpflow
-import tensorflow as tf
 import torch
 from nflows import flows as nf_flows
 from nflows import distributions as nf_distributions
 from nflows import transforms as nf_transforms
 from nflows.nn import nets as nf_nets
-from mfgpflow.linear_svgp import LatentMFCoregionalizationSVGP
 import sys
 import os
 import os.path as op

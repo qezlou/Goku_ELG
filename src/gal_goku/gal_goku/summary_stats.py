@@ -21,11 +21,6 @@ except ImportError:
     halo_tools = None
     print("halo_tools not available, won't be able to use propagator.")
 import sys
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-import gpflow
-from gpflow.utilities import print_summary
-import tensorflow as tf
 
 class BaseSummaryStats:
     """Base class for summary statistics"""

@@ -14,10 +14,14 @@ def run_it(ind_test, z, train_subdir, machine='stampede3',
 
     if machine=='stampede3':
         data_dir = '/scratch/06536/qezlou/Goku/processed_data/xi_bins/'
+    elif machine=='vista':
+        data_dir = '/scratch/06536/qezlou/goku/processed_data/xi_on_grid/'
     elif machine=='ucr':
         data_dir = '/rhome/mqezl001/bigdata/HETDEX/data/xi_bins/'
     elif machine=='pc':
         data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
+    else:
+        raise ValueError('machine not recognized')
 
     # Save the config file to the save directory
     json.dump({

@@ -38,6 +38,6 @@ setuptools.setup(
         "camb",
         "configobj",
         "nflows",
-        "classylss @ git+https://github.com/sbird/classylss.git",
+        #"classylss @ git+https://github.com/sbird/classylss.git",
     ],
 )
