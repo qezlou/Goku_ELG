@@ -13,11 +13,13 @@ from nflows import flows as nf_flows
 from nflows import distributions as nf_distributions
 from nflows import transforms as nf_transforms
 from nflows.nn import nets as nf_nets
+from nflows.utils import torchutils
 import sys
 import os
 import os.path as op
 import copy
 from glob import glob
+import time
 
 try :
     #raise ImportError
@@ -299,6 +301,24 @@ class Hmf(BaseStatEmu):
         super().__init__(X=self.X, Y=self.Y, logging_level=logging_level, emu_type=emu_type, n_optimization_restarts=5)
     
 
+class _TypedStandardNormal(nf_distributions.normal.StandardNormal):
+    """
+    StandardNormal that samples with the buffer dtype so we avoid float/double mismatches.
+    """
+    def __init__(self, shape, dtype=torch.float32):
+        super().__init__(shape=shape)
+        # keep the log_z buffer in the requested dtype
+        self._log_z.data = self._log_z.to(dtype=dtype)
+
+    def _sample(self, num_samples, context):
+        if context is None:
+            return torch.randn(num_samples, *self._shape, device=self._log_z.device, dtype=self._log_z.dtype)
+        context_size = context.shape[0]
+        samples = torch.randn(context_size * num_samples, *self._shape,
+                              device=context.device, dtype=self._log_z.dtype)
+        return torchutils.split_leading_dim(samples, [context_size, num_samples])
+
+
 class MultiFidelityNormalizingFlow:
     """
     Conditional normalizing flow that models HF and LF jointly by conditioning
@@ -306,7 +326,7 @@ class MultiFidelityNormalizingFlow:
     """
 
     def __init__(self, input_dim, output_dim, num_bijectors=4, hidden_units=(128, 128),
-                 learning_rate=1e-3, name="mf_flow", device=None, dtype=torch.double):
+                 learning_rate=1e-3, name="mf_flow", device=None, dtype=torch.float32):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.num_bijectors = num_bijectors
@@ -339,7 +359,7 @@ class MultiFidelityNormalizingFlow:
             transforms.append(maf)
             transforms.append(nf_transforms.permutations.ReversePermutation(features=self.output_dim))
         transform = nf_transforms.CompositeTransform(transforms)
-        distribution = nf_distributions.normal.StandardNormal(shape=[self.output_dim])
+        distribution = _TypedStandardNormal(shape=[self.output_dim], dtype=self.dtype)
         self.flow = nf_flows.base.Flow(transform, distribution).to(device=self.device, dtype=self.dtype)
 
     def _ensure_device_dtype(self):
@@ -569,12 +589,12 @@ class BaseMFCoregEmu():
         #self.Y[0] = np.concatenate((self.Y[0][:, :], Y_err[0][:,:]), axis=1)
         #self.Y[1] = np.concatenate((self.Y[1][:,:], Y_err[1][:,:]), axis=1)
 
-        self.Y[0] = self.Y[0].astype(np.float64)
-        self.Y[1] = self.Y[1].astype(np.float64)
-        self.Y_err[0] = self.Y_err[0].astype(np.float64)
-        self.Y_err[1] = self.Y_err[1].astype(np.float64)
-        self.X[0] = self.X[0].astype(np.float64)
-        self.X[1] = self.X[1].astype(np.float64)
+        self.Y[0] = self.Y[0].astype(np.float32)
+        self.Y[1] = self.Y[1].astype(np.float32)
+        self.Y_err[0] = self.Y_err[0].astype(np.float32)
+        self.Y_err[1] = self.Y_err[1].astype(np.float32)
+        self.X[0] = self.X[0].astype(np.float32)
+        self.X[1] = self.X[1].astype(np.float32)
 
         assert not np.isnan(self.X[0]).any(), f'X[0] has nans {np.where(np.isnan(self.X[0]))}'
         assert not np.isnan(self.X[1]).any(), f'X[1] has nans {np.where(np.isnan(self.X[1]))}'
@@ -698,10 +718,10 @@ class BaseMFCoregEmu():
         if ind_train is None:
             ind_train = np.arange(self.X[1].shape[0])
         # Add the fidelity indicators, 0 for L2 and 1 for HF
-        X_l2_aug = np.hstack([self.X[0], np.zeros((self.X[0].shape[0], 1), dtype=np.float64)])
-        X_hf_aug = np.hstack([self.X[1][ind_train], np.ones((ind_train.size, 1), dtype=np.float64)])
-        X_train = np.vstack([X_l2_aug, X_hf_aug]).astype(np.float64)
-        Y_train = np.vstack([self.Y[0], self.Y[1][ind_train]]).astype(np.float64)
+        X_l2_aug = np.hstack([self.X[0], np.zeros((self.X[0].shape[0], 1), dtype=np.float32)])
+        X_hf_aug = np.hstack([self.X[1][ind_train], np.ones((ind_train.size, 1), dtype=np.float32)])
+        X_train = np.vstack([X_l2_aug, X_hf_aug]).astype(np.float32)
+        Y_train = np.vstack([self.Y[0], self.Y[1][ind_train]]).astype(np.float32)
         self.logger.debug(f'X_train: {X_train.shape}, Y_train: {Y_train.shape}')
 
         checkpoint_dir = op.join(self.data_dir, train_subdir)
@@ -797,11 +817,12 @@ class BaseMFCoregEmu():
                 pickle.dump(self.model_attrs, f)
             self.logger.info(f'done with optimization {max_iters}, saved {ckpt_path}')
 
-    def predict(self, ind_test, model_file, train_subdir = 'train'):
+    def predict(self, ind_test, model_file, train_subdir = 'train', num_samples=None):
         """
         Posterior prediction of the emulator using the trained normalizing flow.
         Returns mean and variance estimated from flow samples.
         """
+        t0 = time.time()
         base_name = op.splitext(model_file)[0]
         attr_file = op.join(self.data_dir, train_subdir, f'{base_name}.attrs')
         legacy_attr_file = op.join(self.data_dir, train_subdir, f'{model_file}.attrs')
@@ -816,13 +837,15 @@ class BaseMFCoregEmu():
             except Exception:
                 self.logger.warning(f'No model attributes found for {attr_file}')
                 self.model_attrs = {}
+        print(f'[timer] predict: load attrs {time.time() - t0:.2f}s', flush=True)
 
         flow_cfg = self.model_attrs.get('flow_config', self.flow_config)
         num_bijectors = flow_cfg.get('num_bijectors', 4) if flow_cfg is not None else 4
         hidden_units = flow_cfg.get('hidden_units', (128, 128)) if flow_cfg is not None else (128, 128)
         learning_rate = flow_cfg.get('learning_rate', 5e-3) if flow_cfg is not None else 5e-3
-        num_samples = self.model_attrs.get('num_samples', 256)
+        num_samples = self.model_attrs.get('num_samples', 256) if num_samples is None else num_samples
 
+        t1 = time.time()
         if self.flow_model is None:
             self.flow_model = MultiFidelityNormalizingFlow(
                 input_dim=self.X[0].shape[1] + 1,
@@ -834,20 +857,25 @@ class BaseMFCoregEmu():
             )
         else:
             self.flow_model.to_device(self.device)
+        print(f'[timer] predict: build/restore model {time.time() - t1:.2f}s (device={self.device})', flush=True)
 
+        t2 = time.time()
         ckpt_prefix = op.join(self.data_dir, train_subdir, base_name)
         ckpt_path = f"{ckpt_prefix}.pt"
         if not op.exists(ckpt_path):
             self.logger.warning(f'No flow checkpoint found at {ckpt_path}; predictions will use current (possibly untrained) weights')
         else:
             self.flow_model.restore(ckpt_path)
+        print(f'[timer] predict: load checkpoint {time.time() - t2:.2f}s', flush=True)
 
+        t3 = time.time()
         # Add the fidelity indicators
-        X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float64)
-        context = torch.as_tensor(X_test, dtype=torch.double)
+        X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float32)
+        context = torch.as_tensor(X_test, dtype=self.flow_model.dtype)
         samples = self.flow_model.sample(context, num_samples=num_samples)
         mean_pred = np.mean(samples, axis=0)
         var_pred = np.var(samples, axis=0)
+        print(f'[timer] predict: sampling + moments {time.time() - t3:.2f}s (num_samples={num_samples})', flush=True)
 
         if self.norm_type == 'std_gaussian':
             mean_pred = mean_pred * self.std_Y + self.mean_Y
@@ -959,12 +987,12 @@ class XiNativeBinsFullDimReduc():
         #self.Y[0] = np.concatenate((self.Y[0][:, :], Y_err[0][:,:]), axis=1)
         #self.Y[1] = np.concatenate((self.Y[1][:,:], Y_err[1][:,:]), axis=1)
 
-        self.Y[0] = self.Y[0].astype(np.float64)
-        self.Y[1] = self.Y[1].astype(np.float64)
-        self.Y_err[0] = self.Y_err[0].astype(np.float64)
-        self.Y_err[1] = self.Y_err[1].astype(np.float64)
-        self.X[0] = self.X[0].astype(np.float64)
-        self.X[1] = self.X[1].astype(np.float64)
+        self.Y[0] = self.Y[0].astype(np.float32)
+        self.Y[1] = self.Y[1].astype(np.float32)
+        self.Y_err[0] = self.Y_err[0].astype(np.float32)
+        self.Y_err[1] = self.Y_err[1].astype(np.float32)
+        self.X[0] = self.X[0].astype(np.float32)
+        self.X[1] = self.X[1].astype(np.float32)
 
         assert not np.isnan(self.X[0]).any(), f'X[0] has nans {np.where(np.isnan(self.X[0]))}'
         assert not np.isnan(self.X[1]).any(), f'X[1] has nans {np.where(np.isnan(self.X[1]))}'
@@ -1041,8 +1069,8 @@ class XiNativeBinsFullDimReduc():
             self.hf_median_func = np.nanmedian(self.Y[1][ind_train], axis=0)
 
         # Add the fidelity indocators, 0 for L2 and 1 for HF
-        X_l2_aug = np.hstack([self.X[0], np.zeros((self.X[0].shape[0], 1), dtype=np.float64)])
-        X_hf_aug = np.hstack([self.X[1][ind_train], np.ones((ind_train.size, 1), dtype=np.float64)])
+        X_l2_aug = np.hstack([self.X[0], np.zeros((self.X[0].shape[0], 1), dtype=np.float32)])
+        X_hf_aug = np.hstack([self.X[1][ind_train], np.ones((ind_train.size, 1), dtype=np.float32)])
         # Stack the L2 and HF data vertically
         X_train = np.vstack([X_l2_aug, X_hf_aug])
         if self.use_rho:
@@ -1052,12 +1080,12 @@ class XiNativeBinsFullDimReduc():
             Y_train = np.vstack([self.Y[0], self.Y[1][ind_train] - self.hf_median_func])
         self.logger.debug(f'X_train: {X_train.shape}, Y_train: {Y_train.shape}')
 
-        X_train = X_train.astype(np.float64)
-        Y_train = Y_train.astype(np.float64)
+        X_train = X_train.astype(np.float32)
+        Y_train = Y_train.astype(np.float32)
 
         # Base kernel of the MF GP
-        kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
-        kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
+        kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float32), variance=np.float32(1.0))
+        kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float32), variance=np.float32(1.0))
         self.emu = LatentMFCoregionalizationSVGP(
             X_train, Y_train, kernel_L, kernel_delta,
             num_latents=self.num_latents, num_inducing=self.num_inducing,
@@ -1068,20 +1096,20 @@ class XiNativeBinsFullDimReduc():
             self.logger.info(f'Loading model from {model_file}')
             with open(model_file, "rb") as f:
                 params = pickle.load(f)
-                # TODO: Save the model already in float64:
-                # Convert all parameters to float64 type
-                # This won't be necessary if the saved model is already in float64
+                # TODO: Save the model already in float32:
+                # Convert all parameters to float32 type
+                # This won't be necessary if the saved model is already in float32
                 for key, value in params.items():
                     if isinstance(value, dict):
                         for inner_key, inner_value in value.items():
                             if isinstance(inner_value, np.ndarray):
-                                params[key][inner_key] = inner_value.astype(np.float64)
+                                params[key][inner_key] = inner_value.astype(np.float32)
                             elif isinstance(inner_value, (int, float)):
-                                params[key][inner_key] = np.float64(inner_value)
+                                params[key][inner_key] = np.float32(inner_value)
                     elif isinstance(value, np.ndarray):
-                        params[key] = value.astype(np.float64)
+                        params[key] = value.astype(np.float32)
                     elif isinstance(value, (int, float)):
-                        params[key] = np.float64(value)
+                        params[key] = np.float32(value)
                 gpflow.utilities.multiple_assign(self.emu, params)
             # load the loss_history:
             try:
@@ -1183,7 +1211,7 @@ class XiNativeBinsFullDimReduc():
         self.train(model_file=model_file, force_train=False, train_subdir=train_subdir)
         
         # Add the fidelity indocators
-        X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float64)
+        X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float32)
         Fmu, Fvar = self.emu.predict_f(X_test)
         P = self.output_dim
         mean_pred = Fmu[:, :P]
