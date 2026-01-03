@@ -751,7 +751,7 @@ class PlotXiEmu(BasePlot):
                 #ax[0].plot(ind_p.size + np.arange(ind_n.size), -np.log10(-self.loss_hist[s][ind_n]), label='-log10(-loss)')
                 ax[0].plot(self.loss_hist[s], label='-log10(-loss)')
                 ax[0].set_title(f'Epoch trained {len(self.loss_hist[s])}')
-                ax[0].set_ylabel(f'ELBO')
+                ax[0].set_ylabel(f'loss - log(L)')
             else:
                 ax[0].plot(np.log10(self.loss_hist[s]))
                 #ax[0].set_ylim(np.nanmin(np.log10(self.loss_hist[s])), np.nanmin(np.log10(self.loss_hist[s]))+0.1)
