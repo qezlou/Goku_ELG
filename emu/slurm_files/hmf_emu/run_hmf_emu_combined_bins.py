@@ -15,13 +15,13 @@ def run_it(ind_test, z, train_subdir, machine='stampede3',
 
 
     if machine=='stampede3':
-        data_dir = '/scratch/06536/qezlou/Goku/processed_data/xi_bins/'
+        data_dir = '/scratch/06536/qezlou/Goku/processed_data/'
     elif machine=='vista':
-        data_dir = '/scratch/06536/qezlou/goku/processed_data/xi_on_grid/'
+        data_dir = '/scratch/06536/qezlou/goku/processed_data/'
     elif machine=='ucr':
-        data_dir = '/rhome/mqezl001/bigdata/HETDEX/data/xi_bins/'
+        data_dir = '/rhome/mqezl001/bigdata/HETDEX/data/'
     elif machine=='pc':
-        data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/xi_on_grid/'
+        data_dir = '/home/qezlou/HD2/HETDEX/cosmo/data/'
     else:
         raise ValueError('machine not recognized')
 
@@ -51,19 +51,16 @@ def run_it(ind_test, z, train_subdir, machine='stampede3',
                                      norm_type=norm_type,
                                      noise_floor=noise_floor,
                                      logging_level='DEBUG')
-    if ind_test is None:
-        ind_train = None
-        model_file=f'hmf_emu_combined_z{z}_all'
 
-    else:
-        ind_train = np.delete(np.arange(emu.Y[1].shape[0]), [ind_test])
-        model_file=f'xi_emu_combined_z{z}_leave{ind_test}'
-    
+
+    ind_train = np.delete(np.arange(emu.Y[1].shape[0]), [ind_test])
+    model_file = f'hmf_emu_combined_z{z}_leave{ind_test}'
     emu.logger.info(f'will save on {model_file}')
     
+    
     emu.train(ind_train,
-              train_subdir=train_subdir, 
-              opt_params={
+            train_subdir=train_subdir, 
+            opt_params={
                 'max_iters': flow_max_iters,
                 'initial_lr': flow_initial_lr,
                 'lr_scheduler_type': flow_scheduler_type,

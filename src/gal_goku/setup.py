@@ -32,8 +32,6 @@ setuptools.setup(
         "h5py",
         "mcfit",
         "cython",
-        "tensorflow~=2.19.0",
-        "tensorflow-probability~=0.25.0",
         "colossus",
         "camb",
         "configobj",
