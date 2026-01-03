@@ -472,7 +472,7 @@ class PlotXiEmu(BasePlot):
     """
     Plot routines for the 3D correlation function xi(r) computed on the sims
     """
-    def __init__(self, data_dir, sims, z=2.5, train_subdir='train', epochs=38000, composite_kernel=None, eval_loo=True, logging_level='INFO'):
+    def __init__(self, data_dir, sims, z=2.5, train_subdir='train', epochs=38000, eval_loo=True, logging_level='INFO'):
         self.latex_labels = {'omega0': r'$\Omega_m$', 'omegab': r'$\Omega_b$', 
                         'hubble': r'$h$', 'scalar_amp': r'$A_s$', 'ns': r'$n_s$', 
                         'w0_fld': r'$w_0$', 'wa_fld': r'$w_a$', 'N_ur': r'$N_{ur}$', 
@@ -482,7 +482,6 @@ class PlotXiEmu(BasePlot):
         self.sims = sims
         self.train_subdir = train_subdir
         self.epochs = epochs
-        self.composite_kernel = composite_kernel
         self.xi = summary_stats.Xi(self.data_dir, fid='HF', MPI=None, logging_level='ERROR')
         # Relieve the memory load
         del self.xi.xi
@@ -491,16 +490,10 @@ class PlotXiEmu(BasePlot):
         # Read the config file for important information
         with open(op.join(data_dir, train_subdir, 'config.json'), 'r') as f:
             config = json.load(f)
-            num_latents = config['num_latents']
-            noise_num_latents = config['noise_num_latents']
             norm_type = config['norm_type']
-            w_type = config['w_type']
 
         self.emu = emus_multifid.XiNativeBins(data_dir=data_dir,
                                         z=z,
-                                        num_inducing=500, 
-                                        num_latents=num_latents,
-                                        noise_num_latents=noise_num_latents,
                                         norm_type=norm_type,
                                         noise_floor=0.0, # We have trained with default 0.0
                                         logging_level='ERROR',)
@@ -516,7 +509,7 @@ class PlotXiEmu(BasePlot):
         self.sim_tags = self.emu.labels[1][self.sims]
         self.rbins = np.unique(self.emu.mbins[:, 2])
         if eval_loo:
-            self.pred, self.pred_unc, self.truth, self.loss_hist, self.w_matrices = self.get_loo_pred_truth()
+            self.pred, self.pred_unc, self.truth, self.loss_hist = self.get_loo_pred_truth()
             self.frac_errs = np.abs(self.pred/self.truth - 1)
         
     def loo_diagnose(self, mass_pair, logging_level='ERROR'):
@@ -584,36 +577,34 @@ class PlotXiEmu(BasePlot):
         fig_loss.tight_layout() 
 
     # Define the prediction function for parallel processing
-    def _predict_and_calculate_error(self, s, y_err_th = 1):
+    def _predict_and_calculate_error(self, s, y_err_th = 1, num_samples=64):
         """
         Prediction and truth for one simulation.
         Returns:
         ---------
         The predicted and truth in 3D and symmetric along mass pairs. shape = (n_mbins, n_mbins, n_rbins)
         """
-        model_file = f'xi_emu_combined_z{self.emu.z}_inducing_{self.emu.num_inducing}_latents_{self.emu.num_latents}_{self.emu.noise_num_latents}_leave{s}_{self.epochs}.pkl'
+        model_file = f"xi_emu_combined_z{self.emu.z}_leave{s}.pt"
         self.logger.debug(f'Predicting for sim {s} using model file {model_file}')
         pred_mean, pred_var = self.emu.predict(ind_test=np.array([s]), 
                                 model_file=model_file, 
                                 train_subdir=self.train_subdir,
-                                composite_kernel=self.composite_kernel)
-        w_matrix = self.emu.emu.kernel.W.numpy()
-        pred_mean = self.xi.unconcatenate(pred_mean.numpy(), self.emu.mbins).squeeze()
-        pred_var = self.xi.unconcatenate(pred_var.numpy(), self.emu.mbins).squeeze()
+                                num_samples=num_samples)
+        pred_mean = self.xi.unconcatenate(pred_mean, self.emu.mbins).squeeze()
+        pred_var = self.xi.unconcatenate(pred_var, self.emu.mbins).squeeze()
         #ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
         #self.emu.Y[1][s][ind_bad_bins] = np.nan
-        truth = self.xi.unconcatenate(self.emu.Y[1][s], self.emu.mbins).squeeze()
+        truth = self.xi.unconcatenate(self.emu.Y_raw[1][s], self.emu.mbins).squeeze()
         assert 'loss_history' in self.emu.model_attrs, f'LOOCV is missing for sim {s}'
         loss_history = np.array(self.emu.model_attrs['loss_history'])
         pred_mean = self.xi.make_3d_corr(pred_mean, symmetric=True)
         truth = self.xi.make_3d_corr(truth, symmetric=True)
         pred_var = self.xi.make_3d_corr(pred_var, symmetric=True)
         
+        return 10**pred_mean.squeeze(),10**pred_mean.squeeze()* np.log(10) * np.sqrt(pred_var.squeeze()), 10**truth.squeeze(), loss_history
 
-        return 10**pred_mean.squeeze(),10**pred_mean.squeeze()* np.log(10) * np.sqrt(pred_var.squeeze()), 10**truth.squeeze(), loss_history, w_matrix
 
-
-    def get_loo_pred_truth(self):
+    def get_loo_pred_truth(self, num_samples=64):
         """
         Use multiprocessing to get the prediction and truth values for all 36 HF sims.
         Returns:
@@ -623,20 +614,16 @@ class PlotXiEmu(BasePlot):
         # Use multiprocessing for parallel execution
 
         # Determine the number of cores to use (leave some cores free)
-        num_cores = min(len(self.sims), os.cpu_count() - 2)
-        print(f"Using {num_cores} cores for parallel processing")
+        pred, pred_un, truth, loss_hist = [], [], [], []
+        for s in self.sims:
+            print(f'Processing simulation {s+1}/{len(self.sims)}', flush=True)
+            p, p_un, t, lh = self._predict_and_calculate_error(s, num_samples=num_samples)
+            pred.append(p)
+            pred_un.append(p_un)
+            truth.append(t)
+            loss_hist.append(lh)
 
-        # Run predictions in parallel
-        with Pool(num_cores) as pool:
-            results = pool.map(self._predict_and_calculate_error, self.sims)
-            pred = [p for p, pu, t, l, w in results]
-            pred_un = [pu for p, pu, t, l, w in results]
-            truth = [t for p, pu, t, l, w in results]
-            loss_hist = [l for p, pu, t, l, w in results]
-            w_matrices = [w for p, pu, t, l, w in results]
-        del results
-
-        return np.array(pred), np.array(pred_un), np.array(truth), loss_hist, w_matrices
+        return np.array(pred), np.array(pred_un), np.array(truth), loss_hist
 
     def _2d_err_map(self, data, rbins,  mass_range=(13,11)):
         """
@@ -757,13 +744,12 @@ class PlotXiEmu(BasePlot):
             fig.tight_layout()
 
             # plot the loss history
-            fig, ax = plt.subplots(1, 4, figsize=(14, 3))
+            fig, ax = plt.subplots(1, 2, figsize=(6, 3))
             if np.any(self.loss_hist[s]<0):
                 ind_n = np.where(self.loss_hist[s]<0)[0]
                 ind_p = np.where(self.loss_hist[s]>0)[0]
                 #ax[0].plot(ind_p.size + np.arange(ind_n.size), -np.log10(-self.loss_hist[s][ind_n]), label='-log10(-loss)')
-                self.loss_hist = np.array(self.loss_hist)
-                ax[0].plot(-self.loss_hist[s][-10_000:], label='-log10(-loss)')
+                ax[0].plot(self.loss_hist[s], label='-log10(-loss)')
                 ax[0].set_title(f'Epoch trained {len(self.loss_hist[s])}')
                 ax[0].set_ylabel(f'ELBO')
             else:
@@ -780,22 +766,6 @@ class PlotXiEmu(BasePlot):
             ax[1].set_xticks(range(len(self.latex_labels)))
             ax[1].set_xticklabels(list(self.latex_labels.values()), rotation=90, ha='right')
             ax[1].grid(True)
-
-            ax[2].imshow(self.w_matrices[s], aspect='auto', cmap='viridis', origin='lower', vmin=-0.5, vmax=0.5)
-            cbar = plt.colorbar(ax[2].images[0], ax=ax[2])
-            cbar.set_label('Value')
-            ax[2].set_xlabel('Latent Dimension')
-            ax[2].set_ylabel('Output Dimension')
-            ax[2].set_title('W Matrix of the Kernel')
-
-            ax[3].imshow(self.w_matrices[s] @ self.w_matrices[s].T, aspect='auto', cmap='viridis', origin='lower', vmin=0, vmax=0.5)
-            cbar = plt.colorbar(ax[3].images[0], ax=ax[3])
-            cbar.set_label('Value')
-            ax[3].set_xlabel('Output Dimension')
-            ax[3].set_ylabel('Output Dimension')
-            ax[3].set_title('output covaraince')
-
-            fig.suptitle('num_latents=40, num_inducing=500')
             fig.tight_layout()
 
 

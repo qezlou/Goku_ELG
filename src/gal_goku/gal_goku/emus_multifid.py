@@ -545,6 +545,8 @@ class BaseMFCoregEmu():
         self.wide_array = np.array([])
         # Keeping the id for good HF sims
         self.good_sim_ids = []
+        # Keep a copy of raw outputs for later denormalization / diagnostics
+        self.Y_raw = None
         # Fix a few features of the emulator
         #emu_type.update({'multi-fid':True, 'single-bin':False, 'linear':True, 'mf-svgp':True})
         self.emu_type = emu_type
@@ -575,10 +577,11 @@ class BaseMFCoregEmu():
                 self.X.append(np.concatenate((X_wide, X_narrow), axis=0))
                 self.Y_err.append(np.concatenate((err_wide, err_narrow), axis=0))
                 self.labels.append(np.concatenate((labels_wide, labels_narrow), axis=0))
-        # X is normalized between 0 and 1, but for Y only HF fideliy is not normalized
-        # the MF GP will match the HF mean
+        # Keep raw (unnormalized) outputs for diagnostics
+        self.Y_raw = [arr.copy() for arr in self.Y]
+        # X is normalized between 0 and 1; Y is shifted by the LF median for both fidelities
         if norm_type == 'subtract_mean':
-            self.logger.info('Normalizing X between 0 and 1, subtracting the mean of LF from LF Y')
+            self.logger.info('Normalizing X between 0 and 1, subtracting the LF median from both LF and HF Y')
             self.X, self.Y, self.X_min, self.X_max, self.lf_mean_func = self.normalize(self.X, self.Y)
         elif norm_type == 'std_gaussian':
             self.logger.info('Normalizing each bin to have mean 0 and std 1')
@@ -643,8 +646,7 @@ class BaseMFCoregEmu():
     def normalize(self, X, Y):
         """
         Normalize all input, X, such it is between 0 and 1
-        Subtract the output, Y, by it's mean, only for LF
-        and leave the HF uncrouched
+        Subtract the output, Y, by the LF median for both LF and HF.
 
         Returns:
         --------
@@ -660,13 +662,12 @@ class BaseMFCoregEmu():
             X_normalized.append((X[i]-X_min)/(X_max-X_min))
         Y_normalized = []
         # The zeros row is the LF
-        lf_mean_func =  np.nanmean(Y[0], axis=0)
-        Y_normalized.append(Y[0] -lf_mean_func)
-        # For a conditional flow, it’s usually cleaner to apply the 
-        # same affine normalization to both fidelities
-        Y_normalized.append(Y[1] - lf_mean_func)
+        lf_median_func =  np.nanmedian(Y[0], axis=0)
+        Y_normalized.append(Y[0] -lf_median_func)
+        # Apply the same shift to HF to keep both fidelities aligned
+        Y_normalized.append(Y[1] - lf_median_func)
 
-        return X_normalized, Y_normalized, X_min, X_max, lf_mean_func
+        return X_normalized, Y_normalized, X_min, X_max, lf_median_func
     
     def normalize_std_gaussian(self, X, Y, Y_err):
         """
@@ -872,16 +873,34 @@ class BaseMFCoregEmu():
         # Add the fidelity indicators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float32)
         context = torch.as_tensor(X_test, dtype=self.flow_model.dtype)
-        samples = self.flow_model.sample(context, num_samples=num_samples).squeeze()
+        samples = self.flow_model.sample(context, num_samples=num_samples)
         print(f'samples.shape: {samples.shape}', flush=True)
-        mean_pred = np.mean(samples, axis=0)
-        var_pred = np.var(samples, axis=0)
+        mean_pred = np.mean(samples, axis=1).squeeze()
+        var_pred = np.var(samples, axis=1).squeeze()
         print(f'[timer] predict: sampling + moments {time.time() - t3:.2f}s (num_samples={num_samples})', flush=True)
 
+        if self.norm_type == 'subtract_mean':
+            mean_pred += self.lf_mean_func
         if self.norm_type == 'std_gaussian':
             mean_pred = mean_pred * self.std_Y + self.mean_Y
             var_pred = var_pred * (self.std_Y ** 2)
         return mean_pred, var_pred
+
+    def denormalize_outputs(self, Y_list):
+        """
+        Undo normalization for a list of outputs (LF, HF) or a single array.
+        Useful when comparing predictions against stored normalized targets.
+        """
+        def _denorm(arr):
+            if self.norm_type == 'subtract_mean':
+                return arr + self.lf_mean_func
+            if self.norm_type == 'std_gaussian':
+                return arr * self.std_Y + self.mean_Y
+            return arr
+
+        if isinstance(Y_list, list):
+            return [_denorm(arr) for arr in Y_list]
+        return _denorm(Y_list)
 
 class HmfNativeBins(BaseMFCoregEmu):
     """
