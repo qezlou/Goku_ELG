@@ -1603,25 +1603,23 @@ class HmfCombined(BasePlot):
     logging_level: str
         Logging level to use. Default is 'INFO'.
     """
-    def __init__(self, data_dir, train_subdir, sims=None, z=2.5, num_latents=14, noise_num_latents=10, num_inducing=500, composite_kernel=None, epochs=None, norm_type='subtract_mean', get_counts=False, logging_level='INFO'):
+    def __init__(self, data_dir, sims, z=2.5, train_subdir='train', epochs=38000, eval_loo=True, logging_level='INFO'):
         super().__init__(logging_level)
         self.sims = sims
         self.data_dir = data_dir
         self.train_subdir = train_subdir
         self.z = z
-        self.num_latents = num_latents
-        self.noise_num_latents = noise_num_latents
-        self.num_inducing = num_inducing
-        self.norm_type = norm_type
-        self.get_counts = get_counts
-        self.emu = emus_multifid.HmfNativeBins(data_dir=self.data_dir, z=self.z,
-                                               num_latents= self.num_latents, 
-                                               noise_num_latents=self.noise_num_latents,
-                                               num_inducing=self.num_inducing, 
-                                               norm_type=self.norm_type, 
-                                               get_counts=get_counts,
-                                               logging_level='ERROR')
-        self.composite_kernel = composite_kernel
+        # Read the config file for important information
+        with open(op.join(data_dir, train_subdir, 'config.json'), 'r') as f:
+            config = json.load(f)
+            norm_type = config['norm_type']
+
+        self.emu = emus_multifid.HmfNativeBins(data_dir=data_dir,
+                                                z=z,
+                                                norm_type=norm_type,
+                                                noise_floor=0.0, # We have trained with default 0.0
+                                                logging_level='ERROR',)
+
         self.mbins = 10**self.emu.mbins
         self.sim_tags = self.emu.labels[1]
         self.cosmo_pars = self.emu.X[1]
@@ -1629,79 +1627,51 @@ class HmfCombined(BasePlot):
         self.logger.debug(f'Getting the predictions')
 
         (self.pred, self.pred_uncen,
-         self.truth, self.truth_uncen, 
-         self.loss_history, self.w_matrices) = self.get_loo_pred_truth(sims=self.sims)
+         self.truth, self.loss_history) = self.get_loo_pred_truth(sims=self.sims, num_samples=256)
         self.logger.info(f'Number of sims with LOO predictions: {self.pred.shape[0]}')
         
         
     
-    def _predict_and_calculate_error(self, s, y_err_th = 1):
+    def _predict_and_calculate_error(self, s, num_samples=64):
         """
         Prediction and truth for one simulation.
         Returns:
         ---------
         The predicted and truth in 3D and symmetric along mass pairs. shape = (n_mbins, n_mbins, n_rbins)
         """
-        if self.epochs is None:
-            model_file = f'hmf_emu_combined_z{self.z}_inducing_{self.num_inducing}_latents_{self.num_latents}_{self.noise_num_latents}_leave{s}.pkl'
-        else:
-            model_file = f'hmf_emu_combined_z{self.z}_inducing_{self.num_inducing}_latents_{self.num_latents}_{self.noise_num_latents}_leave{s}_{self.epochs}.pkl'
+        model_file = f"hmf_emu_combined_z{self.z}_leave{s}.attrs"
         self.logger.debug(f'Predicting for sim {s}, model file: {model_file}')
         pred_mean, pred_var = self.emu.predict(ind_test=np.array([s]), 
-                                       model_file=model_file, 
-                                       train_subdir=self.train_subdir,
-                                       composite_kernel=self.composite_kernel)
+                                model_file=model_file, 
+                                train_subdir=self.train_subdir,
+                                num_samples=num_samples)
+        
+        return (10**pred_mean.squeeze(), 
+                10**pred_mean.squeeze()* np.log(10) * np.sqrt(pred_var.squeeze()), 
+                10**self.emu.Y_raw[1][s], 
+                np.array(self.emu.model_attrs['loss_history']))
+        
 
 
-        loss_history = np.array(self.emu.model_attrs['loss_history'])
-        w_matrix = self.emu.emu.kernel.W.numpy()
-
-        if self.get_counts:
-            truth = self.emu.Y[1][s]
-            truth_uncen = 0 * self.emu.Y_err[1][s]
-            results = (np.exp(pred_mean.numpy().squeeze()), np.exp(truth.squeeze()), truth_uncen.squeeze(), loss_history, w_matrix)
-        else:
-            ind_bad_bins = np.where(self.emu.Y_err[1][s] > y_err_th)
-            self.emu.Y[1][s][ind_bad_bins] = np.nan
-            truth = self.emu.Y[1][s]
-            # Y has already been normalized
-            if self.norm_type == 'std_gaussian':
-                truth *= self.emu.std_Y
-                truth += self.emu.mean_Y
-            truth_uncen = 10**truth * np.log(10) * self.emu.Y_err[1][s]
-            results =  (10**pred_mean.numpy().squeeze(),10**pred_mean.numpy().squeeze()* np.log(10) * np.sqrt(pred_var.numpy().squeeze()), 10**truth.squeeze(), truth_uncen.squeeze(), loss_history, w_matrix)
-        return results
-
-
-    def get_loo_pred_truth(self, sims=None, epochs=None):
+    def get_loo_pred_truth(self, sims, num_samples=64):
         """
         Use multiprocessing to get the prediction and truth values for all 36 HF sims.
         Returns:
         ---------
         The predicted and truth in 3D and symmetric along mass pairs. shape = (n_sims
         """
-        if sims is None:
-            sims = np.arange(36)
         # Use multiprocessing for parallel execution
 
         # Determine the number of cores to use (leave some cores free)
-        #num_cores = max(1, os.cpu_count() - 2)
-        num_cores = 10
-        self.logger.debug(f"Using {num_cores} cores for parallel prediction")
-
-        # Run predictions in parallel
-        with Pool(num_cores) as pool:
-            results = pool.map(self._predict_and_calculate_error, sims)
-            pred = [p for p, pu, t, tu, l, w in results]
-            pred_uncen = [pu for p, pu, t, tu, l, w in results]
-            truth = [t for p, pu, t, tu, l, w in results]
-            truth_uncen = [tu for p, pu, t, tu, l, w in results]
-            loss_hist = [l for p, pu, t, tu, l, w in results]
-            w_matrices = [w for p, pu, t, tu, l, w in results]
-        del results
-        self.logger.debug(f'truth_uncen = {np.array(truth_uncen).shape} pred = {np.array(pred).shape}, truth = {np.array(truth).shape}')
-        return np.array(pred), np.array(pred_uncen), np.array(truth), np.array(truth_uncen), np.array(loss_hist), np.array(w_matrices)
-
+        pred_means, pred_uncens, truths, loss_histories=  [], [], [], []
+        for s in sims:
+            pred_mean, pred_uncen, truth, loss_history = self._predict_and_calculate_error(s, num_samples=num_samples)
+            pred_means.append(pred_mean)
+            pred_uncens.append(pred_uncen)
+            truths.append(truth)
+            loss_histories.append(loss_history)
+        return (np.array(pred_means), np.array(pred_uncens), np.array(truths), loss_histories) 
+    
     def pred_vs_trtuh(self):
         """
         Plot the predictions vs truth for all the simulations
