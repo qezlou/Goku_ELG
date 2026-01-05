@@ -897,7 +897,7 @@ class BaseMFCoregEmu():
             self.logger.info(f"Early stopping enabled with patience={early_stop_cfg.get('patience')}, min_delta={early_stop_cfg.get('min_delta')}")
 
         if force_train:
-            self.logger.debug(f'Training flow on shapes {X_train.shape}, {Y_train.shape}')
+            self.logger.debug(f'Training flow on shapes {X_train.shape}, {residuals.shape}')
             history = self.flow_model.fit(
                 x=X_train,
                 y=residuals,
