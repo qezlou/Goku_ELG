@@ -713,6 +713,10 @@ class BaseMFCoregEmu():
             resolved = torch.device('cpu')
         self.logger.info(f'Using torch device {resolved}')
         return resolved
+
+    def _lf_dtype(self):
+        """Torch dtype matching the LF inputs."""
+        return torch.as_tensor(self.X[0]).dtype
     
     def normalize(self, X, Y):
         """
@@ -1039,14 +1043,14 @@ class BaseMFCoregEmu():
             layers.append(nn.SiLU())
             in_features = width
         layers.append(nn.Linear(in_features, self.output_dim))
-        net = nn.Sequential(*layers).to(device=self.device, dtype=self.X[0].dtype)
+        net = nn.Sequential(*layers).to(device=self.device, dtype=self._lf_dtype())
         return net
 
     def _train_lf_mean_net(self, max_iters=2000, lr=1e-3, batch_size=128, log_every=200, hidden_units=(128, 128)):
         if self.lf_mean_net is None:
             self.lf_mean_net = self._build_lf_mean_net(hidden_units)
         else:
-            self.lf_mean_net = self.lf_mean_net.to(device=self.device, dtype=self.X[0].dtype)
+            self.lf_mean_net = self.lf_mean_net.to(device=self.device, dtype=self._lf_dtype())
         self.lf_mean_config = dict(hidden_units=hidden_units, max_iters=max_iters, lr=lr, batch_size=batch_size, log_every=log_every)
         x = torch.as_tensor(self.X[0], dtype=self.lf_mean_net[0].weight.dtype)
         y = torch.as_tensor(self.Y[0], dtype=self.lf_mean_net[0].weight.dtype)
