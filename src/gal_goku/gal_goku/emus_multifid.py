@@ -1108,7 +1108,7 @@ class BaseMFCoregEmu():
             else:
                 steps_since_improve += 1
             if early_stopping_patience is not None and steps_since_improve >= early_stopping_patience:
-                self.logger.info(f'LF mean net early stop at step {step}, best_loss {best_loss:.4e}')
+                self.logger.info(f'LF mean net early stop at step {step}, best_loss {best_loss:.4e}, lr = {optimizer.param_groups[0]["lr"]:.2e}')
                 break
             if log_every and step % log_every == 0:
                 self.logger.info(f'LF mean net step {step}/{max_iters}, loss {loss.item():.4e}')
