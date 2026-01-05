@@ -802,11 +802,18 @@ class BaseMFCoregEmu():
             ind_train = np.arange(self.X[1].shape[0])
         # Train LF deterministic model on LF only
         lf_mean_hidden_units = opt_params.get('lf_mean_hidden_units', (128, 128))
-        lf_mean_max_iters = opt_params.get('lf_mean_max_iters', 2000)
+        lf_mean_max_iters = opt_params.get('lf_mean_max_iters', 30000)
         lf_mean_lr = opt_params.get('lf_mean_lr', 1e-3)
         lf_mean_batch_size = opt_params.get('lf_mean_batch_size', 128)
-        self.logger.info(f'Training LF mean net on LF data: hidden_units={lf_mean_hidden_units}, max_iters={lf_mean_max_iters}, lr={lf_mean_lr}, batch_size={lf_mean_batch_size}')
-        self._train_lf_mean_net(max_iters=lf_mean_max_iters, lr=lf_mean_lr, batch_size=lf_mean_batch_size, log_every=200, hidden_units=lf_mean_hidden_units)
+        lf_sched_type = opt_params.get('lf_mean_scheduler_type', 'plateau')
+        lf_sched_gamma = opt_params.get('lf_mean_scheduler_gamma', 0.5)
+        lf_sched_patience = opt_params.get('lf_mean_scheduler_patience', 200)
+        lf_sched_min_lr = opt_params.get('lf_mean_scheduler_min_lr', 1e-6)
+        self.logger.info(f'Training LF mean net on LF data: hidden_units={lf_mean_hidden_units}, max_iters={lf_mean_max_iters}, lr={lf_mean_lr}, batch_size={lf_mean_batch_size}, sched={lf_sched_type}')
+        self._train_lf_mean_net(max_iters=lf_mean_max_iters, lr=lf_mean_lr, batch_size=lf_mean_batch_size, log_every=200,
+                                hidden_units=lf_mean_hidden_units, scheduler_type=lf_sched_type,
+                                scheduler_gamma=lf_sched_gamma, scheduler_patience=lf_sched_patience,
+                                scheduler_min_lr=lf_sched_min_lr)
 
         # Prepare HF residuals: Y_HF - Y_LF_pred(X_HF)
         with torch.no_grad():
@@ -1046,17 +1053,29 @@ class BaseMFCoregEmu():
         net = nn.Sequential(*layers).to(device=self.device, dtype=self._lf_dtype())
         return net
 
-    def _train_lf_mean_net(self, max_iters=2000, lr=1e-3, batch_size=128, log_every=200, hidden_units=(128, 128)):
+    def _train_lf_mean_net(self, max_iters=2000, lr=1e-3, batch_size=128, log_every=200, hidden_units=(128, 128),
+                           scheduler_type='plateau', scheduler_gamma=0.5, scheduler_patience=200, scheduler_min_lr=1e-6):
         if self.lf_mean_net is None:
             self.lf_mean_net = self._build_lf_mean_net(hidden_units)
         else:
             self.lf_mean_net = self.lf_mean_net.to(device=self.device, dtype=self._lf_dtype())
-        self.lf_mean_config = dict(hidden_units=hidden_units, max_iters=max_iters, lr=lr, batch_size=batch_size, log_every=log_every)
+        self.lf_mean_config = dict(hidden_units=hidden_units, max_iters=max_iters, lr=lr, batch_size=batch_size, log_every=log_every,
+                                   scheduler_type=scheduler_type, scheduler_gamma=scheduler_gamma, scheduler_patience=scheduler_patience,
+                                   scheduler_min_lr=scheduler_min_lr)
         x = torch.as_tensor(self.X[0], dtype=self.lf_mean_net[0].weight.dtype)
         y = torch.as_tensor(self.Y[0], dtype=self.lf_mean_net[0].weight.dtype)
         dataset = torch.utils.data.TensorDataset(x, y)
         loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False, pin_memory=self.device.type == 'cuda')
         optimizer = torch.optim.Adam(self.lf_mean_net.parameters(), lr=lr)
+        scheduler = None
+        if scheduler_type == 'plateau':
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                mode='min',
+                factor=scheduler_gamma,
+                patience=scheduler_patience,
+                min_lr=scheduler_min_lr
+            )
         iterator = iter(loader)
         for step in range(1, max_iters + 1):
             try:
@@ -1071,6 +1090,8 @@ class BaseMFCoregEmu():
             loss = F.mse_loss(pred, yb)
             loss.backward()
             optimizer.step()
+            if scheduler is not None:
+                scheduler.step(loss.item())
             if log_every and step % log_every == 0:
                 self.logger.info(f'LF mean net step {step}/{max_iters}, loss {loss.item():.4e}')
         return self.lf_mean_net

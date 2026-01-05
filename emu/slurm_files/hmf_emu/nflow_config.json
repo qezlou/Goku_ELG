@@ -10,12 +10,20 @@
     "flow_scheduler_min_lr": 1e-6,
     "flow_early_stopping_patience": 1000,
     "flow_early_stopping_min_delta": 1e-4,
-    "flow_batch_size": 590,
+    "flow_batch_size": 40,
     "flow_num_bijectors": 4,
     "flow_hidden_units": [128, 128],
-    "mean_hidden_units": [64, 64],
-    "lf_mean_hidden_units": [128, 128],
-    "mean_loss_weight": 0,
     "flow_log_every": 100,
-    "flow_num_samples": 512
+    "flow_num_samples": 512,
+
+    "lf_mean_scheduler_type": "plateau",
+    "lf_mean_scheduler_gamma": 0.5,
+    "lf_mean_scheduler_patience": 250,
+    "lf_mean_scheduler_min_lr": 1e-6,
+    "lf_mean_max_iters": 30000,
+    "lf_mean_lr": 1e-3,
+    "lf_mean_batch_size": 590,
+    "lf_mean_hidden_units": [128, 128],
+    "mean_loss_weight": 0
+
 }
