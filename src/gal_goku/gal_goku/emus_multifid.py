@@ -805,15 +805,19 @@ class BaseMFCoregEmu():
         lf_mean_max_iters = opt_params.get('lf_mean_max_iters', 30000)
         lf_mean_lr = opt_params.get('lf_mean_lr', 1e-3)
         lf_mean_batch_size = opt_params.get('lf_mean_batch_size', 128)
+        lf_mean_dropout = opt_params.get('lf_mean_dropout', 0.0)
+        lf_es_patience = opt_params.get('lf_mean_early_stopping_patience')
+        lf_es_min_delta = opt_params.get('lf_mean_early_stopping_min_delta', 0.0)
         lf_sched_type = opt_params.get('lf_mean_scheduler_type', 'plateau')
         lf_sched_gamma = opt_params.get('lf_mean_scheduler_gamma', 0.5)
         lf_sched_patience = opt_params.get('lf_mean_scheduler_patience', 200)
         lf_sched_min_lr = opt_params.get('lf_mean_scheduler_min_lr', 1e-6)
-        self.logger.info(f'Training LF mean net on LF data: hidden_units={lf_mean_hidden_units}, max_iters={lf_mean_max_iters}, lr={lf_mean_lr}, batch_size={lf_mean_batch_size}, sched={lf_sched_type}')
+        self.logger.info(f'Training LF mean net on LF data: hidden_units={lf_mean_hidden_units}, max_iters={lf_mean_max_iters}, lr={lf_mean_lr}, batch_size={lf_mean_batch_size}, dropout={lf_mean_dropout}, sched={lf_sched_type}')
         self._train_lf_mean_net(max_iters=lf_mean_max_iters, lr=lf_mean_lr, batch_size=lf_mean_batch_size, log_every=200,
                                 hidden_units=lf_mean_hidden_units, scheduler_type=lf_sched_type,
                                 scheduler_gamma=lf_sched_gamma, scheduler_patience=lf_sched_patience,
-                                scheduler_min_lr=lf_sched_min_lr)
+                                scheduler_min_lr=lf_sched_min_lr, early_stopping_patience=lf_es_patience,
+                                early_stopping_min_delta=lf_es_min_delta, dropout=lf_mean_dropout)
 
         # Prepare HF residuals: Y_HF - Y_LF_pred(X_HF)
         with torch.no_grad():
@@ -1042,26 +1046,30 @@ class BaseMFCoregEmu():
     # ------------------------------------------------------------------
     # LF deterministic model (trained on LF only)
     # ------------------------------------------------------------------
-    def _build_lf_mean_net(self, hidden_units=(128, 128)):
+    def _build_lf_mean_net(self, hidden_units=(128, 128), dropout=0.0):
         layers = []
         in_features = self.X[0].shape[1]
         for width in hidden_units:
             layers.append(nn.Linear(in_features, width))
             layers.append(nn.SiLU())
+            if dropout and dropout > 0:
+                layers.append(nn.Dropout(dropout))
             in_features = width
         layers.append(nn.Linear(in_features, self.output_dim))
         net = nn.Sequential(*layers).to(device=self.device, dtype=self._lf_dtype())
         return net
 
     def _train_lf_mean_net(self, max_iters=2000, lr=1e-3, batch_size=128, log_every=200, hidden_units=(128, 128),
-                           scheduler_type='plateau', scheduler_gamma=0.5, scheduler_patience=200, scheduler_min_lr=1e-6):
+                           scheduler_type='plateau', scheduler_gamma=0.5, scheduler_patience=200, scheduler_min_lr=1e-6,
+                           early_stopping_patience=None, early_stopping_min_delta=0.0, dropout=0.0):
         if self.lf_mean_net is None:
-            self.lf_mean_net = self._build_lf_mean_net(hidden_units)
+            self.lf_mean_net = self._build_lf_mean_net(hidden_units, dropout=dropout)
         else:
             self.lf_mean_net = self.lf_mean_net.to(device=self.device, dtype=self._lf_dtype())
         self.lf_mean_config = dict(hidden_units=hidden_units, max_iters=max_iters, lr=lr, batch_size=batch_size, log_every=log_every,
                                    scheduler_type=scheduler_type, scheduler_gamma=scheduler_gamma, scheduler_patience=scheduler_patience,
-                                   scheduler_min_lr=scheduler_min_lr)
+                                   scheduler_min_lr=scheduler_min_lr, early_stopping_patience=early_stopping_patience,
+                                   early_stopping_min_delta=early_stopping_min_delta, dropout=dropout)
         x = torch.as_tensor(self.X[0], dtype=self.lf_mean_net[0].weight.dtype)
         y = torch.as_tensor(self.Y[0], dtype=self.lf_mean_net[0].weight.dtype)
         dataset = torch.utils.data.TensorDataset(x, y)
@@ -1076,6 +1084,8 @@ class BaseMFCoregEmu():
                 patience=scheduler_patience,
                 min_lr=scheduler_min_lr
             )
+        best_loss = float('inf')
+        steps_since_improve = 0
         iterator = iter(loader)
         for step in range(1, max_iters + 1):
             try:
@@ -1092,6 +1102,14 @@ class BaseMFCoregEmu():
             optimizer.step()
             if scheduler is not None:
                 scheduler.step(loss.item())
+            if loss.item() + early_stopping_min_delta < best_loss:
+                best_loss = loss.item()
+                steps_since_improve = 0
+            else:
+                steps_since_improve += 1
+            if early_stopping_patience is not None and steps_since_improve >= early_stopping_patience:
+                self.logger.info(f'LF mean net early stop at step {step}, best_loss {best_loss:.4e}')
+                break
             if log_every and step % log_every == 0:
                 self.logger.info(f'LF mean net step {step}/{max_iters}, loss {loss.item():.4e}')
         return self.lf_mean_net

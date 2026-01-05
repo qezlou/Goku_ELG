@@ -24,6 +24,9 @@
     "lf_mean_lr": 1e-3,
     "lf_mean_batch_size": 590,
     "lf_mean_hidden_units": [128, 128],
+    "lf_mean_dropout": 0.05,
+    "lf_mean_early_stopping_patience": 500,
+    "lf_mean_early_stopping_min_delta": 1e-4,
     "mean_loss_weight": 0
 
 }
