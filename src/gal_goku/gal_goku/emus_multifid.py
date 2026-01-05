@@ -823,9 +823,23 @@ class BaseMFCoregEmu():
         with torch.no_grad():
             x_hf_tensor = torch.as_tensor(self.X[1][ind_train], device=self.device, dtype=self.lf_mean_net[0].weight.dtype)
             lf_pred_on_hf = self.lf_mean_net(x_hf_tensor).cpu().numpy()
+        # Optional LF fine-tune on HF sims
+        if opt_params.get('lf_finetune_on_hf', False):
+            hf_steps = opt_params.get('lf_finetune_max_iters', 500)
+            hf_lr = opt_params.get('lf_finetune_lr', lf_mean_lr)
+            hf_bs = opt_params.get('lf_finetune_batch_size', lf_mean_batch_size)
+            self.logger.info(f'Fine-tuning LF mean net on HF sims: steps={hf_steps}, lr={hf_lr}, batch_size={hf_bs}')
+            self._train_lf_mean_net(max_iters=hf_steps, lr=hf_lr, batch_size=hf_bs, log_every=200,
+                                    hidden_units=lf_mean_hidden_units, scheduler_type=None,
+                                    scheduler_gamma=lf_sched_gamma, scheduler_patience=lf_sched_patience,
+                                    scheduler_min_lr=lf_sched_min_lr, early_stopping_patience=None,
+                                    early_stopping_min_delta=0.0, dropout=lf_mean_dropout)
+            with torch.no_grad():
+                lf_pred_on_hf = self.lf_mean_net(x_hf_tensor).cpu().numpy()
         residuals = (self.Y[1][ind_train] - lf_pred_on_hf).astype(np.float32)
         X_train = self.X[1][ind_train].astype(np.float32)
-        self.logger.debug(f'X_train (HF only): {X_train.shape}, residuals: {residuals.shape}')
+        context_train = np.concatenate([X_train, lf_pred_on_hf], axis=1).astype(np.float32)
+        self.logger.debug(f'X_train (HF only): {X_train.shape}, residuals: {residuals.shape}, context {context_train.shape}')
 
         checkpoint_dir = op.join(self.data_dir, train_subdir)
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -880,7 +894,7 @@ class BaseMFCoregEmu():
         )
         if self.flow_model is None:
             self.flow_model = MultiFidelityNormalizingFlow(
-                input_dim=X_train.shape[1],
+                input_dim=context_train.shape[1],
                 output_dim=self.output_dim,
                 num_bijectors=num_bijectors,
                 hidden_units=hidden_units,
@@ -910,7 +924,7 @@ class BaseMFCoregEmu():
         if force_train:
             self.logger.debug(f'Training flow on shapes {X_train.shape}, {residuals.shape}')
             history = self.flow_model.fit(
-                x=X_train,
+                x=context_train,
                 y=residuals,
                 max_iters=max_iters,
                 batch_size=batch_size,
@@ -966,7 +980,7 @@ class BaseMFCoregEmu():
         t1 = time.time()
         if self.flow_model is None:
             self.flow_model = MultiFidelityNormalizingFlow(
-                input_dim=self.X[0].shape[1],
+                input_dim=self.X[0].shape[1] + self.output_dim,
                 output_dim=self.output_dim,
                 num_bijectors=num_bijectors,
                 hidden_units=hidden_units,
@@ -992,13 +1006,14 @@ class BaseMFCoregEmu():
         t3 = time.time()
         # HF inputs only; first predict LF mean, then add sampled residuals
         X_test = self.X[1][ind_test].astype(np.float32)
-        context = torch.as_tensor(X_test, dtype=self.flow_model.dtype)
+        context_x = torch.as_tensor(X_test, dtype=self.flow_model.dtype)
         if self.lf_mean_net is None:
             self.logger.info('Rebuilding LF mean net for prediction')
             self.lf_mean_net = self._build_lf_mean_net(hidden_units=lf_mean_cfg.get('hidden_units', (128, 128)))
         self.lf_mean_net = self.lf_mean_net.to(device=self.device, dtype=self.flow_model.dtype)
         with torch.no_grad():
-            lf_pred = self.lf_mean_net(context.to(self.device)).cpu().numpy()
+            lf_pred = self.lf_mean_net(context_x.to(self.device)).cpu().numpy()
+        context = torch.cat([context_x, torch.as_tensor(lf_pred, dtype=self.flow_model.dtype)], dim=1)
         samples = self.flow_model.sample(context, num_samples=num_samples)
         samples = samples + lf_pred[:, None, :]
         print(f'samples.shape: {samples.shape}', flush=True)
