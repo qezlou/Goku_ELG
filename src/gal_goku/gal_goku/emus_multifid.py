@@ -14,6 +14,7 @@ from nflows import distributions as nf_distributions
 from nflows import transforms as nf_transforms
 from nflows.nn import nets as nf_nets
 from nflows.utils import torchutils
+import torch.nn.functional as F
 import sys
 import os
 import os.path as op
@@ -326,17 +327,22 @@ class MultiFidelityNormalizingFlow:
     """
 
     def __init__(self, input_dim, output_dim, num_bijectors=4, hidden_units=(128, 128),
-                 learning_rate=1e-3, name="mf_flow", device=None, dtype=torch.float32):
+                 learning_rate=1e-3, name="mf_flow", device=None, dtype=torch.float32,
+                 residual_flow=True, mean_hidden_units=None, mean_loss_weight=0.1):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.num_bijectors = num_bijectors
         self.hidden_units = hidden_units
         self.learning_rate = learning_rate
+        self.residual_flow = residual_flow
+        self.mean_loss_weight = mean_loss_weight
+        self.mean_hidden_units = mean_hidden_units or hidden_units
         self.device = self._select_device(device)
         self.dtype = dtype
         self.loss_history = []
         self._build_flow()
-        self.optimizer = torch.optim.Adam(self.flow.parameters(), lr=self.learning_rate)
+        self._build_mean_net()
+        self.optimizer = torch.optim.Adam(self._optimizer_parameters(), lr=self.learning_rate)
 
     def _select_device(self, device):
         if device is None:
@@ -362,9 +368,32 @@ class MultiFidelityNormalizingFlow:
         distribution = _TypedStandardNormal(shape=[self.output_dim], dtype=self.dtype)
         self.flow = nf_flows.base.Flow(transform, distribution).to(device=self.device, dtype=self.dtype)
 
+    def _build_mean_net(self):
+        """
+        Lightweight deterministic head that predicts the conditional mean.
+        The flow is then trained on residuals around this mean to avoid
+        inflating variance when the conditional mean is off.
+        """
+        layers = []
+        in_features = self.input_dim
+        for width in self.mean_hidden_units:
+            layers.append(torch.nn.Linear(in_features, width))
+            layers.append(torch.nn.SiLU())
+            in_features = width
+        layers.append(torch.nn.Linear(in_features, self.output_dim))
+        self.mean_net = torch.nn.Sequential(*layers).to(device=self.device, dtype=self.dtype)
+
+    def _optimizer_parameters(self):
+        params = list(self.flow.parameters())
+        if self.mean_net is not None:
+            params += list(self.mean_net.parameters())
+        return params
+
     def _ensure_device_dtype(self):
         """Keep the flow parameters, buffers, and optimizer states on the configured device/dtype."""
         self.flow = self.flow.to(device=self.device, dtype=self.dtype)
+        if self.mean_net is not None:
+            self.mean_net = self.mean_net.to(device=self.device, dtype=self.dtype)
         # nflows stores masks as buffers; keep them in sync with the flow dtype
         for _, buf in self.flow.named_buffers():
             if torch.is_tensor(buf):
@@ -372,6 +401,12 @@ class MultiFidelityNormalizingFlow:
                     buf.data = buf.to(device=self.device, dtype=self.dtype)
                 else:
                     # keep integer buffers (e.g., permutation indices) in their original dtype
+                    buf.data = buf.to(device=self.device)
+        for _, buf in self.mean_net.named_buffers(recurse=True):
+            if torch.is_tensor(buf):
+                if torch.is_floating_point(buf):
+                    buf.data = buf.to(device=self.device, dtype=self.dtype)
+                else:
                     buf.data = buf.to(device=self.device)
         for state in self.optimizer.state.values():
             for key, value in state.items():
@@ -389,7 +424,17 @@ class MultiFidelityNormalizingFlow:
         x_batch = x_batch.to(self.device, dtype=self.dtype, non_blocking=True)
         y_batch = y_batch.to(self.device, dtype=self.dtype, non_blocking=True)
         self.optimizer.zero_grad()
-        loss = -self.log_prob(y_batch, x_batch).mean()
+        if self.residual_flow:
+            mean_pred = self.mean_net(x_batch)
+            residual = y_batch - mean_pred
+        else:
+            mean_pred = None
+            residual = y_batch
+        nll = -self.log_prob(residual, x_batch).mean()
+        mse_term = torch.tensor(0.0, device=self.device, dtype=self.dtype)
+        if self.residual_flow and self.mean_loss_weight > 0:
+            mse_term = F.mse_loss(mean_pred, y_batch)
+        loss = nll + self.mean_loss_weight * mse_term
         loss.backward()
         self.optimizer.step()
         return loss
@@ -457,7 +502,12 @@ class MultiFidelityNormalizingFlow:
         with torch.no_grad():
             self._ensure_device_dtype()
             context = context.to(self.device, dtype=self.dtype, non_blocking=True)
-            samples = self.flow.sample(num_samples=num_samples, context=context)
+            residual_samples = self.flow.sample(num_samples=num_samples, context=context)
+            if self.residual_flow:
+                mean_pred = self.mean_net(context).unsqueeze(1)
+                samples = residual_samples + mean_pred
+            else:
+                samples = residual_samples
         return samples.to(dtype=self.dtype).detach().cpu().numpy()
 
     def save(self, prefix):
@@ -466,9 +516,13 @@ class MultiFidelityNormalizingFlow:
         torch.save(
             {
                 "state_dict": self.flow.state_dict(),
+                "mean_state_dict": self.mean_net.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
                 "loss_history": self.loss_history,
                 "dtype": self.dtype,
+                "residual_flow": self.residual_flow,
+                "mean_hidden_units": self.mean_hidden_units,
+                "mean_loss_weight": self.mean_loss_weight,
             },
             path,
         )
@@ -481,7 +535,16 @@ class MultiFidelityNormalizingFlow:
         checkpoint = torch.load(ckpt_path, map_location=self.device)
         self.dtype = checkpoint.get("dtype", self.dtype)
         self.flow.load_state_dict(checkpoint["state_dict"])
-        self.optimizer.load_state_dict(checkpoint["optimizer"])
+        if "mean_state_dict" in checkpoint:
+            self.mean_net.load_state_dict(checkpoint["mean_state_dict"])
+        self.residual_flow = checkpoint.get("residual_flow", self.residual_flow)
+        self.mean_hidden_units = checkpoint.get("mean_hidden_units", self.mean_hidden_units)
+        self.mean_loss_weight = checkpoint.get("mean_loss_weight", self.mean_loss_weight)
+        try:
+            self.optimizer.load_state_dict(checkpoint["optimizer"])
+        except Exception as exc:
+            print(f"Optimizer restore failed ({exc}); reinitializing", flush=True)
+            self.optimizer = torch.optim.Adam(self._optimizer_parameters(), lr=self.learning_rate)
         for state in self.optimizer.state.values():
             for key, value in state.items():
                 if torch.is_tensor(value):
@@ -715,6 +778,9 @@ class BaseMFCoregEmu():
               - lr_scheduler_step_every (int)
               - early_stopping_patience (int)
               - early_stopping_min_delta (float)
+              - residual_flow (bool; learn deterministic mean then flow on residuals)
+              - mean_loss_weight (float; weight for auxiliary MSE on the mean head)
+              - mean_hidden_units (tuple; hidden sizes for mean head)
         """
         if ind_train is None:
             ind_train = np.arange(self.X[1].shape[0])
@@ -744,6 +810,9 @@ class BaseMFCoregEmu():
         lr_scheduler_step_every = opt_params.get('lr_scheduler_step_every', 1)
         early_stopping_patience = opt_params.get('early_stopping_patience')
         early_stopping_min_delta = opt_params.get('early_stopping_min_delta', 0.0)
+        residual_flow = opt_params.get('residual_flow', True)
+        mean_loss_weight = opt_params.get('mean_loss_weight', 0.1)
+        mean_hidden_units = opt_params.get('mean_hidden_units', hidden_units)
 
         lr_scheduler_cfg = None
         if lr_scheduler_type is not None:
@@ -768,7 +837,10 @@ class BaseMFCoregEmu():
             learning_rate=initial_lr,
             num_samples=num_samples,
             lr_scheduler=lr_scheduler_cfg,
-            early_stopping=early_stop_cfg
+            early_stopping=early_stop_cfg,
+            residual_flow=residual_flow,
+            mean_loss_weight=mean_loss_weight,
+            mean_hidden_units=mean_hidden_units
         )
         if self.flow_model is None:
             self.flow_model = MultiFidelityNormalizingFlow(
@@ -777,7 +849,10 @@ class BaseMFCoregEmu():
                 num_bijectors=num_bijectors,
                 hidden_units=hidden_units,
                 learning_rate=initial_lr,
-                device=self.device
+                device=self.device,
+                residual_flow=residual_flow,
+                mean_hidden_units=mean_hidden_units,
+                mean_loss_weight=mean_loss_weight
             )
         else:
             self.logger.info('Reusing existing flow model instance')
@@ -789,6 +864,7 @@ class BaseMFCoregEmu():
             self.flow_model.restore(ckpt_path)
 
         self.logger.info(f'Built flow with output_dim {self.output_dim}, num_bijectors {num_bijectors}, hidden_units {hidden_units}')
+        self.logger.info(f'flow residual_flow={residual_flow}, mean_loss_weight={mean_loss_weight}, mean_hidden_units={mean_hidden_units}')
         self.logger.info(f'flow batch_size {batch_size}, max_iters {max_iters}, log_every {log_every}')
         if lr_scheduler_cfg is not None:
             self.logger.info(f"Using lr scheduler {lr_scheduler_cfg.get('type')} with gamma={lr_scheduler_cfg.get('gamma')}, step_size={lr_scheduler_cfg.get('step_size')}, patience={lr_scheduler_cfg.get('patience')}")
@@ -844,6 +920,9 @@ class BaseMFCoregEmu():
         num_bijectors = flow_cfg.get('num_bijectors', 4) if flow_cfg is not None else 4
         hidden_units = flow_cfg.get('hidden_units', (128, 128)) if flow_cfg is not None else (128, 128)
         learning_rate = flow_cfg.get('learning_rate', 5e-3) if flow_cfg is not None else 5e-3
+        residual_flow = flow_cfg.get('residual_flow', True) if flow_cfg is not None else True
+        mean_loss_weight = flow_cfg.get('mean_loss_weight', 0.1) if flow_cfg is not None else 0.1
+        mean_hidden_units = flow_cfg.get('mean_hidden_units', hidden_units) if flow_cfg is not None else hidden_units
         num_samples = self.model_attrs.get('num_samples', 256) if num_samples is None else num_samples
 
         t1 = time.time()
@@ -854,7 +933,10 @@ class BaseMFCoregEmu():
                 num_bijectors=num_bijectors,
                 hidden_units=hidden_units,
                 learning_rate=learning_rate,
-                device=self.device
+                device=self.device,
+                residual_flow=residual_flow,
+                mean_hidden_units=mean_hidden_units,
+                mean_loss_weight=mean_loss_weight
             )
         else:
             self.flow_model.to_device(self.device)

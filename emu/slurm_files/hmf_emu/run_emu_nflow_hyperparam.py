@@ -26,6 +26,9 @@ def _ensure_hidden_units(config: Dict[str, Any]):
     if 'flow_hidden_units' in config and isinstance(config['flow_hidden_units'], list):
         config = config.copy()
         config['flow_hidden_units'] = tuple(config['flow_hidden_units'])
+    if 'mean_hidden_units' in config and isinstance(config['mean_hidden_units'], list):
+        config = config.copy()
+        config['mean_hidden_units'] = tuple(config['mean_hidden_units'])
     return config
 
 
@@ -55,6 +58,7 @@ def run_it(ind_test, z, train_subdir, machine='stampede3',
            flow_scheduler_gamma=0.5, flow_scheduler_patience=150, flow_scheduler_min_lr=1e-6,
            flow_early_stopping_patience=400, flow_early_stopping_min_delta=1e-4,
            flow_batch_size=128, flow_num_bijectors=6, flow_hidden_units=(256, 256),
+           mean_hidden_units=(256, 256), mean_loss_weight=0.1,
            flow_log_every=500, flow_num_samples=512, save_config=True, model_suffix: Optional[str] = None):
     data_dir = _resolve_data_dir(machine)
     os.makedirs(op.join(data_dir, train_subdir), exist_ok=True)
@@ -75,7 +79,9 @@ def run_it(ind_test, z, train_subdir, machine='stampede3',
         'flow_hidden_units': list(flow_hidden_units),
         'flow_log_every': flow_log_every,
         'flow_num_samples': flow_num_samples,
-        'noise_floor': noise_floor
+        'noise_floor': noise_floor,
+        'mean_hidden_units': list(mean_hidden_units),
+        'mean_loss_weight': mean_loss_weight
     }
     if save_config:
         _save_config(cfg_payload, op.join(data_dir, train_subdir, 'config.json'))
@@ -106,6 +112,8 @@ def run_it(ind_test, z, train_subdir, machine='stampede3',
                   'batch_size': flow_batch_size,
                   'num_bijectors': flow_num_bijectors,
                   'hidden_units': flow_hidden_units,
+                  'mean_hidden_units': mean_hidden_units,
+                  'mean_loss_weight': mean_loss_weight,
                   'log_every': flow_log_every,
                   'num_samples': flow_num_samples
               },
@@ -115,17 +123,15 @@ def run_it(ind_test, z, train_subdir, machine='stampede3',
 
 def _suggest_hyperparams(trial: optuna.Trial) -> Dict[str, Any]:
     return {
-        'flow_max_iters': trial.suggest_int('flow_max_iters', 5_000, 50_000, log=True),
-        'flow_initial_lr': trial.suggest_float('flow_initial_lr', 1e-5, 5e-3, log=True),
-        'flow_batch_size': trial.suggest_categorical('flow_batch_size', [64, 128, 256, 512]),
-        'flow_num_bijectors': trial.suggest_int('flow_num_bijectors', 2, 8),
         'flow_hidden_units': trial.suggest_categorical(
             'flow_hidden_units',
             [(128, 128), (256, 256), (256, 256, 128), (384, 384)]
         ),
-        'flow_scheduler_gamma': trial.suggest_float('flow_scheduler_gamma', 0.05, 0.9, log=True),
-        'flow_scheduler_patience': trial.suggest_int('flow_scheduler_patience', 50, 400),
-        'flow_early_stopping_patience': trial.suggest_int('flow_early_stopping_patience', 50, 800),
+        'mean_hidden_units': trial.suggest_categorical(
+            'mean_hidden_units',
+            [(128, 128), (256, 256), (256, 256, 128)]
+        ),
+        'mean_loss_weight': trial.suggest_float('mean_loss_weight', 0.01, 0.5, log=True),
     }
 
 
@@ -136,6 +142,7 @@ def _build_objective(args, base_config: Dict[str, Any]):
         trial_cfg = base_config.copy()
         trial_cfg.update(_suggest_hyperparams(trial))
         trial_cfg['flow_hidden_units'] = tuple(trial_cfg['flow_hidden_units'])
+        trial_cfg['mean_hidden_units'] = tuple(trial_cfg['mean_hidden_units'])
         trial_subdir = op.join(trial_cfg['train_subdir'], 'optuna_trials')
         emu, _, _ = run_it(
             args.ind_test,
@@ -155,6 +162,8 @@ def _build_objective(args, base_config: Dict[str, Any]):
             flow_batch_size=trial_cfg.get('flow_batch_size', 128),
             flow_num_bijectors=trial_cfg.get('flow_num_bijectors', 6),
             flow_hidden_units=trial_cfg.get('flow_hidden_units', (256, 256)),
+            mean_hidden_units=trial_cfg.get('mean_hidden_units', (256, 256)),
+            mean_loss_weight=trial_cfg.get('mean_loss_weight', 0.1),
             flow_log_every=trial_cfg.get('flow_log_every', 500),
             flow_num_samples=trial_cfg.get('flow_num_samples', 512),
             save_config=False,
@@ -194,6 +203,7 @@ if __name__ == '__main__':
         best_config = base_config.copy()
         best_config.update(study.best_params)
         best_config['flow_hidden_units'] = list(best_config['flow_hidden_units'])
+        best_config['mean_hidden_units'] = list(best_config['mean_hidden_units'])
         best_cfg_path = op.join(_resolve_data_dir(args.machine), base_config['train_subdir'], 'optuna_best_config.json')
         _save_config(best_config, best_cfg_path)
         print(f'Best Optuna value: {study.best_value:.4f}, config saved to {best_cfg_path}', flush=True)
@@ -213,6 +223,8 @@ if __name__ == '__main__':
                    flow_batch_size=best_config.get('flow_batch_size', 128),
                    flow_num_bijectors=best_config.get('flow_num_bijectors', 6),
                    flow_hidden_units=tuple(best_config.get('flow_hidden_units', (256, 256))),
+                   mean_hidden_units=tuple(best_config.get('mean_hidden_units', (256, 256))),
+                   mean_loss_weight=best_config.get('mean_loss_weight', 0.1),
                    flow_log_every=best_config.get('flow_log_every', 500),
                    flow_num_samples=best_config.get('flow_num_samples', 512))
     else:
@@ -231,5 +243,7 @@ if __name__ == '__main__':
                flow_batch_size=base_config.get('flow_batch_size', 128),
                flow_num_bijectors=base_config.get('flow_num_bijectors', 6),
                flow_hidden_units=tuple(base_config.get('flow_hidden_units', (256, 256))),
+               mean_hidden_units=tuple(base_config.get('mean_hidden_units', (256, 256))),
+               mean_loss_weight=base_config.get('mean_loss_weight', 0.1),
                flow_log_every=base_config.get('flow_log_every', 500),
                flow_num_samples=base_config.get('flow_num_samples', 512))
