@@ -29,6 +29,9 @@ def _ensure_hidden_units(config: Dict[str, Any]):
     if 'mean_hidden_units' in config and isinstance(config['mean_hidden_units'], list):
         config = config.copy()
         config['mean_hidden_units'] = tuple(config['mean_hidden_units'])
+    if 'lf_mean_hidden_units' in config and isinstance(config['lf_mean_hidden_units'], list):
+        config = config.copy()
+        config['lf_mean_hidden_units'] = tuple(config['lf_mean_hidden_units'])
     return config
 
 
@@ -43,10 +46,12 @@ def _holdout_neg_log_likelihood(emu: emus_multifid.HmfNativeBins, ind_test: int)
         raise ValueError('ind_test must be provided for validation')
     if emu.flow_model is None:
         raise RuntimeError('flow_model is not trained; cannot score holdout')
-    x_hf = np.hstack([emu.X[1][[ind_test]], np.ones((1, 1), dtype=np.float32)]).astype(np.float32)
+    x_hf = emu.X[1][[ind_test]].astype(np.float32)
     y_hf = emu.Y[1][[ind_test]].astype(np.float32)
     context = torch.as_tensor(x_hf, dtype=emu.flow_model.dtype, device=emu.flow_model.device)
-    target = torch.as_tensor(y_hf, dtype=emu.flow_model.dtype, device=emu.flow_model.device)
+    with torch.no_grad():
+        lf_pred = emu.lf_mean_net(context).to(device=emu.flow_model.device, dtype=emu.flow_model.dtype)
+    target = torch.as_tensor(y_hf, dtype=emu.flow_model.dtype, device=emu.flow_model.device) - lf_pred
     with torch.no_grad():
         log_prob = emu.flow_model.log_prob(target, context)
     return -float(log_prob.mean().cpu().item())
@@ -58,7 +63,8 @@ def run_it(ind_test, z, train_subdir, machine='stampede3',
            flow_scheduler_gamma=0.5, flow_scheduler_patience=150, flow_scheduler_min_lr=1e-6,
            flow_early_stopping_patience=400, flow_early_stopping_min_delta=1e-4,
            flow_batch_size=128, flow_num_bijectors=6, flow_hidden_units=(256, 256),
-           mean_hidden_units=(256, 256), mean_loss_weight=0.1,
+           mean_hidden_units=(256, 256), mean_loss_weight=0.0,
+           lf_mean_hidden_units=(128, 128), lf_mean_max_iters=2000, lf_mean_lr=1e-3, lf_mean_batch_size=128,
            flow_log_every=500, flow_num_samples=512, save_config=True, model_suffix: Optional[str] = None):
     data_dir = _resolve_data_dir(machine)
     os.makedirs(op.join(data_dir, train_subdir), exist_ok=True)
@@ -81,7 +87,11 @@ def run_it(ind_test, z, train_subdir, machine='stampede3',
         'flow_num_samples': flow_num_samples,
         'noise_floor': noise_floor,
         'mean_hidden_units': list(mean_hidden_units),
-        'mean_loss_weight': mean_loss_weight
+        'mean_loss_weight': mean_loss_weight,
+        'lf_mean_hidden_units': list(lf_mean_hidden_units),
+        'lf_mean_max_iters': lf_mean_max_iters,
+        'lf_mean_lr': lf_mean_lr,
+        'lf_mean_batch_size': lf_mean_batch_size
     }
     if save_config:
         _save_config(cfg_payload, op.join(data_dir, train_subdir, 'config.json'))
@@ -114,6 +124,10 @@ def run_it(ind_test, z, train_subdir, machine='stampede3',
                   'hidden_units': flow_hidden_units,
                   'mean_hidden_units': mean_hidden_units,
                   'mean_loss_weight': mean_loss_weight,
+                  'lf_mean_hidden_units': lf_mean_hidden_units,
+                  'lf_mean_max_iters': lf_mean_max_iters,
+                  'lf_mean_lr': lf_mean_lr,
+                  'lf_mean_batch_size': lf_mean_batch_size,
                   'log_every': flow_log_every,
                   'num_samples': flow_num_samples
               },
@@ -125,13 +139,12 @@ def _suggest_hyperparams(trial: optuna.Trial) -> Dict[str, Any]:
     return {
         'flow_hidden_units': trial.suggest_categorical(
             'flow_hidden_units',
-            [(128, 128), (256, 256), (256, 256, 128), (384, 384)]
-        ),
-        'mean_hidden_units': trial.suggest_categorical(
-            'mean_hidden_units',
             [(128, 128), (256, 256), (256, 256, 128)]
         ),
-        'mean_loss_weight': trial.suggest_float('mean_loss_weight', 0.01, 0.5, log=True),
+        'lf_mean_hidden_units': trial.suggest_categorical(
+            'lf_mean_hidden_units',
+            [(64, 64), (128, 128), (256, 256)]
+        ),
     }
 
 
@@ -142,7 +155,7 @@ def _build_objective(args, base_config: Dict[str, Any]):
         trial_cfg = base_config.copy()
         trial_cfg.update(_suggest_hyperparams(trial))
         trial_cfg['flow_hidden_units'] = tuple(trial_cfg['flow_hidden_units'])
-        trial_cfg['mean_hidden_units'] = tuple(trial_cfg['mean_hidden_units'])
+        trial_cfg['lf_mean_hidden_units'] = tuple(trial_cfg['lf_mean_hidden_units'])
         trial_subdir = op.join(trial_cfg['train_subdir'], 'optuna_trials')
         emu, _, _ = run_it(
             args.ind_test,
@@ -163,7 +176,8 @@ def _build_objective(args, base_config: Dict[str, Any]):
             flow_num_bijectors=trial_cfg.get('flow_num_bijectors', 6),
             flow_hidden_units=trial_cfg.get('flow_hidden_units', (256, 256)),
             mean_hidden_units=trial_cfg.get('mean_hidden_units', (256, 256)),
-            mean_loss_weight=trial_cfg.get('mean_loss_weight', 0.1),
+            mean_loss_weight=trial_cfg.get('mean_loss_weight', 0.0),
+            lf_mean_hidden_units=trial_cfg.get('lf_mean_hidden_units', (128, 128)),
             flow_log_every=trial_cfg.get('flow_log_every', 500),
             flow_num_samples=trial_cfg.get('flow_num_samples', 512),
             save_config=False,
@@ -203,7 +217,8 @@ if __name__ == '__main__':
         best_config = base_config.copy()
         best_config.update(study.best_params)
         best_config['flow_hidden_units'] = list(best_config['flow_hidden_units'])
-        best_config['mean_hidden_units'] = list(best_config['mean_hidden_units'])
+        if 'lf_mean_hidden_units' in best_config:
+            best_config['lf_mean_hidden_units'] = list(best_config['lf_mean_hidden_units'])
         best_cfg_path = op.join(_resolve_data_dir(args.machine), base_config['train_subdir'], 'optuna_best_config.json')
         _save_config(best_config, best_cfg_path)
         print(f'Best Optuna value: {study.best_value:.4f}, config saved to {best_cfg_path}', flush=True)
@@ -224,7 +239,8 @@ if __name__ == '__main__':
                    flow_num_bijectors=best_config.get('flow_num_bijectors', 6),
                    flow_hidden_units=tuple(best_config.get('flow_hidden_units', (256, 256))),
                    mean_hidden_units=tuple(best_config.get('mean_hidden_units', (256, 256))),
-                   mean_loss_weight=best_config.get('mean_loss_weight', 0.1),
+                   mean_loss_weight=best_config.get('mean_loss_weight', 0.0),
+                   lf_mean_hidden_units=tuple(best_config.get('lf_mean_hidden_units', (128, 128))),
                    flow_log_every=best_config.get('flow_log_every', 500),
                    flow_num_samples=best_config.get('flow_num_samples', 512))
     else:
@@ -244,6 +260,7 @@ if __name__ == '__main__':
                flow_num_bijectors=base_config.get('flow_num_bijectors', 6),
                flow_hidden_units=tuple(base_config.get('flow_hidden_units', (256, 256))),
                mean_hidden_units=tuple(base_config.get('mean_hidden_units', (256, 256))),
-               mean_loss_weight=base_config.get('mean_loss_weight', 0.1),
+               mean_loss_weight=base_config.get('mean_loss_weight', 0.0),
+               lf_mean_hidden_units=tuple(base_config.get('lf_mean_hidden_units', (128, 128))),
                flow_log_every=base_config.get('flow_log_every', 500),
                flow_num_samples=base_config.get('flow_num_samples', 512))

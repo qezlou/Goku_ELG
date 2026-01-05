@@ -14,6 +14,8 @@ from nflows import distributions as nf_distributions
 from nflows import transforms as nf_transforms
 from nflows.nn import nets as nf_nets
 from nflows.utils import torchutils
+import torch.nn as nn
+import torch.nn.functional as F
 import torch.nn.functional as F
 import sys
 import os
@@ -672,6 +674,12 @@ class BaseMFCoregEmu():
         # Normalizing flow gets built during training to keep config flexible
         self.flow_model = None
         self.flow_config = {}
+        # Deterministic LF predictor (trained on LF only)
+        self.lf_mean_net = None
+        self.lf_mean_config = {}
+        # Deterministic LF predictor (trained on LF only)
+        self.lf_mean_net = None
+        self.lf_mean_config = {}
 
     def configure_logging(self, logging_level):
         """Sets up logging based on the provided logging level in an MPI environment."""
@@ -757,7 +765,7 @@ class BaseMFCoregEmu():
 
     def train(self, ind_train=None, ind_test=None, model_file='Xi_Native_emu_mapirs2.pkl', opt_params={}, force_train=True, train_subdir = 'train', composite_kernel=None, w_type='diagonal', loss_type='gaussian'):
         """
-        Train the multi-fidelity normalizing flow and save checkpoints.
+        Train the LF deterministic model on LF only, then train an additive residual flow on HF residuals (Y_HF - Y_LF_pred).
         Parameters
         ----------
         model_file : str
@@ -778,18 +786,31 @@ class BaseMFCoregEmu():
               - lr_scheduler_step_every (int)
               - early_stopping_patience (int)
               - early_stopping_min_delta (float)
+              - lf_mean_hidden_units (tuple)
+              - lf_mean_max_iters (int)
+              - lf_mean_lr (float)
+              - lf_mean_batch_size (int)
               - residual_flow (bool; learn deterministic mean then flow on residuals)
               - mean_loss_weight (float; weight for auxiliary MSE on the mean head)
               - mean_hidden_units (tuple; hidden sizes for mean head)
         """
         if ind_train is None:
             ind_train = np.arange(self.X[1].shape[0])
-        # Add the fidelity indicators, 0 for L2 and 1 for HF
-        X_l2_aug = np.hstack([self.X[0], np.zeros((self.X[0].shape[0], 1), dtype=np.float32)])
-        X_hf_aug = np.hstack([self.X[1][ind_train], np.ones((ind_train.size, 1), dtype=np.float32)])
-        X_train = np.vstack([X_l2_aug, X_hf_aug]).astype(np.float32)
-        Y_train = np.vstack([self.Y[0], self.Y[1][ind_train]]).astype(np.float32)
-        self.logger.debug(f'X_train: {X_train.shape}, Y_train: {Y_train.shape}')
+        # Train LF deterministic model on LF only
+        lf_mean_hidden_units = opt_params.get('lf_mean_hidden_units', (128, 128))
+        lf_mean_max_iters = opt_params.get('lf_mean_max_iters', 2000)
+        lf_mean_lr = opt_params.get('lf_mean_lr', 1e-3)
+        lf_mean_batch_size = opt_params.get('lf_mean_batch_size', 128)
+        self.logger.info(f'Training LF mean net on LF data: hidden_units={lf_mean_hidden_units}, max_iters={lf_mean_max_iters}, lr={lf_mean_lr}, batch_size={lf_mean_batch_size}')
+        self._train_lf_mean_net(max_iters=lf_mean_max_iters, lr=lf_mean_lr, batch_size=lf_mean_batch_size, log_every=200, hidden_units=lf_mean_hidden_units)
+
+        # Prepare HF residuals: Y_HF - Y_LF_pred(X_HF)
+        with torch.no_grad():
+            x_hf_tensor = torch.as_tensor(self.X[1][ind_train], device=self.device, dtype=self.lf_mean_net[0].weight.dtype)
+            lf_pred_on_hf = self.lf_mean_net(x_hf_tensor).cpu().numpy()
+        residuals = (self.Y[1][ind_train] - lf_pred_on_hf).astype(np.float32)
+        X_train = self.X[1][ind_train].astype(np.float32)
+        self.logger.debug(f'X_train (HF only): {X_train.shape}, residuals: {residuals.shape}')
 
         checkpoint_dir = op.join(self.data_dir, train_subdir)
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -810,8 +831,8 @@ class BaseMFCoregEmu():
         lr_scheduler_step_every = opt_params.get('lr_scheduler_step_every', 1)
         early_stopping_patience = opt_params.get('early_stopping_patience')
         early_stopping_min_delta = opt_params.get('early_stopping_min_delta', 0.0)
-        residual_flow = opt_params.get('residual_flow', True)
-        mean_loss_weight = opt_params.get('mean_loss_weight', 0.1)
+        residual_flow = opt_params.get('residual_flow', False)  # we already remove LF mean; flow sees residuals only
+        mean_loss_weight = opt_params.get('mean_loss_weight', 0.0)
         mean_hidden_units = opt_params.get('mean_hidden_units', hidden_units)
 
         lr_scheduler_cfg = None
@@ -875,7 +896,7 @@ class BaseMFCoregEmu():
             self.logger.debug(f'Training flow on shapes {X_train.shape}, {Y_train.shape}')
             history = self.flow_model.fit(
                 x=X_train,
-                y=Y_train,
+                y=residuals,
                 max_iters=max_iters,
                 batch_size=batch_size,
                 log_every=log_every,
@@ -889,7 +910,8 @@ class BaseMFCoregEmu():
                     'loss_history': history,
                     'emu_type': self.emu_type,
                     'flow_config': self.flow_config,
-                    'num_samples': num_samples
+                    'num_samples': num_samples,
+                    'lf_mean_config': self.lf_mean_config
                 }
                 pickle.dump(self.model_attrs, f)
             self.logger.info(f'done with optimization {max_iters}, saved {ckpt_path}')
@@ -924,11 +946,12 @@ class BaseMFCoregEmu():
         mean_loss_weight = flow_cfg.get('mean_loss_weight', 0.1) if flow_cfg is not None else 0.1
         mean_hidden_units = flow_cfg.get('mean_hidden_units', hidden_units) if flow_cfg is not None else hidden_units
         num_samples = self.model_attrs.get('num_samples', 256) if num_samples is None else num_samples
+        lf_mean_cfg = self.model_attrs.get('lf_mean_config', {'hidden_units': (128, 128)})
 
         t1 = time.time()
         if self.flow_model is None:
             self.flow_model = MultiFidelityNormalizingFlow(
-                input_dim=self.X[0].shape[1] + 1,
+                input_dim=self.X[0].shape[1],
                 output_dim=self.output_dim,
                 num_bijectors=num_bijectors,
                 hidden_units=hidden_units,
@@ -952,10 +975,17 @@ class BaseMFCoregEmu():
         print(f'[timer] predict: load checkpoint {time.time() - t2:.2f}s', flush=True)
 
         t3 = time.time()
-        # Add the fidelity indicators
-        X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float32)
+        # HF inputs only; first predict LF mean, then add sampled residuals
+        X_test = self.X[1][ind_test].astype(np.float32)
         context = torch.as_tensor(X_test, dtype=self.flow_model.dtype)
+        if self.lf_mean_net is None:
+            self.logger.info('Rebuilding LF mean net for prediction')
+            self.lf_mean_net = self._build_lf_mean_net(hidden_units=lf_mean_cfg.get('hidden_units', (128, 128)))
+        self.lf_mean_net = self.lf_mean_net.to(device=self.device, dtype=self.flow_model.dtype)
+        with torch.no_grad():
+            lf_pred = self.lf_mean_net(context.to(self.device)).cpu().numpy()
         samples = self.flow_model.sample(context, num_samples=num_samples)
+        samples = samples + lf_pred[:, None, :]
         print(f'samples.shape: {samples.shape}', flush=True)
         mean_pred = np.mean(samples, axis=1).squeeze()
         var_pred = np.var(samples, axis=1).squeeze()
@@ -983,6 +1013,63 @@ class BaseMFCoregEmu():
         if isinstance(Y_list, list):
             return [_denorm(arr) for arr in Y_list]
         return _denorm(Y_list)
+
+    def find_hf_in_lf(self):
+        """
+        Find indices of LF simulations that exactly match each HF simulation in X-space.
+        Returns an array of length n_hf with LF indices; raises if a match is missing.
+        """
+        lf_map = {tuple(row.tolist()): idx for idx, row in enumerate(self.X[0])}
+        hf_to_lf = []
+        for row in self.X[1]:
+            key = tuple(row.tolist())
+            if key not in lf_map:
+                raise ValueError("HF simulation not found in LF set; cannot build residual mapping")
+            hf_to_lf.append(lf_map[key])
+        return np.array(hf_to_lf, dtype=int)
+
+    # ------------------------------------------------------------------
+    # LF deterministic model (trained on LF only)
+    # ------------------------------------------------------------------
+    def _build_lf_mean_net(self, hidden_units=(128, 128)):
+        layers = []
+        in_features = self.X[0].shape[1]
+        for width in hidden_units:
+            layers.append(nn.Linear(in_features, width))
+            layers.append(nn.SiLU())
+            in_features = width
+        layers.append(nn.Linear(in_features, self.output_dim))
+        net = nn.Sequential(*layers).to(device=self.device, dtype=self.X[0].dtype)
+        return net
+
+    def _train_lf_mean_net(self, max_iters=2000, lr=1e-3, batch_size=128, log_every=200, hidden_units=(128, 128)):
+        if self.lf_mean_net is None:
+            self.lf_mean_net = self._build_lf_mean_net(hidden_units)
+        else:
+            self.lf_mean_net = self.lf_mean_net.to(device=self.device, dtype=self.X[0].dtype)
+        self.lf_mean_config = dict(hidden_units=hidden_units, max_iters=max_iters, lr=lr, batch_size=batch_size, log_every=log_every)
+        x = torch.as_tensor(self.X[0], dtype=self.lf_mean_net[0].weight.dtype)
+        y = torch.as_tensor(self.Y[0], dtype=self.lf_mean_net[0].weight.dtype)
+        dataset = torch.utils.data.TensorDataset(x, y)
+        loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False, pin_memory=self.device.type == 'cuda')
+        optimizer = torch.optim.Adam(self.lf_mean_net.parameters(), lr=lr)
+        iterator = iter(loader)
+        for step in range(1, max_iters + 1):
+            try:
+                xb, yb = next(iterator)
+            except StopIteration:
+                iterator = iter(loader)
+                xb, yb = next(iterator)
+            xb = xb.to(self.device)
+            yb = yb.to(self.device)
+            optimizer.zero_grad()
+            pred = self.lf_mean_net(xb)
+            loss = F.mse_loss(pred, yb)
+            loss.backward()
+            optimizer.step()
+            if log_every and step % log_every == 0:
+                self.logger.info(f'LF mean net step {step}/{max_iters}, loss {loss.item():.4e}')
+        return self.lf_mean_net
 
 class HmfNativeBins(BaseMFCoregEmu):
     """

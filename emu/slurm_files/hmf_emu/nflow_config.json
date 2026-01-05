@@ -1,5 +1,5 @@
 {
-    "train_subdir": "HMF/train_nflow",
+    "train_subdir": "HMF/train_nflow_lf_mean",
     "norm_type": "subtract_mean",
     "noise_floor": 0.0,
     "flow_max_iters": 30000,
@@ -14,8 +14,8 @@
     "flow_num_bijectors": 4,
     "flow_hidden_units": [128, 128],
     "mean_hidden_units": [64, 64],
-    "residual_flow": true,
-    "mean_loss_weight": 0.1,
+    "lf_mean_hidden_units": [128, 128],
+    "mean_loss_weight": 0,
     "flow_log_every": 100,
     "flow_num_samples": 512
 }
