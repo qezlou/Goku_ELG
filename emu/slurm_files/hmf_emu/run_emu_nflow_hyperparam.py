@@ -48,9 +48,16 @@ def _holdout_neg_log_likelihood(emu: emus_multifid.HmfNativeBins, ind_test: int)
         raise RuntimeError('flow_model is not trained; cannot score holdout')
     x_hf = emu.X[1][[ind_test]].astype(np.float32)
     y_hf = emu.Y[1][[ind_test]].astype(np.float32)
-    context = torch.as_tensor(x_hf, dtype=emu.flow_model.dtype, device=emu.flow_model.device)
+    
+    # Prepare input for LF mean net
+    x_tensor = torch.as_tensor(x_hf, dtype=emu.flow_model.dtype, device=emu.flow_model.device)
+    
     with torch.no_grad():
-        lf_pred = emu.lf_mean_net(context).to(device=emu.flow_model.device, dtype=emu.flow_model.dtype)
+        lf_pred = emu.lf_mean_net(x_tensor)
+    
+    # Prepare context for Flow [X, LF_pred]
+    context = torch.cat([x_tensor, lf_pred], dim=1)
+    
     target = torch.as_tensor(y_hf, dtype=emu.flow_model.dtype, device=emu.flow_model.device) - lf_pred
     with torch.no_grad():
         log_prob = emu.flow_model.log_prob(target, context)
