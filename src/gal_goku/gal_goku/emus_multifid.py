@@ -419,6 +419,8 @@ class MultiFidelityNormalizingFlow:
                         state[key] = value.to(self.device)
 
     def log_prob(self, y, context):
+        if self.residual_flow:
+            y = y - self.mean_net(context)
         return self.flow.log_prob(inputs=y, context=context)
 
     def _train_step(self, x_batch, y_batch):
@@ -426,16 +428,16 @@ class MultiFidelityNormalizingFlow:
         x_batch = x_batch.to(self.device, dtype=self.dtype, non_blocking=True)
         y_batch = y_batch.to(self.device, dtype=self.dtype, non_blocking=True)
         self.optimizer.zero_grad()
-        if self.residual_flow:
-            mean_pred = self.mean_net(x_batch)
-            residual = y_batch - mean_pred
-        else:
-            mean_pred = None
-            residual = y_batch
-        nll = -self.log_prob(residual, x_batch).mean()
+        
+        # Calculate NLL; log_prob handles mean subtraction if residual_flow is True
+        nll = -self.log_prob(y_batch, x_batch).mean()
+
         mse_term = torch.tensor(0.0, device=self.device, dtype=self.dtype)
         if self.residual_flow and self.mean_loss_weight > 0:
+            # Re-run mean_net for the MSE loss term
+            mean_pred = self.mean_net(x_batch)
             mse_term = F.mse_loss(mean_pred, y_batch)
+            
         loss = nll + self.mean_loss_weight * mse_term
         loss.backward()
         self.optimizer.step()
