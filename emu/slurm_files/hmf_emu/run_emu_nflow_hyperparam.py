@@ -58,7 +58,8 @@ def _holdout_neg_log_likelihood(emu: emus_multifid.HmfNativeBins, ind_test: int)
     # Prepare context for Flow [X, LF_pred]
     context = torch.cat([x_tensor, lf_pred], dim=1)
     
-    target = torch.as_tensor(y_hf, dtype=emu.flow_model.dtype, device=emu.flow_model.device) - lf_pred
+    # Target is raw HF; log_prob handles mean subtraction internally now
+    target = torch.as_tensor(y_hf, dtype=emu.flow_model.dtype, device=emu.flow_model.device)
     with torch.no_grad():
         log_prob = emu.flow_model.log_prob(target, context)
     return -float(log_prob.mean().cpu().item())
