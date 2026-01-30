@@ -1840,7 +1840,7 @@ class HmfCombined(BasePlot):
                                fmt='--o', markersize=1)
                 color_c += 1
             ax[1].plot(self.mbins, frac_err, alpha=0.3, lw=2, label=f'{s}')
-            ax_rel_sigma.plot(self.mbins, (self.pred[c]-self.truth[c])/self.pred_uncen[c], alpha=0.6, lw=2, label=f'{s}')
+            ax_rel_sigma.plot(self.mbins, (self.pred[c]-self.truth[c])/self.pred_uncen[c], alpha=0.6, lw=2, label=f'{s}')           
             # Place text at x=10^{11.5}, y=frac_err at that mass for each curve
             if add_text:
                 x_text = 10**11.5
@@ -1869,12 +1869,14 @@ class HmfCombined(BasePlot):
     
         if savefig is not None:
             fig.savefig(savefig, dpi=300, bbox_inches='tight')
-        
+        rel_siga = (self.pred - self.truth)/self.pred_uncen
+        ind = np.where(np.max(np.abs(rel_siga), axis=1) > 4)
+        print(f'Simulations with |(pred - truth) / sigma_pred| > 4: {ind}')
         ax_rel_sigma.set_xscale('log')
         ax_rel_sigma.set_xlabel(r'$M$')
         ax_rel_sigma.set_ylabel(r'$(pred - truth) / \sigma_{pred}$')
         ax_rel_sigma.axhline(1, color='r', lw=2, ls='dashed')
-        ax_rel_sigma.legend()
+        #ax_rel_sigma.legend()
         ax_rel_sigma.grid(which='both', axis='both')
 
         # Plot the histogram of the relative error divided by uncertainty
