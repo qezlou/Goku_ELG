@@ -305,7 +305,7 @@ class BaseMFCoregEmu():
     `LatentMFCoregionalizationSVGP` which allows each output to have a different
     observational (simualtion quality) uncertainty.
     """
-    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
+    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, data_loader_kwargs=None, logging_level='INFO'):
         """
         Parameters
         ----------
@@ -350,9 +350,12 @@ class BaseMFCoregEmu():
         #emu_type.update({'multi-fid':True, 'single-bin':False, 'linear':True, 'mf-svgp':True})
         self.emu_type = emu_type
         fids = ['L2', 'HF']
+
+        if data_loader_kwargs is None:
+            data_loader_kwargs = {}
         for fd in fids:
             # Goku-wide sims
-            data_loader = DataLoader(data_dir=data_dir, fid =fd, z=z, narrow=False, no_merge=True, logging_level=logging_level)
+            data_loader = DataLoader(data_dir=data_dir, fid =fd, z=z, narrow=False, no_merge=True, logging_level=logging_level, **data_loader_kwargs)
             # Load xi((m1, m2), r) for wide
             self.mbins, Y_wide, err_wide, X_wide, labels_wide = data_loader.get_data(noise_floor=noise_floor, get_counts=get_counts)
             self.wide_array= np.append(self.wide_array, np.ones(Y_wide.shape[0]))
@@ -366,7 +369,7 @@ class BaseMFCoregEmu():
             # Use both Goku-wide and narrow
             else:
                 # Goku-narrow sims
-                data_loader = DataLoader(data_dir=data_dir, fid = fd, z=z, narrow=True, no_merge=True, logging_level=logging_level)
+                data_loader = DataLoader(data_dir=data_dir, fid = fd, z=z, narrow=True, no_merge=True, logging_level=logging_level, **data_loader_kwargs)
                 # Load xi((m1, m2), r) for wide
                 _, Y_narrow, err_narrow, X_narrow, labels_narrow = data_loader.get_data(noise_floor=noise_floor, get_counts=get_counts)
                 self.wide_array= np.append(self.wide_array, np.zeros(Y_narrow.shape[0]))
@@ -499,7 +502,6 @@ class BaseMFCoregEmu():
         # Stack the L2 and HF data vertically
         X_train = np.vstack([X_l2_aug, X_hf_aug])
         Y_train = np.vstack([self.Y[0], self.Y[1][ind_train]])
-        self.logger.debug(f'X_train: {X_train.shape}, Y_train: {Y_train.shape}')
 
         X_train = X_train.astype(np.float64)
         Y_train = Y_train.astype(np.float64)
@@ -689,10 +691,10 @@ class HmfNativeBins(BaseMFCoregEmu):
     observational (simualtion quality) uncertainty.
     """
 
-    def __init__(self, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
-        
+    def __init__(self, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, hmf_kwargs=None, logging_level='INFO'):
+
         DataLoader = summary_stats.HMF
-        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=noise_num_latents, emu_type=emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, logging_level=logging_level)
+        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=noise_num_latents, emu_type=emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, data_loader_kwargs=hmf_kwargs, logging_level=logging_level)
 
 class XiNativeBins(BaseMFCoregEmu):
     """

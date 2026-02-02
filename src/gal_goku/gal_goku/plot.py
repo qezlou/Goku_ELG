@@ -6,6 +6,7 @@ from os import path as op
 import os
 import h5py
 import numpy as np
+import scipy.stats as stats
 import pickle
 from scipy.interpolate import make_interp_spline
 import matplotlib as mpl
@@ -1633,7 +1634,7 @@ class HmfCombined(BasePlot):
     logging_level: str
         Logging level to use. Default is 'INFO'.
     """
-    def __init__(self, data_dir, train_subdir, sims=None, z=2.5, num_latents=14, noise_num_latents=10, num_inducing=500, composite_kernel=None, epochs=None, norm_type='subtract_mean', get_counts=False, logging_level='INFO'):
+    def __init__(self, data_dir, train_subdir, sims=None, z=2.5, num_latents=14, noise_num_latents=10, num_inducing=500, composite_kernel=None, epochs=None, norm_type='subtract_mean', get_counts=False, mass_range=(11.1, 12.35), logging_level='INFO'):
         super().__init__(logging_level)
         self.sims = sims
         self.data_dir = data_dir
@@ -1650,6 +1651,7 @@ class HmfCombined(BasePlot):
                                                num_inducing=self.num_inducing, 
                                                norm_type=self.norm_type, 
                                                get_counts=get_counts,
+                                               hmf_kwargs={'mass_range': mass_range},
                                                logging_level='ERROR')
         self.composite_kernel = composite_kernel
         self.mbins = 10**self.emu.mbins
@@ -1800,7 +1802,7 @@ class HmfCombined(BasePlot):
         ax.legend()
         ax.grid()
 
-    def err_all(self, sample_size=10, add_text=True, log_scale=True, savefig=None, legend_frac=False):
+    def err_all(self, sample_size=3, add_text=True, log_scale=True, savefig=None, legend_frac=False):
         """
         Plot the emulation LOOCV for paper
         Parameters:
@@ -1814,33 +1816,41 @@ class HmfCombined(BasePlot):
         """
         self.logger.info(f'Plotting the fractional error for all sims, {self.pred.shape}, {self.truth.shape}')
         err = np.abs(self.pred/self.truth - 1)
+        log_mbins = np.log10(self.mbins)
+        rel_sigma = (self.pred - self.truth)/self.pred_uncen
+        ind = np.where(np.max(np.abs(rel_sigma), axis=1) > 4)
+        print(f'Simulations with |(pred - truth) / sigma_pred| > 4: {ind}')
+        ind = np.where(np.max(np.abs(rel_sigma), axis=1) > 3)
+        print(f'Simulations with |(pred - truth) / sigma_pred| > 3: {ind}')
 
         fig, ax = plt.subplots(2,1, figsize=(10, 6), sharex=True, gridspec_kw={'hspace': 0, 'height_ratios': [1, 0.5]})
         # Plot for showing (pred - truth)/uncertainty
         fig_rel_sigma, ax_rel_sigma = plt.subplots(1,1, figsize=(10,3))
         fgi_rel_hist, ax_rel_hist = plt.subplots(1,1, figsize=(6,4))
         sample_size = min(sample_size, self.pred.shape[0])
-        rand_sample = np.random.choice(self.sims, size=sample_size, replace=False)
+        rand_sample = np.random.choice(np.setdiff1d(self.sims, ind[0]), size=sample_size, replace=False)
         color_c = 0
+
+        mask_mbins = log_mbins <= 13.5
         for c, s in enumerate(self.sims):
             #if c in ind_rm:
             #    continue
             frac_err = np.abs(self.pred[c]/self.truth[c] - 1)
             if s in rand_sample:
                 #ax[0].plot(self.mbins, self.truth[c], alpha=0.6, lw=2, label=f'{c}', color=f'C{color_c}')
-                ax[0].plot(self.mbins, self.truth[c], 
+                ax[0].plot(log_mbins[mask_mbins], self.truth[c][mask_mbins], 
                            alpha=0.6, lw=2, label=f'Truth {s}', 
                            color=f'C{color_c}', marker='o', 
                            ls='', markersize=5)
-                ax[0].errorbar(self.mbins, self.pred[c], 
-                               yerr=self.pred_uncen[c], 
+                ax[0].errorbar(log_mbins[mask_mbins], self.pred[c][mask_mbins], 
+                               yerr=self.pred_uncen[c][mask_mbins], 
                                alpha=0.6, lw=2, 
                                label=None, 
                                color=f'C{color_c}', 
                                fmt='--o', markersize=1)
                 color_c += 1
-            ax[1].plot(self.mbins, frac_err, alpha=0.3, lw=2, label=f'{s}')
-            ax_rel_sigma.plot(self.mbins, (self.pred[c]-self.truth[c])/self.pred_uncen[c], alpha=0.6, lw=2, label=f'{s}')           
+            #ax[1].plot(self.mbins, frac_err, alpha=0.3, lw=2, label=f'{s}')
+            ax_rel_sigma.plot(log_mbins, (self.pred[c]-self.truth[c])/self.pred_uncen[c], alpha=0.6, lw=2, label=f'{s}')           
             # Place text at x=10^{11.5}, y=frac_err at that mass for each curve
             if add_text:
                 x_text = 10**11.5
@@ -1848,13 +1858,32 @@ class HmfCombined(BasePlot):
                 idx = np.argmin(np.abs(self.mbins - x_text))
                 y_text = frac_err[idx]
                 ax[1].text(x_text, y_text, str(self.sim_tags[s][-8::]), fontsize=8, va='bottom', ha='left', alpha=0.7)
-        ax[1].plot(self.mbins, np.median(err, axis=0), color='k', lw=4, alpha=0.5, marker='x', label='Median')
+        #ax[1].plot(self.mbins, np.median(err, axis=0), color='k', lw=4, alpha=0.5, marker='x', label='Median')
+        #ax[1].errorbar(self.mbins, np.median(err, axis=0), yerr= np.std(err, axis=0), color='k', lw=4, alpha=0.5, marker='x', label='Median')
         ax[0].set_yscale('log')
         ax[0].set_ylabel(r'$dn /dlogM$')
         ax[0].legend()
         if legend_frac:
             ax[1].legend()
-        ax[1].set_xscale('log')
+
+        # err shape assumed: (N_samples, N_bins)
+        data = [err[:, i] for i in range(err.shape[1])]
+
+        parts = ax[1].violinplot(
+            data,
+            positions=log_mbins,
+            widths=np.diff(log_mbins).mean() * 0.8 if len(self.mbins) > 1 else 0.1,
+            showmeans=False,
+            showmedians=True,
+            showextrema=False
+        )
+
+        # Style violins
+        for pc in parts['bodies']:
+            pc.set_facecolor('lightgray')
+            pc.set_edgecolor('black')
+            pc.set_alpha(0.7)
+        #ax[1].set_xscale('log')
         ax[1].set_ylabel('Fractional Error')
         #ax[1].set_yticks(np.arange(0, 0.8, 0.1))
         #ax[1].set_ylim(0, 0.8)
@@ -1863,24 +1892,104 @@ class HmfCombined(BasePlot):
         else:
             ax[1].set_ylim(0, 0.5)
             ax[1].set_yticks(np.arange(0, 0.45, 0.05))
-        ax[1].set_xlabel(r'$M$')
+        ax[1].set_xlabel(r'$log_{10}(M [M_{\odot}/h])$')
         ax[1].grid(which='both', axis='both')
         ax[0].grid(which='both', axis='both')
+        ax[0].set_xlim(11, 13.5)
     
         if savefig is not None:
             fig.savefig(savefig, dpi=300, bbox_inches='tight')
-        rel_siga = (self.pred - self.truth)/self.pred_uncen
-        ind = np.where(np.max(np.abs(rel_siga), axis=1) > 4)
-        print(f'Simulations with |(pred - truth) / sigma_pred| > 4: {ind}')
         ax_rel_sigma.set_xscale('log')
-        ax_rel_sigma.set_xlabel(r'$M$')
+        ax_rel_sigma.set_xlabel(r'$log_{10}(M [M_{\odot}/h])$')
         ax_rel_sigma.set_ylabel(r'$(pred - truth) / \sigma_{pred}$')
         ax_rel_sigma.axhline(1, color='r', lw=2, ls='dashed')
         #ax_rel_sigma.legend()
         ax_rel_sigma.grid(which='both', axis='both')
+        ax_rel_sigma.legend()
 
         # Plot the histogram of the relative error divided by uncertainty
-        ax_rel_hist.hist(np.abs((self.pred - self.truth).flatten()/self.pred_uncen.flatten()), bins=30, alpha=0.7, color='b', cumulative=True, density=True)
+        #ax_rel_hist.hist(np.abs((self.pred - self.truth).flatten()/self.pred_uncen.flatten()), bins=30, alpha=0.7, color='b', cumulative=True, density=True)
+        ax_rel_hist.hist(rel_sigma.flatten(), bins=30, alpha=0.7, color='b', cumulative=False, density=True, label='HMF-emu')
+        x_sigma = np.arange(-9,5,0.1)
+        ax_rel_hist.plot(x_sigma, stats.norm.pdf(x_sigma), color='r', lw=2, ls='dashed', label=r'$\mathcal{N}(0,1)$')
+        #ax_rel_hist.plot(x_sigma, stats.norm.pdf(x_sigma), color='r', lw=2, ls='dashed', label='Normal CDF')
+        ax_rel_hist.set_xlabel(r'$|pred - truth| / \sigma_{pred}$')
+        ax_rel_hist.set_ylabel('PDF')
+        ax_rel_hist.grid()
+        ax_rel_hist.legend()
+
+        fig_rel_hist, ax_rel_hist = plt.subplots(1,1, figsize=(6,4))
+        ax_rel_hist.hist(np.abs(rel_sigma).flatten(), bins=30, alpha=0.7, color='b', cumulative=True, density=True)
+        x_sigma = np.arange(0,5,0.1)
+        ax_rel_hist.plot(x_sigma, 2*(stats.norm.cdf(x_sigma, loc=0, scale=1)-0.5), color='r', lw=2, ls='dashed', label='Normal CDF')
+        #ax_rel_hist.plot(x_sigma, stats.norm.pdf(x_sigma), color='r', lw=2, ls='dashed', label='Normal CDF')
         ax_rel_hist.set_xlabel(r'$|pred - truth| / \sigma_{pred}$')
         ax_rel_hist.set_ylabel('Cumulative Density')
         ax_rel_hist.grid()
+        ax_rel_hist.set_xlim(0,5)
+    
+
+def hmf_loo_zs(data_dir, train_subdirs, zs=[2.5], num_inducing=500, num_latents=14, noise_num_latents=10, epochs=12_000, composite_kernel=['matern32','matern52', 'matern32', 'matern52']):
+    """
+    Iterate over redshifts and plot the LOO CV for each redshift
+    Parameters:
+    zs: list
+        List of redshifts to plot the LOO CV for
+    """
+    fig1, ax1 = plt.subplots(len(zs),1, figsize=(10, 3*len(zs)), sharex=True, gridspec_kw={'hspace': 0, 'height_ratios': [1]*len(zs)})
+    fig2, ax2 = plt.subplots(len(zs),1, figsize=(6, 3*len(zs)), sharex=True, gridspec_kw={'hspace': 0, 'height_ratios': [1]*len(zs)})
+    for i, z in enumerate(zs):
+        if z <=0:
+            mass_range = (11.1, 13.7)
+        else:
+            mass_range = (11.1, 12.5)
+        print(f'z = {z}, mass_range = {mass_range}')
+        plotter = HmfCombined(z=z, data_dir=data_dir, 
+                                train_subdir=train_subdirs[i], num_inducing=num_inducing, 
+                                num_latents=num_latents, noise_num_latents=noise_num_latents, 
+                                epochs=epochs, composite_kernel=composite_kernel, mass_range=mass_range)
+        err = np.abs(plotter.pred/plotter.truth - 1)
+        rel_sigma = (plotter.pred - plotter.truth)/plotter.pred_uncen
+        log_mbins = np.log10(plotter.mbins)
+        mass_mask = log_mbins <= 13.5
+        # err shape assumed: (N_samples, N_bins)
+        data = [err[:, i] for i in range(np.where(mass_mask)[0].size)]
+
+        parts = ax1[i].violinplot(
+            data,
+            positions=log_mbins[mass_mask],
+            widths=np.diff(log_mbins[mass_mask]).mean() * 0.8 if len(plotter.mbins) > 1 else 0.1,
+            showmeans=False,
+            showmedians=True,
+            showextrema=False
+        )
+
+        # Style violins
+        for pc in parts['bodies']:
+            pc.set_facecolor('lightgray')
+            pc.set_edgecolor('black')
+            pc.set_alpha(0.7)
+        
+        medians = np.median(err[:, mass_mask], axis=0)
+        ax1[i].plot(log_mbins[mass_mask], medians, color='C1', lw=2, label='Median Error')
+        
+        ax1[i].set_ylim(0, np.percentile(err[:,12], 90))
+        #ax[1].set_xscale('log')
+        ax1[i].set_ylabel(r'$ |\Phi_{pred}/\Phi_{sim} - 1|, \ z  =$'+str(z))
+        ax1[i].grid(which='both', axis='both')
+        ax1[i].set_xlim(11, 13.5)
+
+
+
+        ax2[i].hist(rel_sigma.flatten(), bins=np.arange(-5,5,0.5), alpha=0.7, color='b', cumulative=False, density=True, label='HMF-emu')
+        x_sigma = np.arange(-5,5,0.1)
+        ax2[i].plot(x_sigma, stats.norm.pdf(x_sigma), color='r', lw=2, ls='dashed', label=r'$\mathcal{N}(0,1)$')
+        ax2[i].set_xlabel(r'$|pred - truth| / \sigma_{pred}$')
+        ax2[i].set_ylabel('PDF, z='+str(z))
+        ax2[i].grid()
+        ax2[i].legend()
+        ax2[i].set_xlim(-5,5)
+
+    return fig1, fig2
+        
+
