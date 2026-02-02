@@ -1134,47 +1134,48 @@ class Xi(BaseSummaryStats):
         """
         ind_r = np.where((self.rbins > rcut[0]) & (self.rbins < rcut[1]))[0]
         rbins = self.rbins[ind_r]
-        log_corr = np.log10(self.xi[:,:,ind_r]).squeeze()
-        log_corr = log_corr.reshape((log_corr.shape[0], log_corr.shape[1]*log_corr.shape[2]))
+        # Shape (n_sims, n_mass_pairs, n_rbins)
+        log_corr = np.log10(self.xi[:,:,ind_r]).squeeze() 
+
+        if remove_sims is not None:
+            keep_sims = self.remove_sims(remove_sims)
+            log_corr = log_corr[keep_sims]
+            params = params[keep_sims]
+            sim_tags = self.sim_tags[keep_sims]
+        else:
+            sim_tags = self.sim_tags
+
         # Find the nan bins
         nan_mask = np.isnan(log_corr)
         self.logger.info(f'Found {100*nan_mask.sum()/log_corr.size:.1f} % of xi(r,n1,n2) is nan')
         # For now we assign -1 for the missing bins
         log_corr[nan_mask] = -1
+        s_n, m_n, r_n = log_corr.shape
 
-
-        # Remove the mass_pairs of some sims that are missing more than alpha_bad
-        # fraction of the rbins
-        #ind = np.where(np.sum(nan_mask, axis=2) > alpha_bad*log_corr.shape[2])
-        #print(ind)
-        #nan_mask[ind,:] = True
-
+        # Nan bins have very large uncertainty
+        log_corr = log_corr.reshape((s_n*m_n, r_n))
         corr_err = np.zeros_like(log_corr)
-        corr_err[nan_mask] = 1e6
+        corr_err[nan_mask.reshape(s_n * m_n, r_n)] = 1e6
 
+
+
+        # ordered mass pair as features, (m_max, m_min)
+        # repeate for each simulation, shape (s_n*m_n, 2)
+        mass_feat = np.tile(self.mass_pairs, (s_n,1))
+        print(f'mass_feat.shape: {mass_feat.shape}')
         params = self.get_params_array()
-        
-        # Record the bins of ((m1, m2), r)
-        self.logger.debug(f'log_corr.shape: {log_corr.shape}, rbins.size: {rbins.size}, mass_pairs.shape: {self.mass_pairs.shape}')
-        bins = np.zeros((log_corr.shape[1], 3))
-        bins[:,2] = np.tile(rbins, self.mass_pairs.shape[0])
-        bins[:,1] = np.repeat(self.mass_pairs[:,1], rbins.size)
-        bins[:,0] = np.repeat(self.mass_pairs[:,0], rbins.size)
+        # repeat each sim's theta for all mass pairs
+        params = np.repeat(params, m_n, axis=0)   # (s_n*m_n, n_theta)
+        sim_tags = np.repeat(sim_tags, m_n)
 
+        X = np.concatenate([params, mass_feat], axis=1)
 
-        ## Get the simulation labels for each data point
-        #sim_labels = np.repeat(self.sim_tags, log_corr.shape[1])
+        assert X.shape[0] == log_corr.shape[0]
+        assert X.shape[1] == params.shape[1] + 2
+        assert np.all(mass_feat[:,0] >= mass_feat[:,1])
 
-        sim_tags = self.sim_tags
-
-        if remove_sims is not None:
-            keep_sims = self.remove_sims(remove_sims)
-            log_corr = log_corr[keep_sims]
-            corr_err = corr_err[keep_sims]
-            params = params[keep_sims]
-            sim_tags = self.sim_tags[keep_sims]
-
-        return bins, log_corr, corr_err, params, sim_tags
+ 
+        return rbins, log_corr, corr_err, X, sim_tags
     
     def unconcatenate(self, corr, bins):
         """
