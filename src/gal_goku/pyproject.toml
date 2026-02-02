@@ -46,7 +46,6 @@ dependencies = [
     "camb",
     "configobj",
     "mfgpflow @ git+https://github.com/qezlou/multi_fidelity_gpflow.git@learnable-heteroscedasticity",
-    "classylss @ git+https://github.com/sbird/classylss.git",
 ]
 
 [project.optional-dependencies]
@@ -73,6 +72,11 @@ dev = [
     "ipykernel",
 ]
 
+# HPC/Cluster optional dependencies (may have compiler issues)
+cluster = [
+    "classylss @ git+https://github.com/sbird/classylss.git",
+]
+
 # Documentation dependencies
 docs = [
     "sphinx>=4.0",
@@ -83,7 +87,7 @@ docs = [
 
 # All development tools
 all = [
-    "gal_goku[gpu,dev,docs]"
+    "gal_goku[gpu,dev,docs,cluster]"
 ]
 
 [project.urls]
