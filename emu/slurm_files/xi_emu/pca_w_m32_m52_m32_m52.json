@@ -1,0 +1,7 @@
+{
+    "train_subdir": "train_include_mass",
+    "num_latents": 20,
+    "noise_num_latents": 0,
+    "w_type": "pca",
+    "norm_type":"subtract_mean"
+}
