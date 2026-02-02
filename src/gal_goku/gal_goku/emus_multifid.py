@@ -305,7 +305,7 @@ class BaseMFCoregEmu():
     `LatentMFCoregionalizationSVGP` which allows each output to have a different
     observational (simualtion quality) uncertainty.
     """
-    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, data_loader_kwargs=None, logging_level='INFO'):
+    def __init__(self, DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={'wide_and_narrow':True}, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, data_loader_kwargs=None, logging_level='INFO', use_gpu=True):
         """
         Parameters
         ----------
@@ -338,6 +338,10 @@ class BaseMFCoregEmu():
         self.num_inducing = num_inducing
         self.norm_type = norm_type
         self.noise_floor = noise_floor
+        self.use_gpu = use_gpu
+        
+        # Configure GPU/CUDA settings
+        self._configure_gpu()
         # Load the data
         self.X = []
         self.Y = []
@@ -431,6 +435,41 @@ class BaseMFCoregEmu():
         
         return logger
     
+    def _configure_gpu(self):
+        """Configure TensorFlow GPU settings."""
+        import tensorflow as tf
+        
+        # Check for GPU availability
+        gpus = tf.config.experimental.list_physical_devices('GPU')
+        if self.use_gpu and len(gpus) > 0:
+            self.logger.info(f'Found {len(gpus)} GPU(s): {[gpu.name for gpu in gpus]}')
+            try:
+                # Enable memory growth to avoid allocating all GPU memory at once
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+                
+                # Set mixed precision for better performance on modern GPUs
+                tf.config.optimizer.set_experimental_options({'auto_mixed_precision': True})
+                
+                # Choose the first available GPU
+                self.device_name = f'/GPU:0'
+                self.logger.info(f'Using GPU: {gpus[0].name}')
+                
+            except RuntimeError as e:
+                self.logger.warning(f'GPU configuration failed: {e}. Falling back to CPU.')
+                self.use_gpu = False
+                self.device_name = '/CPU:0'
+        else:
+            if self.use_gpu:
+                self.logger.warning('GPU requested but no GPU devices found. Using CPU instead.')
+            else:
+                self.logger.info('Using CPU for computation.')
+            self.use_gpu = False
+            self.device_name = '/CPU:0'
+        
+        # Log current device configuration
+        self.logger.info(f'TensorFlow device: {self.device_name}')
+    
     def normalize(self, X, Y):
         """
         Normalize all input, X, such it is between 0 and 1
@@ -506,33 +545,40 @@ class BaseMFCoregEmu():
         X_train = X_train.astype(np.float64)
         Y_train = Y_train.astype(np.float64)
 
-        # Base kernel of the MF GP
-        if composite_kernel is None:
-            kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
-            kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
-        elif composite_kernel == ['matern32', 'matern52', 'matern32', 'matern52']:
-            kernel_L = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(0.3)) + \
-                          gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
-            kernel_delta = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(0.3)) + \
-                            gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0)))
-        elif composite_kernel == ['matern32', 'matern52', 'rbf']:
-            kernel_L = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(0.3)) + \
-                          gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
-            kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
-        elif composite_kernel == ['rbf','matern52', 'rbf']:
-            kernel_L = (gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)) + \
-                          gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
-            kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
-        else:
-            raise ValueError(f"Unknown composite_kernel: {composite_kernel}")
-        
-        #kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
-        self.emu = LatentMFCoregionalizationSVGP(
-            X_train, Y_train, kernel_L, kernel_delta,
-            num_latents=self.num_latents, num_inducing=self.num_inducing,
-            num_outputs=self.output_dim, heterosed=True, w_type=w_type, 
-            loss_type=loss_type, noise_num_latents=self.noise_num_latents,
-            noise_w_type=w_type, logging_level=self.logging_level)
+        # Use GPU device context for model creation and training
+        import tensorflow as tf
+        with tf.device(self.device_name):
+            # Convert numpy arrays to TensorFlow tensors and move to device
+            X_train_tf = tf.constant(X_train, dtype=tf.float64)
+            Y_train_tf = tf.constant(Y_train, dtype=tf.float64)
+            
+            # Base kernel of the MF GP
+            if composite_kernel is None:
+                kernel_L = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
+                kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
+            elif composite_kernel == ['matern32', 'matern52', 'matern32', 'matern52']:
+                kernel_L = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(0.3)) + \
+                              gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
+                kernel_delta = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(0.3)) + \
+                                gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0)))
+            elif composite_kernel == ['matern32', 'matern52', 'rbf']:
+                kernel_L = (gpflow.kernels.Matern32(lengthscales=0.5*np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(0.3)) + \
+                              gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
+                kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
+            elif composite_kernel == ['rbf','matern52', 'rbf']:
+                kernel_L = (gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)) + \
+                              gpflow.kernels.Matern52(lengthscales=np.ones(X_train.shape[1]-1, dtype=np.float64), variance=np.float64(1.0)))
+                kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
+            else:
+                raise ValueError(f"Unknown composite_kernel: {composite_kernel}")
+            
+            #kernel_delta = gpflow.kernels.SquaredExponential(lengthscales=np.ones(X_train.shape[1]-1,  dtype=np.float64), variance=np.float64(1.0))
+            self.emu = LatentMFCoregionalizationSVGP(
+                X_train, Y_train, kernel_L, kernel_delta,
+                num_latents=self.num_latents, num_inducing=self.num_inducing,
+                num_outputs=self.output_dim, heterosed=True, w_type=w_type, 
+                loss_type=loss_type, noise_num_latents=self.noise_num_latents,
+                noise_w_type=w_type, logging_level=self.logging_level)
 
         model_file = op.join(self.data_dir, train_subdir, model_file)
         #self.logger.info(f'Will save to {model_file}')
@@ -614,11 +660,16 @@ class BaseMFCoregEmu():
             iter_stop_point = iter_stop_point[1:]
             for it_stp in iter_stop_point:
                 current_iters = len(self.emu.loss_history)
-                self.logger.info(f'Continue optimization from {current_iters} to {it_stp}')
+                self.logger.info(f'Continue optimization from {current_iters} to {it_stp} on {self.device_name}')
                 # The decaying learning rate
                 start_lr = tf.keras.optimizers.schedules.CosineDecay(initial_lr, max_iters)(current_iters)
-                # Both data and uncertainty are passed to the optimizer
-                self.emu.optimize(data=(X_train, Y_train), max_iters=it_stp, initial_lr=start_lr, unfix_noise_after=500)
+                
+                # Move training data to GPU and run optimization within device context
+                with tf.device(self.device_name):
+                    X_train_tf = tf.constant(X_train, dtype=tf.float64)
+                    Y_train_tf = tf.constant(Y_train, dtype=tf.float64)
+                    # Both data and uncertainty are passed to the optimizer
+                    self.emu.optimize(data=(X_train_tf, Y_train_tf), max_iters=it_stp, initial_lr=start_lr, unfix_noise_after=500)
                 # We need the udpated current iters to save the model
                 current_iters = len(self.emu.loss_history)
                 model_file = op.join(op.dirname(model_file), op.basename(model_file).rsplit('_', 1)[0]+f'_{int(current_iters)}.pkl')
@@ -665,7 +716,16 @@ class BaseMFCoregEmu():
         
         # Add the fidelity indocators
         X_test = np.hstack([self.X[1][ind_test], np.ones((ind_test.size, 1))]).astype(np.float64)
-        Fmu, Fvar = self.emu.predict_f(X_test)
+        
+        # Use GPU device context for prediction
+        import tensorflow as tf
+        with tf.device(self.device_name):
+            X_test_tf = tf.constant(X_test, dtype=tf.float64)
+            Fmu, Fvar = self.emu.predict_f(X_test_tf)
+            # Convert back to numpy for further processing
+            Fmu = Fmu.numpy()
+            Fvar = Fvar.numpy()
+        
         P = self.output_dim
         mean_mu = Fmu[:, :P]
         mean_var = Fvar[:, :P]
@@ -691,10 +751,10 @@ class HmfNativeBins(BaseMFCoregEmu):
     observational (simualtion quality) uncertainty.
     """
 
-    def __init__(self, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, hmf_kwargs=None, logging_level='INFO'):
+    def __init__(self, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, hmf_kwargs=None, logging_level='INFO', use_gpu=True):
 
         DataLoader = summary_stats.HMF
-        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=noise_num_latents, emu_type=emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, data_loader_kwargs=hmf_kwargs, logging_level=logging_level)
+        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=noise_num_latents, emu_type=emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, data_loader_kwargs=hmf_kwargs, logging_level=logging_level, use_gpu=use_gpu)
 
 class XiNativeBins(BaseMFCoregEmu):
     """
@@ -704,10 +764,10 @@ class XiNativeBins(BaseMFCoregEmu):
     observational (simualtion quality) uncertainty.
     """
 
-    def __init__(self, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO'):
+    def __init__(self, data_dir, z, num_latents, num_inducing, noise_num_latents=None, emu_type={ 'wide_and_narrow': True }, norm_type='subtract_mean', noise_floor=0.0, get_counts=False, logging_level='INFO', use_gpu=True):
         
         DataLoader = summary_stats.Xi
-        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=noise_num_latents, emu_type=emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, logging_level=logging_level)
+        super().__init__(DataLoader, data_dir, z, num_latents, num_inducing, noise_num_latents=noise_num_latents, emu_type=emu_type, norm_type=norm_type, noise_floor=noise_floor, get_counts=get_counts, logging_level=logging_level, use_gpu=use_gpu)
 
 class XiNativeBinsFullDimReduc():
     """
