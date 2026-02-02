@@ -1,0 +1,21 @@
+# Core dependencies for gal_goku with CPU-only TensorFlow
+scipy
+scikit-learn
+matplotlib
+h5py
+mcfit
+cython
+
+# CPU-only TensorFlow and related packages
+tensorflow-cpu~=2.19.0
+tensorflow-probability~=0.25.0
+gpflow>=2.6.0
+
+# Cosmology and physics packages
+colossus
+camb
+configobj
+
+# Direct git dependencies
+mfgpflow @ git+https://github.com/qezlou/multi_fidelity_gpflow.git@learnable-heteroscedasticity
+classylss @ git+https://github.com/sbird/classylss.git

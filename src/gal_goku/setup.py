@@ -32,8 +32,9 @@ setuptools.setup(
         "h5py",
         "mcfit",
         "cython",
-        "gpflow",
-        "tensorflow~=2.19.0",
+        "gpflow>=2.6.0",
+        # TensorFlow with GPU support - this will install CUDA-enabled TensorFlow
+        "tensorflow[and-cuda]~=2.19.0",
         "tensorflow-probability~=0.25.0",
         "colossus",
         "camb",
@@ -41,4 +42,22 @@ setuptools.setup(
         "mfgpflow @ git+https://github.com/qezlou/multi_fidelity_gpflow.git@learnable-heteroscedasticity",
         "classylss @ git+https://github.com/sbird/classylss.git",
     ],
+    extras_require={
+        # Alternative CPU-only installation for systems without GPU
+        "cpu": [
+            "tensorflow-cpu~=2.19.0",
+        ],
+        # Development dependencies
+        "dev": [
+            "pytest",
+            "pytest-cov",
+            "black",
+            "flake8",
+        ],
+        # Full GPU support with additional optimizations
+        "gpu": [
+            "tensorflow[and-cuda]~=2.19.0",
+            "nvidia-ml-py3",  # For GPU monitoring
+        ],
+    },
 )
