@@ -1939,8 +1939,10 @@ def hmf_loo_zs(data_dir, train_subdirs, zs=[2.5], num_inducing=500, num_latents=
     fig1, ax1 = plt.subplots(len(zs),1, figsize=(10, 3*len(zs)), sharex=True, gridspec_kw={'hspace': 0, 'height_ratios': [1]*len(zs)})
     fig2, ax2 = plt.subplots(len(zs),1, figsize=(6, 3*len(zs)), sharex=True, gridspec_kw={'hspace': 0, 'height_ratios': [1]*len(zs)})
     for i, z in enumerate(zs):
-        if z <=0:
+        if z == 0.0:
             mass_range = (11.1, 13.7)
+        elif z == 1.0:
+            mass_range = (11.1, 13.5)
         else:
             mass_range = (11.1, 12.5)
         print(f'z = {z}, mass_range = {mass_range}')
