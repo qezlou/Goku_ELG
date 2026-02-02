@@ -1,0 +1,23 @@
+# UV-optimized installation commands
+# Run these commands with UV for fast package management
+
+# Core scientific computing
+uv add scipy scikit-learn matplotlib h5py
+
+# Cosmology and physics
+uv add mcfit cython colossus camb configobj
+
+# GPU-enabled machine learning stack
+uv add "tensorflow[and-cuda]~=2.19.0"
+uv add "tensorflow-probability~=0.25.0" 
+uv add "gpflow>=2.6.0"
+
+# Direct git dependencies
+uv add "mfgpflow @ git+https://github.com/qezlou/multi_fidelity_gpflow.git@learnable-heteroscedasticity"
+uv add "classylss @ git+https://github.com/sbird/classylss.git"
+
+# Optional: GPU monitoring
+# uv add nvidia-ml-py3
+
+# Development tools (optional)
+# uv add --dev pytest pytest-cov black flake8 mypy pre-commit jupyter ipykernel
