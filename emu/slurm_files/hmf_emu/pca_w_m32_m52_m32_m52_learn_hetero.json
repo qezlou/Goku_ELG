@@ -1,5 +1,5 @@
 {
-    "train_subdir": "HMF/train_learn_hetero_pca_l14_full_comp_kernel/",
+    "train_subdir": "HMF/train_learn_hetero_pca_l14_full_comp_kernel_more_massive/",
     "num_latents": 14,
     "noise_num_latents": 10,
     "w_type": "pca",

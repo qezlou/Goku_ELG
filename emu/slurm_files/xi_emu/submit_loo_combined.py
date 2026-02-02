@@ -13,11 +13,11 @@ template = """#!/bin/bash
 hostname; pwd; date
 source /scratch/06536/qezlou/Goku/packs/.gal_env/bin/activate
 which python
-python run_emu_combined_bins.py --ind_test {i} --z 2.5 --machine stampede3 --config pca_w_m32_m52_m32_m52_learn_hetero.json
+python run_emu_combined_bins.py --ind_test {i} --z 0.0 --machine stampede3 --config pca_w_m32_m52_m32_m52_learn_hetero.json
 """
 
 # Loop from 0 to num_chunks
-for i in np.arange(12, 30):
+for i in np.arange(24):
     print(i)
     filename = f"job_script_{i}.sh"
     with open(filename, "w") as f:
