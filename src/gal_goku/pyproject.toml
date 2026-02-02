@@ -8,7 +8,7 @@ version = "0.0.0"
 description = "Galaxy Emulator based on Goku suite"
 readme = "README.md"
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Mahdi Qezlou", email = "mahdi.qezlou@email.ucr.edu"},
     {name = "Yanhui Yang"},
@@ -20,7 +20,6 @@ maintainers = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -94,10 +93,10 @@ Repository = "https://github.com/qezlou/private-HETDEX-cosmo"
 "Bug Tracker" = "https://github.com/qezlou/private-HETDEX-cosmo/issues"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
 
 [tool.setuptools.package-dir]
-"" = "src"
+"" = "."
 
 # Black code formatting
 [tool.black]
